@@ -1,0 +1,38 @@
+{
+  "name": "@internal/plugin-ipam",
+  "version": "0.1.0",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "license": "Apache-2.0",
+  "private": true,
+  "publishConfig": {
+    "access": "public"
+  },
+  "backstage": {
+    "role": "frontend-plugin"
+  },
+  "scripts": {
+    "build": "backstage-cli package build",
+    "start": "backstage-cli package start",
+    "lint": "backstage-cli package lint",
+    "test": "backstage-cli package test",
+    "clean": "backstage-cli package clean"
+  },
+  "dependencies": {
+    "@backstage/core-components": "^0.14.4",
+    "@backstage/core-plugin-api": "^1.9.2",
+    "@backstage/theme": "^0.5.3",
+    "@material-ui/core": "^4.12.4",
+    "@material-ui/icons": "^4.11.3",
+    "@material-ui/lab": "^4.0.0-alpha.61",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "react-router-dom": "^6.3.0"
+  },
+  "devDependencies": {
+    "@backstage/cli": "^0.26.4",
+    "@backstage/dev-utils": "^1.0.31",
+    "@backstage/test-utils": "^1.5.4",
+    "@types/react": "^18.0.0"
+  }
+}
