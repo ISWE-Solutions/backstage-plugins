@@ -11,7 +11,6 @@ import {
   FormControlLabel,
   Grid,
   InputLabel,
-  LinearProgress,
   MenuItem,
   Paper,
   Select,
@@ -22,18 +21,23 @@ import {
   TableCell,
   TableContainer,
   TableHead,
+  TablePagination,
   TableRow,
   TextField,
+  InputAdornment,
   Tooltip,
   Typography,
   makeStyles,
 } from '@material-ui/core';
 import SaveIcon from '@material-ui/icons/Save';
 import RefreshIcon from '@material-ui/icons/Refresh';
+import SearchIcon from '@material-ui/icons/Search';
 import {
   DHIS2Instance,
   DHIS2PluginSettings,
   ProxmoxNode,
+  ProxmoxStorage,
+  ClusterContainer,
 } from '../types';
 import { dhis2Service } from '../services/dhis2Service';
 import { settingsService } from '../services/settingsService';
@@ -48,16 +52,12 @@ const useStyles = makeStyles(theme => ({
     gap: theme.spacing(2),
     marginTop: theme.spacing(1),
   },
-  usageCell: { minWidth: 160 },
-  usageBar: { height: 6, borderRadius: 3, marginTop: 4 },
 }));
 
 interface Props {
   instances: DHIS2Instance[];
   onNodesChange?: (nodes: ProxmoxNode[]) => void;
 }
-
-const bytesToGiB = (n: number) => n / 1024 ** 3;
 
 export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
   const classes = useStyles();
@@ -67,6 +67,12 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
   );
   const [nodes, setNodes] = useState<ProxmoxNode[]>([]);
   const [loadingNodes, setLoadingNodes] = useState(false);
+  const [nodeStorages, setNodeStorages] = useState<Record<string, ProxmoxStorage[]>>({});
+  const [containers, setContainers] = useState<ClusterContainer[]>([]);
+  const [loadingContainers, setLoadingContainers] = useState(false);
+  const [containerSearch, setContainerSearch] = useState('');
+  const [containerPage, setContainerPage] = useState(0);
+  const [containerRowsPerPage, setContainerRowsPerPage] = useState(10);
   const [snackbar, setSnackbar] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<{
     ok: boolean;
@@ -90,6 +96,23 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
         const result = await dhis2Service.fetchNodes(proxmox, backstageFetch);
         setNodes(result.nodes);
         onNodesChange?.(result.nodes);
+
+        // Kick off storage fetches per node (in parallel). These are best-effort
+        // and fall back to mock storages on error, so we don't need to block
+        // the main node table rendering on them.
+        Promise.all(
+          result.nodes.map(async n => {
+            const storages = await dhis2Service.fetchNodeStorage(
+              n.node,
+              proxmox,
+              backstageFetch,
+            );
+            return [n.node, storages] as const;
+          }),
+        ).then(entries => {
+          setNodeStorages(Object.fromEntries(entries));
+        });
+
         const ok = result.source === 'api';
         const message = ok
           ? `Loaded ${result.nodes.length} node(s) from Proxmox API`
@@ -112,8 +135,34 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
     [onNodesChange, proxmox, backstageFetch],
   );
 
+  const loadContainers = useCallback(
+    async (silent = false) => {
+      setLoadingContainers(true);
+      try {
+        const result = await dhis2Service.fetchClusterContainers(
+          proxmox,
+          backstageFetch,
+        );
+        setContainers(result.containers);
+        if (!silent) {
+          setSnackbar(
+            result.source === 'api'
+              ? `Loaded ${result.containers.length} container(s) from Proxmox API`
+              : `Using mock containers — ${
+                  result.error ?? 'Proxmox API unreachable'
+                }`,
+          );
+        }
+      } finally {
+        setLoadingContainers(false);
+      }
+    },
+    [proxmox, backstageFetch],
+  );
+
   useEffect(() => {
     loadNodes(true);
+    loadContainers(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -544,10 +593,8 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
                   <TableRow>
                     <TableCell>Node</TableCell>
                     <TableCell>Status</TableCell>
-                    <TableCell>Instances</TableCell>
-                    <TableCell>CPU</TableCell>
-                    <TableCell>Memory</TableCell>
-                    <TableCell>Disk</TableCell>
+                    <TableCell>DHIS2 Instances</TableCell>
+                    <TableCell>Storage</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -555,11 +602,7 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
                     const nodeInstances = instances.filter(
                       i => i.node === n.node,
                     );
-                    const cpuPct = n.maxcpu > 0 ? (n.cpu / 1) * 100 : 0; // n.cpu is 0..1 in PVE
-                    const memPct =
-                      n.maxmem > 0 ? (n.mem / n.maxmem) * 100 : 0;
-                    const diskPct =
-                      n.maxdisk > 0 ? (n.disk / n.maxdisk) * 100 : 0;
+                    const storages = nodeStorages[n.node];
                     return (
                       <TableRow key={n.node}>
                         <TableCell>
@@ -573,37 +616,36 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
                           />
                         </TableCell>
                         <TableCell>{nodeInstances.length}</TableCell>
-                        <TableCell className={classes.usageCell}>
-                          <Typography variant="caption">
-                            {cpuPct.toFixed(1)}% of {n.maxcpu} vCPU
-                          </Typography>
-                          <LinearProgress
-                            variant="determinate"
-                            value={Math.min(100, cpuPct)}
-                            className={classes.usageBar}
-                          />
-                        </TableCell>
-                        <TableCell className={classes.usageCell}>
-                          <Typography variant="caption">
-                            {bytesToGiB(n.mem).toFixed(1)} /{' '}
-                            {bytesToGiB(n.maxmem).toFixed(0)} GiB
-                          </Typography>
-                          <LinearProgress
-                            variant="determinate"
-                            value={Math.min(100, memPct)}
-                            className={classes.usageBar}
-                          />
-                        </TableCell>
-                        <TableCell className={classes.usageCell}>
-                          <Typography variant="caption">
-                            {bytesToGiB(n.disk).toFixed(0)} /{' '}
-                            {bytesToGiB(n.maxdisk).toFixed(0)} GiB
-                          </Typography>
-                          <LinearProgress
-                            variant="determinate"
-                            value={Math.min(100, diskPct)}
-                            className={classes.usageBar}
-                          />
+                        <TableCell>
+                          {storages === undefined ? (
+                            <Typography variant="caption" color="textSecondary">
+                              Loading…
+                            </Typography>
+                          ) : storages.length === 0 ? (
+                            <Typography variant="caption" color="textSecondary">
+                              No storages
+                            </Typography>
+                          ) : (
+                            <Box display="flex" flexWrap="wrap" style={{ gap: 4 }}>
+                              {storages.map(s => (
+                                <Tooltip
+                                  key={s.storage}
+                                  title={`type: ${s.type}${
+                                    s.content ? ` · content: ${s.content}` : ''
+                                  }`}
+                                >
+                                  <Chip
+                                    label={`${s.storage} (${s.type})`}
+                                    size="small"
+                                    variant="outlined"
+                                    color={
+                                      s.active === 0 ? 'default' : 'primary'
+                                    }
+                                  />
+                                </Tooltip>
+                              ))}
+                            </Box>
+                          )}
                         </TableCell>
                       </TableRow>
                     );
@@ -622,6 +664,199 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
             Nodes are members of the Proxmox cluster itself — they are added on
             the Proxmox side (e.g. <code>pvecm add &lt;node&gt;</code>) and
             discovered automatically here via the API.
+          </Typography>
+        </CardContent>
+      </Card>
+
+      {/* Cluster CTs (LXC containers) */}
+      <Card variant="outlined" className={classes.section}>
+        <CardContent>
+          <Box
+            display="flex"
+            alignItems="center"
+            justifyContent="space-between"
+            mb={2}
+            style={{ gap: 16, flexWrap: 'wrap' }}
+          >
+            <Typography variant="h6">Cluster CTs</Typography>
+            <Box display="flex" alignItems="center" style={{ gap: 8, flexWrap: 'wrap' }}>
+              <TextField
+                size="small"
+                variant="outlined"
+                placeholder="Search by name, vmid, node, status…"
+                value={containerSearch}
+                onChange={e => {
+                  setContainerSearch(e.target.value);
+                  setContainerPage(0);
+                }}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" />
+                    </InputAdornment>
+                  ),
+                }}
+                style={{ minWidth: 280 }}
+              />
+              <Tooltip title="Fetch the current list of LXC containers from the Proxmox API">
+                <span>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={
+                      loadingContainers ? (
+                        <CircularProgress size={16} />
+                      ) : (
+                        <RefreshIcon />
+                      )
+                    }
+                    onClick={() => loadContainers(false)}
+                    disabled={loadingContainers}
+                  >
+                    Refresh
+                  </Button>
+                </span>
+              </Tooltip>
+            </Box>
+          </Box>
+
+          {(() => {
+            const q = containerSearch.trim().toLowerCase();
+            const filtered = q
+              ? containers.filter(c =>
+                  [c.name, String(c.vmid), c.node, c.status, c.tags]
+                    .filter(Boolean)
+                    .some(v => String(v).toLowerCase().includes(q)),
+                )
+              : containers;
+            const start = containerPage * containerRowsPerPage;
+            const paged = filtered.slice(start, start + containerRowsPerPage);
+
+            if (loadingContainers && containers.length === 0) {
+              return (
+                <Box display="flex" justifyContent="center" p={4}>
+                  <CircularProgress />
+                </Box>
+              );
+            }
+            if (containers.length === 0) {
+              return (
+                <Paper variant="outlined">
+                  <Box p={4} textAlign="center">
+                    <Typography variant="body2" color="textSecondary">
+                      No containers returned. Check the API connection above
+                      and click "Refresh".
+                    </Typography>
+                  </Box>
+                </Paper>
+              );
+            }
+            return (
+              <>
+                <TableContainer component={Paper} variant="outlined">
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>VMID</TableCell>
+                        <TableCell>Name</TableCell>
+                        <TableCell>Node</TableCell>
+                        <TableCell>Status</TableCell>
+                        <TableCell>Tags</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {paged.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={5}>
+                            <Box p={2} textAlign="center">
+                              <Typography
+                                variant="body2"
+                                color="textSecondary"
+                              >
+                                No containers match "{containerSearch}".
+                              </Typography>
+                            </Box>
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        paged.map(c => (
+                          <TableRow key={`${c.node}-${c.vmid}`}>
+                            <TableCell>
+                              <strong>{c.vmid}</strong>
+                            </TableCell>
+                            <TableCell>{c.name ?? '—'}</TableCell>
+                            <TableCell>{c.node}</TableCell>
+                            <TableCell>
+                              <Chip
+                                label={c.status}
+                                size="small"
+                                color={
+                                  c.status === 'running'
+                                    ? 'primary'
+                                    : 'default'
+                                }
+                              />
+                            </TableCell>
+                            <TableCell>
+                              {c.tags ? (
+                                <Box
+                                  display="flex"
+                                  flexWrap="wrap"
+                                  style={{ gap: 4 }}
+                                >
+                                  {c.tags
+                                    .split(/[;,]/)
+                                    .map(t => t.trim())
+                                    .filter(Boolean)
+                                    .map(t => (
+                                      <Chip
+                                        key={t}
+                                        label={t}
+                                        size="small"
+                                        variant="outlined"
+                                      />
+                                    ))}
+                                </Box>
+                              ) : (
+                                <Typography
+                                  variant="caption"
+                                  color="textSecondary"
+                                >
+                                  —
+                                </Typography>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+                <TablePagination
+                  component="div"
+                  count={filtered.length}
+                  page={containerPage}
+                  onPageChange={(_e, newPage) => setContainerPage(newPage)}
+                  rowsPerPage={containerRowsPerPage}
+                  onRowsPerPageChange={e => {
+                    setContainerRowsPerPage(parseInt(e.target.value, 10));
+                    setContainerPage(0);
+                  }}
+                  rowsPerPageOptions={[5, 10, 25, 50]}
+                />
+              </>
+            );
+          })()}
+
+          <Typography
+            variant="caption"
+            color="textSecondary"
+            display="block"
+            style={{ marginTop: 12 }}
+          >
+            All LXC containers across the cluster, fetched from{' '}
+            <code>/cluster/resources?type=vm</code> and filtered to{' '}
+            <code>type=lxc</code>.
           </Typography>
         </CardContent>
       </Card>

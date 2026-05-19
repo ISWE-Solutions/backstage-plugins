@@ -11,6 +11,39 @@ export interface ProxmoxNode {
   maxdisk: number;
 }
 
+export interface ProxmoxStorage {
+  storage: string;
+  type: string;
+  content?: string;
+  active?: number;
+  enabled?: number;
+  shared?: number;
+  used?: number;
+  total?: number;
+  avail?: number;
+}
+
+/**
+ * A single LXC container row as returned by
+ * `GET /api2/json/cluster/resources?type=vm` (filtered to type === 'lxc').
+ */
+export interface ClusterContainer {
+  vmid: number;
+  name?: string;
+  node: string;
+  status: string;
+  type: 'lxc' | 'qemu' | string;
+  cpu?: number;
+  maxcpu?: number;
+  mem?: number;
+  maxmem?: number;
+  disk?: number;
+  maxdisk?: number;
+  uptime?: number;
+  template?: number;
+  tags?: string;
+}
+
 export interface LXCContainer {
   vmid: string;
   name: string;

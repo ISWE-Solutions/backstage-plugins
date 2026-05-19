@@ -43,6 +43,7 @@ import DescriptionIcon from '@material-ui/icons/Description';
 import StorageIcon from '@material-ui/icons/Storage';
 import CloudIcon from '@material-ui/icons/Cloud';
 import DnsIcon from '@material-ui/icons/Dns';
+import SdStorageIcon from '@material-ui/icons/SdStorage';
 import { DHIS2Instance, CreateInstanceRequest, ProxmoxNode } from '../types';
 import { dhis2Service } from '../services/dhis2Service';
 import { fetchApiRef, useApi } from '@backstage/core-plugin-api';
@@ -295,8 +296,25 @@ export const DHIS2Page = () => {
   };
 
   const runningInstances = instances.filter(i => i.status === 'running').length;
-  const totalCPU = instances.reduce((sum, i) => sum + i.resources.cpu, 0);
-  const totalMemory = instances.reduce((sum, i) => sum + i.resources.memory, 0);
+
+  // Cluster-wide totals derived from the live Proxmox node list. These
+  // update automatically whenever `nodes` is refreshed (mount, manual
+  // refresh, or after settings changes in the Proxmox Cluster tab).
+  const totalVCPUs = nodes.reduce((sum, n) => sum + (n.maxcpu ?? 0), 0);
+  const totalMemoryBytes = nodes.reduce((sum, n) => sum + (n.maxmem ?? 0), 0);
+  const totalDiskBytes = nodes.reduce((sum, n) => sum + (n.maxdisk ?? 0), 0);
+
+  const bytesToGB = (b: number) => b / 1024 ** 3;
+  const formatCapacity = (bytes: number) => {
+    const gb = bytesToGB(bytes);
+    if (gb >= 1024) return `${(gb / 1024).toFixed(1)} TB`;
+    return `${gb.toFixed(0)} GB`;
+  };
+
+  const refreshOverview = () => {
+    loadInstances();
+    loadNodes();
+  };
 
   return (
     <Page themeId="tool">
@@ -313,7 +331,7 @@ export const DHIS2Page = () => {
           >
             Create Instance
           </Button>
-          <IconButton onClick={loadInstances} color="primary">
+          <IconButton onClick={refreshOverview} color="primary">
             <RefreshIcon />
           </IconButton>
         </ContentHeader>
@@ -331,7 +349,7 @@ export const DHIS2Page = () => {
 
         {/* Statistics */}
         <Grid container spacing={3} style={{ marginBottom: 24 }}>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={12} sm={6} md={4} lg={2}>
             <Card className={classes.statCard}>
               <StorageIcon style={{ fontSize: '3rem', color: '#1976d2' }} />
               <Typography className={classes.statValue}>{instances.length}</Typography>
@@ -340,7 +358,7 @@ export const DHIS2Page = () => {
               </Typography>
             </Card>
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={12} sm={6} md={4} lg={2}>
             <Card className={classes.statCard}>
               <PlayArrowIcon style={{ fontSize: '3rem', color: '#4caf50' }} />
               <Typography className={classes.statValue}>{runningInstances}</Typography>
@@ -349,21 +367,34 @@ export const DHIS2Page = () => {
               </Typography>
             </Card>
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={12} sm={6} md={4} lg={2}>
             <Card className={classes.statCard}>
               <CloudIcon style={{ fontSize: '3rem', color: '#ff9800' }} />
-              <Typography className={classes.statValue}>{totalCPU}</Typography>
+              <Typography className={classes.statValue}>{totalVCPUs}</Typography>
               <Typography variant="h6" color="textSecondary">
                 Total vCPUs
               </Typography>
             </Card>
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={12} sm={6} md={4} lg={2}>
             <Card className={classes.statCard}>
               <DnsIcon style={{ fontSize: '3rem', color: '#9c27b0' }} />
-              <Typography className={classes.statValue}>{(totalMemory / 1024).toFixed(0)} GB</Typography>
+              <Typography className={classes.statValue}>
+                {formatCapacity(totalMemoryBytes)}
+              </Typography>
               <Typography variant="h6" color="textSecondary">
                 Total Memory
+              </Typography>
+            </Card>
+          </Grid>
+          <Grid item xs={12} sm={6} md={4} lg={2}>
+            <Card className={classes.statCard}>
+              <SdStorageIcon style={{ fontSize: '3rem', color: '#00897b' }} />
+              <Typography className={classes.statValue}>
+                {formatCapacity(totalDiskBytes)}
+              </Typography>
+              <Typography variant="h6" color="textSecondary">
+                Storage Capacity
               </Typography>
             </Card>
           </Grid>

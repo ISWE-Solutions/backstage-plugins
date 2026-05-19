@@ -3,6 +3,8 @@ import {
   CreateInstanceRequest,
   OrchestrationLogEntry,
   ProxmoxNode,
+  ProxmoxStorage,
+  ClusterContainer,
   ProxmoxClusterSettings,
 } from '../types';
 import { settingsService } from './settingsService';
@@ -11,6 +13,18 @@ const MOCK_NODES: ProxmoxNode[] = [
   { node: 'pve1', status: 'online', cpu: 0.22, maxcpu: 16, mem: 12_884_901_888, maxmem: 68_719_476_736, disk: 53_687_091_200, maxdisk: 536_870_912_000 },
   { node: 'pve2', status: 'online', cpu: 0.14, maxcpu: 16, mem: 9_663_676_416, maxmem: 68_719_476_736, disk: 42_949_672_960, maxdisk: 536_870_912_000 },
   { node: 'pve3', status: 'online', cpu: 0.08, maxcpu: 16, mem: 5_368_709_120, maxmem: 68_719_476_736, disk: 34_359_738_368, maxdisk: 536_870_912_000 },
+];
+
+const MOCK_STORAGES: ProxmoxStorage[] = [
+  { storage: 'local', type: 'dir', content: 'iso,vztmpl,backup', active: 1, enabled: 1 },
+  { storage: 'local-lvm', type: 'lvmthin', content: 'rootdir,images', active: 1, enabled: 1 },
+];
+
+const MOCK_CONTAINERS: ClusterContainer[] = [
+  { vmid: 100, name: 'dhis2-prod', node: 'pve1', status: 'running', type: 'lxc', cpu: 0.12, maxcpu: 4, mem: 4_294_967_296, maxmem: 8_589_934_592, disk: 21_474_836_480, maxdisk: 107_374_182_400, uptime: 432_000 },
+  { vmid: 101, name: 'dhis2-test', node: 'pve2', status: 'running', type: 'lxc', cpu: 0.05, maxcpu: 2, mem: 2_147_483_648, maxmem: 4_294_967_296, disk: 10_737_418_240, maxdisk: 53_687_091_200, uptime: 86_400 },
+  { vmid: 102, name: 'dhis2-dev', node: 'pve1', status: 'stopped', type: 'lxc', cpu: 0, maxcpu: 2, mem: 0, maxmem: 4_294_967_296, disk: 0, maxdisk: 53_687_091_200, uptime: 0 },
+  { vmid: 110, name: 'nginx-proxy', node: 'pve3', status: 'running', type: 'lxc', cpu: 0.02, maxcpu: 2, mem: 536_870_912, maxmem: 2_147_483_648, disk: 2_147_483_648, maxdisk: 21_474_836_480, uptime: 864_000 },
 ];
 
 function buildProxmoxAuthHeader(s: ProxmoxClusterSettings): string | null {
@@ -300,6 +314,111 @@ export class DHIS2Service {
         durationMs,
         bodySample: rawBody.slice(0, 500),
       };
+    }
+  }
+
+  /**
+   * Fetch the list of storages configured on a given Proxmox node.
+   * Falls back to a small mock list when the API is not reachable so the UI
+   * still shows something meaningful (e.g. "local", "local-lvm").
+   */
+  async fetchNodeStorage(
+    node: string,
+    overrideSettings?: ProxmoxClusterSettings,
+    fetchFn: typeof fetch = (...args) => fetch(...args),
+  ): Promise<ProxmoxStorage[]> {
+    const proxmox = overrideSettings ?? settingsService.load().proxmox;
+
+    let url: string;
+    const headers: Record<string, string> = { Accept: 'application/json' };
+
+    if (proxmox.useBackstageProxy) {
+      if (!proxmox.backstageProxyPath) return MOCK_STORAGES;
+      url = `${proxmox.backstageProxyPath.replace(/\/+$/, '')}/api2/json/nodes/${encodeURIComponent(node)}/storage`;
+    } else {
+      const auth = buildProxmoxAuthHeader(proxmox);
+      if (!proxmox.apiUrl || !auth) return MOCK_STORAGES;
+      url = `${proxmox.apiUrl.replace(/\/+$/, '')}/api2/json/nodes/${encodeURIComponent(node)}/storage`;
+      headers.Authorization = auth;
+    }
+
+    try {
+      const res = await fetchFn(url, { headers });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status} ${res.statusText}`);
+      }
+      const parsed: { data?: ProxmoxStorage[] } = await res.json();
+      return parsed.data ?? [];
+    } catch (err) {
+      console.warn(
+        `[dhis2] Failed to fetch storages for node ${node} from ${url}: ${
+          (err as Error).message
+        }. Using mock storages.`,
+      );
+      return MOCK_STORAGES;
+    }
+  }
+
+  /**
+   * Fetch all LXC containers across the cluster via
+   * `GET /api2/json/cluster/resources?type=vm` (filtered to type === 'lxc').
+   * Falls back to a small mock list when the API is unreachable.
+   */
+  async fetchClusterContainers(
+    overrideSettings?: ProxmoxClusterSettings,
+    fetchFn: typeof fetch = (...args) => fetch(...args),
+  ): Promise<{
+    containers: ClusterContainer[];
+    source: 'api' | 'mock';
+    error?: string;
+  }> {
+    const proxmox = overrideSettings ?? settingsService.load().proxmox;
+
+    let url: string;
+    const headers: Record<string, string> = { Accept: 'application/json' };
+
+    if (proxmox.useBackstageProxy) {
+      if (!proxmox.backstageProxyPath) {
+        return {
+          containers: MOCK_CONTAINERS,
+          source: 'mock',
+          error: 'Backstage proxy path is empty.',
+        };
+      }
+      url = `${proxmox.backstageProxyPath.replace(
+        /\/+$/,
+        '',
+      )}/api2/json/cluster/resources?type=vm`;
+    } else {
+      const auth = buildProxmoxAuthHeader(proxmox);
+      if (!proxmox.apiUrl || !auth) {
+        return {
+          containers: MOCK_CONTAINERS,
+          source: 'mock',
+          error: 'Proxmox API not fully configured.',
+        };
+      }
+      url = `${proxmox.apiUrl.replace(
+        /\/+$/,
+        '',
+      )}/api2/json/cluster/resources?type=vm`;
+      headers.Authorization = auth;
+    }
+
+    try {
+      const res = await fetchFn(url, { headers });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status} ${res.statusText}`);
+      }
+      const parsed: { data?: ClusterContainer[] } = await res.json();
+      const containers = (parsed.data ?? []).filter(c => c.type === 'lxc');
+      return { containers, source: 'api' };
+    } catch (err) {
+      const error = (err as Error).message;
+      console.warn(
+        `[dhis2] Failed to fetch cluster containers from ${url}: ${error}. Using mock containers.`,
+      );
+      return { containers: MOCK_CONTAINERS, source: 'mock', error };
     }
   }
 
