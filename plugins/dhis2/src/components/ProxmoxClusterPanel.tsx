@@ -1,0 +1,488 @@
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Chip,
+  CircularProgress,
+  Divider,
+  FormControl,
+  FormControlLabel,
+  Grid,
+  InputLabel,
+  LinearProgress,
+  MenuItem,
+  Paper,
+  Select,
+  Snackbar,
+  Switch,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TextField,
+  Tooltip,
+  Typography,
+  makeStyles,
+} from '@material-ui/core';
+import SaveIcon from '@material-ui/icons/Save';
+import RefreshIcon from '@material-ui/icons/Refresh';
+import {
+  DHIS2Instance,
+  DHIS2PluginSettings,
+  ProxmoxNode,
+} from '../types';
+import { dhis2Service } from '../services/dhis2Service';
+import { settingsService } from '../services/settingsService';
+
+const useStyles = makeStyles(theme => ({
+  section: { marginBottom: theme.spacing(3) },
+  sectionTitle: { marginBottom: theme.spacing(2) },
+  field: { marginBottom: theme.spacing(2) },
+  actions: {
+    display: 'flex',
+    gap: theme.spacing(2),
+    marginTop: theme.spacing(1),
+  },
+  usageCell: { minWidth: 160 },
+  usageBar: { height: 6, borderRadius: 3, marginTop: 4 },
+}));
+
+interface Props {
+  instances: DHIS2Instance[];
+  onNodesChange?: (nodes: ProxmoxNode[]) => void;
+}
+
+const bytesToGiB = (n: number) => n / 1024 ** 3;
+
+export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
+  const classes = useStyles();
+  const [settings, setSettings] = useState<DHIS2PluginSettings>(() =>
+    settingsService.load(),
+  );
+  const [nodes, setNodes] = useState<ProxmoxNode[]>([]);
+  const [loadingNodes, setLoadingNodes] = useState(false);
+  const [snackbar, setSnackbar] = useState<string | null>(null);
+
+  const proxmox = settings.proxmox;
+  const updateProxmox = (patch: Partial<typeof proxmox>) =>
+    setSettings(prev => ({ ...prev, proxmox: { ...prev.proxmox, ...patch } }));
+
+  const loadNodes = useCallback(async () => {
+    setLoadingNodes(true);
+    try {
+      const data = await dhis2Service.getNodes();
+      setNodes(data);
+      onNodesChange?.(data);
+    } finally {
+      setLoadingNodes(false);
+    }
+  }, [onNodesChange]);
+
+  useEffect(() => {
+    loadNodes();
+  }, [loadNodes]);
+
+  const handleSave = () => {
+    settingsService.save(settings);
+    setSnackbar('Proxmox cluster settings saved');
+    // Re-fetch nodes against the newly saved settings
+    loadNodes();
+  };
+
+  const handleTestConnection = async () => {
+    // Save first so getNodes() picks up the latest values
+    settingsService.save(settings);
+    setSnackbar('Testing Proxmox connection…');
+    const data = await dhis2Service.getNodes();
+    setNodes(data);
+    onNodesChange?.(data);
+    setSnackbar(
+      data.length > 0
+        ? `Connected — ${data.length} node(s) returned`
+        : 'No nodes returned (check console for errors)',
+    );
+  };
+
+  return (
+    <Box>
+      {/* Connection settings */}
+      <Card className={classes.section} variant="outlined">
+        <CardContent>
+          <Typography variant="h6" className={classes.sectionTitle}>
+            Proxmox Cluster Connection
+          </Typography>
+          <Typography variant="body2" color="textSecondary" paragraph>
+            Connection details for the Proxmox VE API used to orchestrate LXC
+            containers running DHIS2. Use an API token in production —
+            password auth is shown for completeness but cannot be used directly
+            from the browser.
+          </Typography>
+
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={8}>
+              <TextField
+                fullWidth
+                label="API URL"
+                value={proxmox.apiUrl}
+                onChange={e => updateProxmox({ apiUrl: e.target.value })}
+                helperText="e.g. https://pve.example.org:8006"
+                className={classes.field}
+              />
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <FormControl fullWidth className={classes.field}>
+                <InputLabel>Authentication</InputLabel>
+                <Select
+                  value={proxmox.authMethod}
+                  onChange={e =>
+                    updateProxmox({
+                      authMethod: e.target.value as 'token' | 'password',
+                    })
+                  }
+                >
+                  <MenuItem value="token">API Token (recommended)</MenuItem>
+                  <MenuItem value="password">Username / Password</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+
+            {proxmox.authMethod === 'token' ? (
+              <>
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    label="Token ID"
+                    value={proxmox.tokenId ?? ''}
+                    onChange={e => updateProxmox({ tokenId: e.target.value })}
+                    helperText="e.g. backstage@pve!orchestrator"
+                    className={classes.field}
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="password"
+                    label="Token Secret"
+                    value={proxmox.tokenSecret ?? ''}
+                    onChange={e =>
+                      updateProxmox({ tokenSecret: e.target.value })
+                    }
+                    className={classes.field}
+                  />
+                </Grid>
+              </>
+            ) : (
+              <>
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    label="Username"
+                    value={proxmox.username ?? ''}
+                    onChange={e => updateProxmox({ username: e.target.value })}
+                    helperText="e.g. root@pam"
+                    className={classes.field}
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="password"
+                    label="Password"
+                    value={proxmox.password ?? ''}
+                    onChange={e => updateProxmox({ password: e.target.value })}
+                    className={classes.field}
+                  />
+                </Grid>
+              </>
+            )}
+
+            <Grid item xs={12}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={proxmox.verifyTls}
+                    onChange={e =>
+                      updateProxmox({ verifyTls: e.target.checked })
+                    }
+                  />
+                }
+                label="Verify TLS certificate"
+              />
+            </Grid>
+          </Grid>
+
+          <Divider style={{ margin: '16px 0' }} />
+
+          <Typography variant="subtitle1" gutterBottom>
+            Container defaults
+          </Typography>
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={4}>
+              <TextField
+                fullWidth
+                label="Default Node"
+                value={proxmox.defaultNode}
+                onChange={e => updateProxmox({ defaultNode: e.target.value })}
+                className={classes.field}
+              />
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <TextField
+                fullWidth
+                label="Root FS Storage"
+                value={proxmox.rootfsStorage}
+                onChange={e =>
+                  updateProxmox({ rootfsStorage: e.target.value })
+                }
+                helperText="e.g. local-lvm"
+                className={classes.field}
+              />
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <TextField
+                fullWidth
+                label="Template Storage"
+                value={proxmox.templateStorage}
+                onChange={e =>
+                  updateProxmox({ templateStorage: e.target.value })
+                }
+                helperText="e.g. local"
+                className={classes.field}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="OS Template"
+                value={proxmox.osTemplate}
+                onChange={e => updateProxmox({ osTemplate: e.target.value })}
+                helperText="Full volid, e.g. local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst"
+                className={classes.field}
+              />
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <TextField
+                fullWidth
+                label="Network Bridge"
+                value={proxmox.networkBridge}
+                onChange={e =>
+                  updateProxmox({ networkBridge: e.target.value })
+                }
+                helperText="e.g. vmbr0"
+                className={classes.field}
+              />
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <TextField
+                fullWidth
+                label="Nameservers"
+                value={proxmox.nameserver}
+                onChange={e => updateProxmox({ nameserver: e.target.value })}
+                helperText="space-separated DNS servers"
+                className={classes.field}
+              />
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <TextField
+                fullWidth
+                label="Search Domain"
+                value={proxmox.searchDomain}
+                onChange={e =>
+                  updateProxmox({ searchDomain: e.target.value })
+                }
+                className={classes.field}
+              />
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <TextField
+                fullWidth
+                type="number"
+                label="Starting VMID"
+                value={proxmox.vmidStart}
+                onChange={e =>
+                  updateProxmox({
+                    vmidStart: parseInt(e.target.value, 10) || 100,
+                  })
+                }
+                inputProps={{ min: 100, max: 999999 }}
+                className={classes.field}
+              />
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={proxmox.unprivileged}
+                    onChange={e =>
+                      updateProxmox({ unprivileged: e.target.checked })
+                    }
+                  />
+                }
+                label="Unprivileged containers"
+              />
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={proxmox.startOnBoot}
+                    onChange={e =>
+                      updateProxmox({ startOnBoot: e.target.checked })
+                    }
+                  />
+                }
+                label="Start on boot"
+              />
+            </Grid>
+          </Grid>
+
+          <Box className={classes.actions}>
+            <Button
+              variant="contained"
+              color="primary"
+              startIcon={<SaveIcon />}
+              onClick={handleSave}
+            >
+              Save
+            </Button>
+            <Button variant="outlined" onClick={handleTestConnection}>
+              Test connection
+            </Button>
+          </Box>
+        </CardContent>
+      </Card>
+
+      {/* Nodes table */}
+      <Card variant="outlined">
+        <CardContent>
+          <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+            <Typography variant="h6">Cluster Nodes</Typography>
+            <Tooltip title="Refresh">
+              <span>
+                <Button
+                  size="small"
+                  startIcon={<RefreshIcon />}
+                  onClick={loadNodes}
+                  disabled={loadingNodes}
+                >
+                  Refresh
+                </Button>
+              </span>
+            </Tooltip>
+          </Box>
+
+          {loadingNodes && nodes.length === 0 ? (
+            <Box display="flex" justifyContent="center" p={4}>
+              <CircularProgress />
+            </Box>
+          ) : nodes.length === 0 ? (
+            <Paper variant="outlined">
+              <Box p={4} textAlign="center">
+                <Typography variant="body2" color="textSecondary">
+                  No nodes returned. Check the API URL / token above and click
+                  "Test connection".
+                </Typography>
+              </Box>
+            </Paper>
+          ) : (
+            <TableContainer component={Paper} variant="outlined">
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Node</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell>Instances</TableCell>
+                    <TableCell>CPU</TableCell>
+                    <TableCell>Memory</TableCell>
+                    <TableCell>Disk</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {nodes.map(n => {
+                    const nodeInstances = instances.filter(
+                      i => i.node === n.node,
+                    );
+                    const cpuPct = n.maxcpu > 0 ? (n.cpu / 1) * 100 : 0; // n.cpu is 0..1 in PVE
+                    const memPct =
+                      n.maxmem > 0 ? (n.mem / n.maxmem) * 100 : 0;
+                    const diskPct =
+                      n.maxdisk > 0 ? (n.disk / n.maxdisk) * 100 : 0;
+                    return (
+                      <TableRow key={n.node}>
+                        <TableCell>
+                          <strong>{n.node}</strong>
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={n.status}
+                            size="small"
+                            color={n.status === 'online' ? 'primary' : 'default'}
+                          />
+                        </TableCell>
+                        <TableCell>{nodeInstances.length}</TableCell>
+                        <TableCell className={classes.usageCell}>
+                          <Typography variant="caption">
+                            {cpuPct.toFixed(1)}% of {n.maxcpu} vCPU
+                          </Typography>
+                          <LinearProgress
+                            variant="determinate"
+                            value={Math.min(100, cpuPct)}
+                            className={classes.usageBar}
+                          />
+                        </TableCell>
+                        <TableCell className={classes.usageCell}>
+                          <Typography variant="caption">
+                            {bytesToGiB(n.mem).toFixed(1)} /{' '}
+                            {bytesToGiB(n.maxmem).toFixed(0)} GiB
+                          </Typography>
+                          <LinearProgress
+                            variant="determinate"
+                            value={Math.min(100, memPct)}
+                            className={classes.usageBar}
+                          />
+                        </TableCell>
+                        <TableCell className={classes.usageCell}>
+                          <Typography variant="caption">
+                            {bytesToGiB(n.disk).toFixed(0)} /{' '}
+                            {bytesToGiB(n.maxdisk).toFixed(0)} GiB
+                          </Typography>
+                          <LinearProgress
+                            variant="determinate"
+                            value={Math.min(100, diskPct)}
+                            className={classes.usageBar}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+
+          <Typography
+            variant="caption"
+            color="textSecondary"
+            display="block"
+            style={{ marginTop: 12 }}
+          >
+            Nodes are members of the Proxmox cluster itself — they are added on
+            the Proxmox side (e.g. <code>pvecm add &lt;node&gt;</code>) and
+            discovered automatically here via the API.
+          </Typography>
+        </CardContent>
+      </Card>
+
+      <Snackbar
+        open={Boolean(snackbar)}
+        autoHideDuration={3500}
+        onClose={() => setSnackbar(null)}
+        message={snackbar ?? ''}
+      />
+    </Box>
+  );
+};

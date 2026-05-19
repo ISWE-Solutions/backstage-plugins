@@ -1,4 +1,24 @@
-import { DHIS2Instance, CreateInstanceRequest, OrchestrationLogEntry } from '../types';
+import {
+  DHIS2Instance,
+  CreateInstanceRequest,
+  OrchestrationLogEntry,
+  ProxmoxNode,
+  ProxmoxClusterSettings,
+} from '../types';
+import { settingsService } from './settingsService';
+
+const MOCK_NODES: ProxmoxNode[] = [
+  { node: 'pve1', status: 'online', cpu: 0.22, maxcpu: 16, mem: 12_884_901_888, maxmem: 68_719_476_736, disk: 53_687_091_200, maxdisk: 536_870_912_000 },
+  { node: 'pve2', status: 'online', cpu: 0.14, maxcpu: 16, mem: 9_663_676_416, maxmem: 68_719_476_736, disk: 42_949_672_960, maxdisk: 536_870_912_000 },
+  { node: 'pve3', status: 'online', cpu: 0.08, maxcpu: 16, mem: 5_368_709_120, maxmem: 68_719_476_736, disk: 34_359_738_368, maxdisk: 536_870_912_000 },
+];
+
+function buildProxmoxAuthHeader(s: ProxmoxClusterSettings): string | null {
+  if (s.authMethod === 'token' && s.tokenId && s.tokenSecret) {
+    return `PVEAPIToken=${s.tokenId}=${s.tokenSecret}`;
+  }
+  return null;
+}
 
 /**
  * Service for managing DHIS2 instances
@@ -162,9 +182,40 @@ export class DHIS2Service {
   /**
    * Get available Proxmox nodes
    */
-  async getNodes(): Promise<string[]> {
-    // Mock data - in production, query Proxmox API
-    return ['pve1', 'pve2', 'pve3'];
+  /**
+   * Get all Proxmox nodes in the cluster.
+   *
+   * Calls the Proxmox VE API (`GET /api2/json/nodes`) using the URL and API
+   * token saved in the plugin Settings tab. Falls back to mock nodes if the
+   * settings are incomplete or the request fails (e.g. CORS, network, bad
+   * token) so the rest of the UI keeps working. For production, route this
+   * call through the Backstage proxy backend to avoid CORS and to keep the
+   * token off the browser.
+   */
+  async getNodes(): Promise<ProxmoxNode[]> {
+    const { proxmox } = settingsService.load();
+    const auth = buildProxmoxAuthHeader(proxmox);
+    if (!proxmox.apiUrl || !auth) {
+      console.warn(
+        'Proxmox API not fully configured (need URL + API token); using mock nodes.',
+      );
+      return MOCK_NODES;
+    }
+    try {
+      const url = `${proxmox.apiUrl.replace(/\/+$/, '')}/api2/json/nodes`;
+      const res = await fetch(url, {
+        headers: { Authorization: auth, Accept: 'application/json' },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+      const body = (await res.json()) as { data: ProxmoxNode[] };
+      return body.data ?? [];
+    } catch (err) {
+      console.warn(
+        'Failed to fetch Proxmox nodes, falling back to mock data:',
+        err,
+      );
+      return MOCK_NODES;
+    }
   }
 
   /**

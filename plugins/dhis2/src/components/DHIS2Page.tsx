@@ -43,10 +43,11 @@ import DescriptionIcon from '@material-ui/icons/Description';
 import StorageIcon from '@material-ui/icons/Storage';
 import CloudIcon from '@material-ui/icons/Cloud';
 import DnsIcon from '@material-ui/icons/Dns';
-import { DHIS2Instance, CreateInstanceRequest } from '../types';
+import { DHIS2Instance, CreateInstanceRequest, ProxmoxNode } from '../types';
 import { dhis2Service } from '../services/dhis2Service';
 import { DHIS2SettingsPage } from './DHIS2SettingsPage';
 import { DHIS2LogsPanel } from './DHIS2LogsPanel';
+import { ProxmoxClusterPanel } from './ProxmoxClusterPanel';
 
 const useStyles = makeStyles(theme => ({
   card: {
@@ -110,7 +111,7 @@ export const DHIS2Page = () => {
   const [loading, setLoading] = useState(true);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [tabValue, setTabValue] = useState(0);
-  const [nodes, setNodes] = useState<string[]>([]);
+  const [nodes, setNodes] = useState<ProxmoxNode[]>([]);
   const [versions, setVersions] = useState<string[]>([]);
   const [logsDialog, setLogsDialog] = useState<{
     open: boolean;
@@ -160,7 +161,7 @@ export const DHIS2Page = () => {
       const data = await dhis2Service.getNodes();
       setNodes(data);
       if (data.length > 0 && !newInstance.node) {
-        setNewInstance(prev => ({ ...prev, node: data[0] }));
+        setNewInstance(prev => ({ ...prev, node: data[0].node }));
       }
     } catch (error) {
       console.error('Failed to load nodes:', error);
@@ -189,7 +190,7 @@ export const DHIS2Page = () => {
         name: '',
         domain: '',
         version: versions[0] || '',
-        node: nodes[0] || '',
+        node: nodes[0]?.node || '',
         resources: {
           cpu: 4,
           memory: 8192,
@@ -319,7 +320,7 @@ export const DHIS2Page = () => {
         <Paper style={{ marginBottom: 24 }}>
           <Tabs value={tabValue} onChange={(_e, newValue) => setTabValue(newValue)} indicatorColor="primary">
             <Tab label="Instances" />
-            <Tab label="Cluster Nodes" />
+            <Tab label="Proxmox Cluster" />
             <Tab label="Nginx Configuration" />
             <Tab label="Logs" />
             <Tab label="Settings" />
@@ -451,41 +452,12 @@ export const DHIS2Page = () => {
             )}
           </TabPanel>
 
-          {/* Cluster Nodes Tab */}
+          {/* Proxmox Cluster Tab */}
           <TabPanel value={tabValue} index={1}>
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Node Name</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell>Instances</TableCell>
-                    <TableCell>CPU Usage</TableCell>
-                    <TableCell>Memory Usage</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {nodes.map(node => {
-                    const nodeInstances = instances.filter(i => i.node === node);
-                    return (
-                      <TableRow key={node}>
-                        <TableCell>{node}</TableCell>
-                        <TableCell>
-                          <Chip label="Online" color="primary" size="small" />
-                        </TableCell>
-                        <TableCell>{nodeInstances.length}</TableCell>
-                        <TableCell>
-                          {nodeInstances.reduce((sum, i) => sum + i.resources.cpu, 0)} vCPUs
-                        </TableCell>
-                        <TableCell>
-                          {(nodeInstances.reduce((sum, i) => sum + i.resources.memory, 0) / 1024).toFixed(1)} GB
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </TableContainer>
+            <ProxmoxClusterPanel
+              instances={instances}
+              onNodesChange={setNodes}
+            />
           </TabPanel>
 
           {/* Nginx Configuration Tab */}
@@ -634,9 +606,9 @@ export const DHIS2Page = () => {
                   className={classes.formField}
                   required
                 >
-                  {nodes.map(node => (
-                    <MenuItem key={node} value={node}>
-                      {node}
+                  {nodes.map(n => (
+                    <MenuItem key={n.node} value={n.node}>
+                      {n.node}
                     </MenuItem>
                   ))}
                 </TextField>
