@@ -192,14 +192,30 @@ export class DHIS2Service {
    * call through the Backstage proxy backend to avoid CORS and to keep the
    * token off the browser.
    */
-  async getNodes(): Promise<ProxmoxNode[]> {
-    const { proxmox } = settingsService.load();
+  async getNodes(
+    overrideSettings?: ProxmoxClusterSettings,
+  ): Promise<ProxmoxNode[]> {
+    const result = await this.fetchNodes(overrideSettings);
+    return result.nodes;
+  }
+
+  /**
+   * Same as `getNodes()` but returns the data source and any error so the UI
+   * can show meaningful feedback (e.g. when a Refresh click silently fell
+   * back to mock data because the API is unreachable).
+   */
+  async fetchNodes(overrideSettings?: ProxmoxClusterSettings): Promise<{
+    nodes: ProxmoxNode[];
+    source: 'api' | 'mock';
+    error?: string;
+  }> {
+    const proxmox = overrideSettings ?? settingsService.load().proxmox;
     const auth = buildProxmoxAuthHeader(proxmox);
     if (!proxmox.apiUrl || !auth) {
-      console.warn(
-        'Proxmox API not fully configured (need URL + API token); using mock nodes.',
-      );
-      return MOCK_NODES;
+      const error =
+        'Proxmox API not fully configured (need API URL + API token).';
+      console.warn(`${error} Using mock nodes.`);
+      return { nodes: MOCK_NODES, source: 'mock', error };
     }
     try {
       const url = `${proxmox.apiUrl.replace(/\/+$/, '')}/api2/json/nodes`;
@@ -208,13 +224,15 @@ export class DHIS2Service {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
       const body = (await res.json()) as { data: ProxmoxNode[] };
-      return body.data ?? [];
+      return { nodes: body.data ?? [], source: 'api' };
     } catch (err) {
+      const error =
+        err instanceof Error ? err.message : 'Unknown error fetching nodes';
       console.warn(
         'Failed to fetch Proxmox nodes, falling back to mock data:',
         err,
       );
-      return MOCK_NODES;
+      return { nodes: MOCK_NODES, source: 'mock', error };
     }
   }
 

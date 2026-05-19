@@ -71,20 +71,37 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
   const updateProxmox = (patch: Partial<typeof proxmox>) =>
     setSettings(prev => ({ ...prev, proxmox: { ...prev.proxmox, ...patch } }));
 
-  const loadNodes = useCallback(async () => {
-    setLoadingNodes(true);
-    try {
-      const data = await dhis2Service.getNodes();
-      setNodes(data);
-      onNodesChange?.(data);
-    } finally {
-      setLoadingNodes(false);
-    }
-  }, [onNodesChange]);
+  const loadNodes = useCallback(
+    async (silent = false) => {
+      setLoadingNodes(true);
+      try {
+        // Use the current in-memory settings so the user doesn't have to
+        // click Save before Refresh / Test connection picks up edits.
+        const { nodes: data, source, error } = await dhis2Service.fetchNodes(
+          proxmox,
+        );
+        setNodes(data);
+        onNodesChange?.(data);
+        if (!silent) {
+          if (source === 'api') {
+            setSnackbar(`Loaded ${data.length} node(s) from Proxmox API`);
+          } else {
+            setSnackbar(
+              `Using mock nodes — ${error ?? 'Proxmox API unreachable'}`,
+            );
+          }
+        }
+      } finally {
+        setLoadingNodes(false);
+      }
+    },
+    [onNodesChange, proxmox],
+  );
 
   useEffect(() => {
-    loadNodes();
-  }, [loadNodes]);
+    loadNodes(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSave = () => {
     settingsService.save(settings);
@@ -94,17 +111,22 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
   };
 
   const handleTestConnection = async () => {
-    // Save first so getNodes() picks up the latest values
-    settingsService.save(settings);
+    setLoadingNodes(true);
     setSnackbar('Testing Proxmox connection…');
-    const data = await dhis2Service.getNodes();
-    setNodes(data);
-    onNodesChange?.(data);
-    setSnackbar(
-      data.length > 0
-        ? `Connected — ${data.length} node(s) returned`
-        : 'No nodes returned (check console for errors)',
-    );
+    try {
+      const { nodes: data, source, error } = await dhis2Service.fetchNodes(
+        proxmox,
+      );
+      setNodes(data);
+      onNodesChange?.(data);
+      if (source === 'api') {
+        setSnackbar(`Connected — ${data.length} node(s) returned`);
+      } else {
+        setSnackbar(`Connection failed — ${error ?? 'unknown error'}`);
+      }
+    } finally {
+      setLoadingNodes(false);
+    }
   };
 
   return (
@@ -361,12 +383,19 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
         <CardContent>
           <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
             <Typography variant="h6">Cluster Nodes</Typography>
-            <Tooltip title="Refresh">
+            <Tooltip title="Fetch the current list of nodes from the Proxmox API">
               <span>
                 <Button
                   size="small"
-                  startIcon={<RefreshIcon />}
-                  onClick={loadNodes}
+                  variant="outlined"
+                  startIcon={
+                    loadingNodes ? (
+                      <CircularProgress size={16} />
+                    ) : (
+                      <RefreshIcon />
+                    )
+                  }
+                  onClick={() => loadNodes(false)}
                   disabled={loadingNodes}
                 >
                   Refresh
