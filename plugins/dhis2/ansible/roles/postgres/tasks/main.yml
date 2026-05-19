@@ -24,6 +24,18 @@
   become_user: postgres
   no_log: true
 
+- name: Ensure provisioning admin role exists
+  community.postgresql.postgresql_user:
+    name: "{{ dhis2_db_admin_user }}"
+    password: "{{ dhis2_db_admin_password }}"
+    state: present
+  become: true
+  become_user: postgres
+  no_log: true
+  when:
+    - dhis2_db_admin_user is defined
+    - dhis2_db_admin_user != dhis2_db_user
+
 - name: Create DHIS2 database
   community.postgresql.postgresql_db:
     name: "{{ dhis2_db_name }}"

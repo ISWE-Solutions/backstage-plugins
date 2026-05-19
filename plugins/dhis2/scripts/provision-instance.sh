@@ -49,12 +49,20 @@ Optional:
                             For 'upload' the spec must include `staged_path`
                             (absolute path on this orchestrator host) which
                             will be pushed into the container.
+  --new-db-user <name>      Provision an additional PostgreSQL role and use
+                            it for the DHIS2 application connection. When
+                            given, this role's credentials are written to
+                            dhis.conf instead of --db-user. The --db-user
+                            credentials are retained as the provisioning
+                            (admin) role.
   -h | --help               Show this help
 
 Required env vars (or via --vars-file):
   DHIS2_DB_PASS             Postgres password for --db-user
   DHIS2_ADMIN_PASS          DHIS2 admin user initial password
   ROOT_PASSWORD             Container root password (console access only)
+  NEW_DB_PASS               (optional) Password for --new-db-user. Required
+                            when --new-db-user is set.
 EOF
 }
 
@@ -73,6 +81,7 @@ VARS_FILE=""
 SSH_KEY=""
 INSTANCE_NAME=""
 RESTORE_SPEC=""
+NEW_DB_USER=""
 
 VMID=""; NODE=""; HOSTNAME=""; DOMAIN=""; EMAIL=""
 DHIS2_VERSION=""; DB_NAME=""; DB_USER=""
@@ -101,6 +110,7 @@ while [[ $# -gt 0 ]]; do
         --rollback-on-failure) ROLLBACK_ON_FAILURE=1; shift;;
         --keep-vars-file) KEEP_VARS_FILE=1; shift;;
         --restore-spec) RESTORE_SPEC="$2"; shift 2;;
+        --new-db-user) NEW_DB_USER="$2"; shift 2;;
         -h|--help) usage; exit 0;;
         *) echo "unknown option: $1" >&2; usage >&2; exit 2;;
     esac
@@ -146,6 +156,10 @@ for var in DHIS2_DB_PASS DHIS2_ADMIN_PASS ROOT_PASSWORD; do
         exit 2
     fi
 done
+if [[ -n "${NEW_DB_USER}" && -z "${NEW_DB_PASS:-}" ]]; then
+    echo "--new-db-user requires NEW_DB_PASS env var (set it or pass --vars-file)" >&2
+    exit 2
+fi
 
 # Sanity-check the in-tree role layout.
 for role in common postgres dhis2; do
@@ -354,6 +368,18 @@ yaml_escape() {
     printf "'%s'" "${val}"
 }
 
+# Decide which credentials DHIS2 itself uses (written into dhis.conf) and
+# which are treated as the provisioning admin role. When --new-db-user is
+# given the new role becomes the DHIS2 app role; otherwise the --db-user
+# credentials serve both purposes (and are idempotently created/refreshed).
+if [[ -n "${NEW_DB_USER}" ]]; then
+    APP_DB_USER="${NEW_DB_USER}"
+    APP_DB_PASS="${NEW_DB_PASS}"
+else
+    APP_DB_USER="${DB_USER}"
+    APP_DB_PASS="${DHIS2_DB_PASS}"
+fi
+
 cat > "${EXTRA_VARS_FILE}" <<EOF
 ---
 # Rendered by provision-instance.sh — do not edit by hand.
@@ -365,9 +391,14 @@ postgresql_version: ${POSTGRES_VERSION}
 java_version: ${JAVA_VERSION}
 
 # DB credentials consumed by the postgres + dhis2 roles.
+# dhis2_db_user/password is what DHIS2 uses to connect (rendered into
+# dhis.conf). dhis2_db_admin_user/password is the privileged provisioning
+# role; when no --new-db-user is given they are the same.
 dhis2_db_name: $(yaml_escape "${DB_NAME}")
-dhis2_db_user: $(yaml_escape "${DB_USER}")
-dhis2_db_password: $(yaml_escape "${DHIS2_DB_PASS}")
+dhis2_db_user: $(yaml_escape "${APP_DB_USER}")
+dhis2_db_password: $(yaml_escape "${APP_DB_PASS}")
+dhis2_db_admin_user: $(yaml_escape "${DB_USER}")
+dhis2_db_admin_password: $(yaml_escape "${DHIS2_DB_PASS}")
 dhis2_admin_password: $(yaml_escape "${DHIS2_ADMIN_PASS}")
 EOF
 if [[ -n "${RESTORE_YAML_BLOCK}" ]]; then

@@ -146,6 +146,29 @@ export interface CreateInstanceRequest {
     user: string;
     password: string;
   };
+  /**
+   * Optional override of the `dhis.conf` Jinja template rendered by the
+   * Ansible `dhis2` role. When provided, the orchestrator writes this
+   * content into the role's templates directory in place of the bundled
+   * default before running the playbook. The value is the raw template
+   * source (Jinja2 placeholders such as `{{ dhis2_db_host }}` are honoured).
+   * When omitted, the default template shipped with the plugin is used.
+   */
+  dhisConfTemplate?: string;
+  /**
+   * Per-instance reverse-proxy configuration. Captured by the Create
+   * dialog (pre-filled from the saved plugin defaults) and forwarded to
+   * the orchestrator so each instance can be exposed with its own
+   * routing, TLS and Nginx settings.
+   */
+  proxySettings?: ProxyServerSettings;
+  /**
+   * Per-instance DHIS2/Tomcat/Postgres/backup configuration. Captured by
+   * the Create dialog (pre-filled from the saved plugin defaults) and
+   * forwarded to the orchestrator. Overrides the resources / version /
+   * shared Postgres / backups defaults for this instance.
+   */
+  dhis2Settings?: DHIS2DefaultsSettings;
 }
 
 // Restore-from-backup types
