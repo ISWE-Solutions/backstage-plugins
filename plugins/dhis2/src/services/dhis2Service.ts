@@ -27,6 +27,12 @@ const MOCK_CONTAINERS: ClusterContainer[] = [
   { vmid: 110, name: 'nginx-proxy', node: 'pve3', status: 'running', type: 'lxc', cpu: 0.02, maxcpu: 2, mem: 536_870_912, maxmem: 2_147_483_648, disk: 2_147_483_648, maxdisk: 21_474_836_480, uptime: 864_000 },
 ];
 
+const MOCK_VMS: ClusterContainer[] = [
+  { vmid: 200, name: 'postgres-prod', node: 'pve1', status: 'running', type: 'qemu', cpu: 0.18, maxcpu: 8, mem: 17_179_869_184, maxmem: 34_359_738_368, disk: 0, maxdisk: 214_748_364_800, uptime: 1_209_600 },
+  { vmid: 201, name: 'observability', node: 'pve2', status: 'running', type: 'qemu', cpu: 0.09, maxcpu: 4, mem: 8_589_934_592, maxmem: 17_179_869_184, disk: 0, maxdisk: 107_374_182_400, uptime: 604_800 },
+  { vmid: 202, name: 'gitlab-runner', node: 'pve3', status: 'stopped', type: 'qemu', cpu: 0, maxcpu: 4, mem: 0, maxmem: 8_589_934_592, disk: 0, maxdisk: 53_687_091_200, uptime: 0 },
+];
+
 function buildProxmoxAuthHeader(s: ProxmoxClusterSettings): string | null {
   if (s.authMethod === 'token' && s.tokenId && s.tokenSecret) {
     return `PVEAPIToken=${s.tokenId}=${s.tokenSecret}`;
@@ -360,19 +366,21 @@ export class DHIS2Service {
   }
 
   /**
-   * Fetch all LXC containers across the cluster via
-   * `GET /api2/json/cluster/resources?type=vm` (filtered to type === 'lxc').
-   * Falls back to a small mock list when the API is unreachable.
+   * Fetch cluster resources of the given kind ('lxc' or 'qemu') across the
+   * cluster via `GET /api2/json/cluster/resources?type=vm`. Falls back to a
+   * small mock list when the API is unreachable.
    */
-  async fetchClusterContainers(
+  private async fetchClusterResources(
+    kind: 'lxc' | 'qemu',
     overrideSettings?: ProxmoxClusterSettings,
     fetchFn: typeof fetch = (...args) => fetch(...args),
   ): Promise<{
-    containers: ClusterContainer[];
+    items: ClusterContainer[];
     source: 'api' | 'mock';
     error?: string;
   }> {
     const proxmox = overrideSettings ?? settingsService.load().proxmox;
+    const mock = kind === 'lxc' ? MOCK_CONTAINERS : MOCK_VMS;
 
     let url: string;
     const headers: Record<string, string> = { Accept: 'application/json' };
@@ -380,7 +388,7 @@ export class DHIS2Service {
     if (proxmox.useBackstageProxy) {
       if (!proxmox.backstageProxyPath) {
         return {
-          containers: MOCK_CONTAINERS,
+          items: mock,
           source: 'mock',
           error: 'Backstage proxy path is empty.',
         };
@@ -393,7 +401,7 @@ export class DHIS2Service {
       const auth = buildProxmoxAuthHeader(proxmox);
       if (!proxmox.apiUrl || !auth) {
         return {
-          containers: MOCK_CONTAINERS,
+          items: mock,
           source: 'mock',
           error: 'Proxmox API not fully configured.',
         };
@@ -411,15 +419,57 @@ export class DHIS2Service {
         throw new Error(`HTTP ${res.status} ${res.statusText}`);
       }
       const parsed: { data?: ClusterContainer[] } = await res.json();
-      const containers = (parsed.data ?? []).filter(c => c.type === 'lxc');
-      return { containers, source: 'api' };
+      const items = (parsed.data ?? []).filter(c => c.type === kind);
+      return { items, source: 'api' };
     } catch (err) {
       const error = (err as Error).message;
       console.warn(
-        `[dhis2] Failed to fetch cluster containers from ${url}: ${error}. Using mock containers.`,
+        `[dhis2] Failed to fetch cluster ${kind} resources from ${url}: ${error}. Using mock data.`,
       );
-      return { containers: MOCK_CONTAINERS, source: 'mock', error };
+      return { items: mock, source: 'mock', error };
     }
+  }
+
+  /**
+   * Fetch all LXC containers across the cluster.
+   */
+  async fetchClusterContainers(
+    overrideSettings?: ProxmoxClusterSettings,
+    fetchFn: typeof fetch = (...args) => fetch(...args),
+  ): Promise<{
+    containers: ClusterContainer[];
+    source: 'api' | 'mock';
+    error?: string;
+  }> {
+    const result = await this.fetchClusterResources(
+      'lxc',
+      overrideSettings,
+      fetchFn,
+    );
+    return {
+      containers: result.items,
+      source: result.source,
+      error: result.error,
+    };
+  }
+
+  /**
+   * Fetch all QEMU virtual machines across the cluster.
+   */
+  async fetchClusterVMs(
+    overrideSettings?: ProxmoxClusterSettings,
+    fetchFn: typeof fetch = (...args) => fetch(...args),
+  ): Promise<{
+    vms: ClusterContainer[];
+    source: 'api' | 'mock';
+    error?: string;
+  }> {
+    const result = await this.fetchClusterResources(
+      'qemu',
+      overrideSettings,
+      fetchFn,
+    );
+    return { vms: result.items, source: result.source, error: result.error };
   }
 
   /**

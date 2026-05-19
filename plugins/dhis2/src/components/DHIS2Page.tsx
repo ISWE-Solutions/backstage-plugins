@@ -61,13 +61,32 @@ const useStyles = makeStyles(theme => ({
     flexGrow: 1,
   },
   statCard: {
+    height: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
     textAlign: 'center',
     padding: theme.spacing(3),
+    gap: theme.spacing(1),
+  },
+  statIcon: {
+    fontSize: '3rem',
   },
   statValue: {
-    fontSize: '2.5rem',
+    fontSize: '2.25rem',
     fontWeight: 'bold',
+    lineHeight: 1.1,
     color: theme.palette.primary.main,
+    wordBreak: 'keep-all',
+    whiteSpace: 'nowrap',
+  },
+  statLabel: {
+    fontSize: '0.95rem',
+    minHeight: '2.4em',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   statusChip: {
     marginLeft: theme.spacing(1),
@@ -348,52 +367,52 @@ export const DHIS2Page = () => {
         </Paper>
 
         {/* Statistics */}
-        <Grid container spacing={3} style={{ marginBottom: 24 }}>
+        <Grid container spacing={3} alignItems="stretch" style={{ marginBottom: 24 }}>
           <Grid item xs={12} sm={6} md={4} lg={2}>
             <Card className={classes.statCard}>
-              <StorageIcon style={{ fontSize: '3rem', color: '#1976d2' }} />
+              <StorageIcon className={classes.statIcon} style={{ color: '#1976d2' }} />
               <Typography className={classes.statValue}>{instances.length}</Typography>
-              <Typography variant="h6" color="textSecondary">
+              <Typography variant="subtitle1" color="textSecondary" className={classes.statLabel}>
                 Total Instances
               </Typography>
             </Card>
           </Grid>
           <Grid item xs={12} sm={6} md={4} lg={2}>
             <Card className={classes.statCard}>
-              <PlayArrowIcon style={{ fontSize: '3rem', color: '#4caf50' }} />
+              <PlayArrowIcon className={classes.statIcon} style={{ color: '#4caf50' }} />
               <Typography className={classes.statValue}>{runningInstances}</Typography>
-              <Typography variant="h6" color="textSecondary">
+              <Typography variant="subtitle1" color="textSecondary" className={classes.statLabel}>
                 Running
               </Typography>
             </Card>
           </Grid>
           <Grid item xs={12} sm={6} md={4} lg={2}>
             <Card className={classes.statCard}>
-              <CloudIcon style={{ fontSize: '3rem', color: '#ff9800' }} />
+              <CloudIcon className={classes.statIcon} style={{ color: '#ff9800' }} />
               <Typography className={classes.statValue}>{totalVCPUs}</Typography>
-              <Typography variant="h6" color="textSecondary">
+              <Typography variant="subtitle1" color="textSecondary" className={classes.statLabel}>
                 Total vCPUs
               </Typography>
             </Card>
           </Grid>
           <Grid item xs={12} sm={6} md={4} lg={2}>
             <Card className={classes.statCard}>
-              <DnsIcon style={{ fontSize: '3rem', color: '#9c27b0' }} />
+              <DnsIcon className={classes.statIcon} style={{ color: '#9c27b0' }} />
               <Typography className={classes.statValue}>
                 {formatCapacity(totalMemoryBytes)}
               </Typography>
-              <Typography variant="h6" color="textSecondary">
+              <Typography variant="subtitle1" color="textSecondary" className={classes.statLabel}>
                 Total Memory
               </Typography>
             </Card>
           </Grid>
           <Grid item xs={12} sm={6} md={4} lg={2}>
             <Card className={classes.statCard}>
-              <SdStorageIcon style={{ fontSize: '3rem', color: '#00897b' }} />
+              <SdStorageIcon className={classes.statIcon} style={{ color: '#00897b' }} />
               <Typography className={classes.statValue}>
                 {formatCapacity(totalDiskBytes)}
               </Typography>
-              <Typography variant="h6" color="textSecondary">
+              <Typography variant="subtitle1" color="textSecondary" className={classes.statLabel}>
                 Storage Capacity
               </Typography>
             </Card>

@@ -73,6 +73,11 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
   const [containerSearch, setContainerSearch] = useState('');
   const [containerPage, setContainerPage] = useState(0);
   const [containerRowsPerPage, setContainerRowsPerPage] = useState(10);
+  const [vms, setVms] = useState<ClusterContainer[]>([]);
+  const [loadingVms, setLoadingVms] = useState(false);
+  const [vmSearch, setVmSearch] = useState('');
+  const [vmPage, setVmPage] = useState(0);
+  const [vmRowsPerPage, setVmRowsPerPage] = useState(10);
   const [snackbar, setSnackbar] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<{
     ok: boolean;
@@ -160,9 +165,33 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
     [proxmox, backstageFetch],
   );
 
+  const loadVms = useCallback(
+    async (silent = false) => {
+      setLoadingVms(true);
+      try {
+        const result = await dhis2Service.fetchClusterVMs(
+          proxmox,
+          backstageFetch,
+        );
+        setVms(result.vms);
+        if (!silent) {
+          setSnackbar(
+            result.source === 'api'
+              ? `Loaded ${result.vms.length} VM(s) from Proxmox API`
+              : `Using mock VMs — ${result.error ?? 'Proxmox API unreachable'}`,
+          );
+        }
+      } finally {
+        setLoadingVms(false);
+      }
+    },
+    [proxmox, backstageFetch],
+  );
+
   useEffect(() => {
     loadNodes(true);
     loadContainers(true);
+    loadVms(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -857,6 +886,199 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
             All LXC containers across the cluster, fetched from{' '}
             <code>/cluster/resources?type=vm</code> and filtered to{' '}
             <code>type=lxc</code>.
+          </Typography>
+        </CardContent>
+      </Card>
+
+      {/* Cluster VMs (QEMU virtual machines) */}
+      <Card variant="outlined" className={classes.section}>
+        <CardContent>
+          <Box
+            display="flex"
+            alignItems="center"
+            justifyContent="space-between"
+            mb={2}
+            style={{ gap: 16, flexWrap: 'wrap' }}
+          >
+            <Typography variant="h6">Cluster VMs</Typography>
+            <Box display="flex" alignItems="center" style={{ gap: 8, flexWrap: 'wrap' }}>
+              <TextField
+                size="small"
+                variant="outlined"
+                placeholder="Search by name, vmid, node, status…"
+                value={vmSearch}
+                onChange={e => {
+                  setVmSearch(e.target.value);
+                  setVmPage(0);
+                }}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" />
+                    </InputAdornment>
+                  ),
+                }}
+                style={{ minWidth: 280 }}
+              />
+              <Tooltip title="Fetch the current list of QEMU VMs from the Proxmox API">
+                <span>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={
+                      loadingVms ? (
+                        <CircularProgress size={16} />
+                      ) : (
+                        <RefreshIcon />
+                      )
+                    }
+                    onClick={() => loadVms(false)}
+                    disabled={loadingVms}
+                  >
+                    Refresh
+                  </Button>
+                </span>
+              </Tooltip>
+            </Box>
+          </Box>
+
+          {(() => {
+            const q = vmSearch.trim().toLowerCase();
+            const filtered = q
+              ? vms.filter(c =>
+                  [c.name, String(c.vmid), c.node, c.status, c.tags]
+                    .filter(Boolean)
+                    .some(v => String(v).toLowerCase().includes(q)),
+                )
+              : vms;
+            const start = vmPage * vmRowsPerPage;
+            const paged = filtered.slice(start, start + vmRowsPerPage);
+
+            if (loadingVms && vms.length === 0) {
+              return (
+                <Box display="flex" justifyContent="center" p={4}>
+                  <CircularProgress />
+                </Box>
+              );
+            }
+            if (vms.length === 0) {
+              return (
+                <Paper variant="outlined">
+                  <Box p={4} textAlign="center">
+                    <Typography variant="body2" color="textSecondary">
+                      No VMs returned. Check the API connection above and
+                      click "Refresh".
+                    </Typography>
+                  </Box>
+                </Paper>
+              );
+            }
+            return (
+              <>
+                <TableContainer component={Paper} variant="outlined">
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>VMID</TableCell>
+                        <TableCell>Name</TableCell>
+                        <TableCell>Node</TableCell>
+                        <TableCell>Status</TableCell>
+                        <TableCell>Tags</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {paged.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={5}>
+                            <Box p={2} textAlign="center">
+                              <Typography
+                                variant="body2"
+                                color="textSecondary"
+                              >
+                                No VMs match "{vmSearch}".
+                              </Typography>
+                            </Box>
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        paged.map(c => (
+                          <TableRow key={`${c.node}-${c.vmid}`}>
+                            <TableCell>
+                              <strong>{c.vmid}</strong>
+                            </TableCell>
+                            <TableCell>{c.name ?? '—'}</TableCell>
+                            <TableCell>{c.node}</TableCell>
+                            <TableCell>
+                              <Chip
+                                label={c.status}
+                                size="small"
+                                color={
+                                  c.status === 'running'
+                                    ? 'primary'
+                                    : 'default'
+                                }
+                              />
+                            </TableCell>
+                            <TableCell>
+                              {c.tags ? (
+                                <Box
+                                  display="flex"
+                                  flexWrap="wrap"
+                                  style={{ gap: 4 }}
+                                >
+                                  {c.tags
+                                    .split(/[;,]/)
+                                    .map(t => t.trim())
+                                    .filter(Boolean)
+                                    .map(t => (
+                                      <Chip
+                                        key={t}
+                                        label={t}
+                                        size="small"
+                                        variant="outlined"
+                                      />
+                                    ))}
+                                </Box>
+                              ) : (
+                                <Typography
+                                  variant="caption"
+                                  color="textSecondary"
+                                >
+                                  —
+                                </Typography>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+                <TablePagination
+                  component="div"
+                  count={filtered.length}
+                  page={vmPage}
+                  onPageChange={(_e, newPage) => setVmPage(newPage)}
+                  rowsPerPage={vmRowsPerPage}
+                  onRowsPerPageChange={e => {
+                    setVmRowsPerPage(parseInt(e.target.value, 10));
+                    setVmPage(0);
+                  }}
+                  rowsPerPageOptions={[5, 10, 25, 50]}
+                />
+              </>
+            );
+          })()}
+
+          <Typography
+            variant="caption"
+            color="textSecondary"
+            display="block"
+            style={{ marginTop: 12 }}
+          >
+            All QEMU virtual machines across the cluster, fetched from{' '}
+            <code>/cluster/resources?type=vm</code> and filtered to{' '}
+            <code>type=qemu</code>.
           </Typography>
         </CardContent>
       </Card>
