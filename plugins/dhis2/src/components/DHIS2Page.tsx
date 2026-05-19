@@ -190,8 +190,11 @@ export const DHIS2Page = () => {
   }>({ open: false, instance: null });
 
   // "Create new database account" option in the Create dialog.
-  const [createDbAccount, setCreateDbAccount] = useState(true);
+  const [createDbAccount, setCreateDbAccount] = useState(false);
   const [showDbPassword, setShowDbPassword] = useState(false);
+  const [newDbUser, setNewDbUser] = useState('');
+  const [newDbPassword, setNewDbPassword] = useState('');
+  const [showNewDbPassword, setShowNewDbPassword] = useState(false);
 
   const [newInstance, setNewInstance] = useState<CreateInstanceRequest>(() => {
     const { proxy } = settingsService.load();
@@ -208,7 +211,7 @@ export const DHIS2Page = () => {
       database: {
         name: '',
         user: 'dhis2',
-        password: generateStrongPassword(),
+        password: '',
       },
       adminPassword: '',
       proxyOverride: {
@@ -265,6 +268,9 @@ export const DHIS2Page = () => {
       const payload: CreateInstanceRequest = {
         ...newInstance,
         restore: restoreEnabled ? restoreSource : undefined,
+        newDbAccount: createDbAccount
+          ? { user: newDbUser, password: newDbPassword }
+          : undefined,
       };
       await dhis2Service.createInstance(payload);
       setCreateDialogOpen(false);
@@ -284,7 +290,7 @@ export const DHIS2Page = () => {
         database: {
           name: '',
           user: 'dhis2',
-          password: generateStrongPassword(),
+          password: '',
         },
         adminPassword: '',
         proxyOverride: {
@@ -294,8 +300,11 @@ export const DHIS2Page = () => {
       });
       setRestoreEnabled(false);
       setRestoreSource(undefined);
-      setCreateDbAccount(true);
+      setCreateDbAccount(false);
       setShowDbPassword(false);
+      setNewDbUser('');
+      setNewDbPassword('');
+      setShowNewDbPassword(false);
     } catch (error) {
       console.error('Failed to create instance:', error);
     }
@@ -810,23 +819,20 @@ export const DHIS2Page = () => {
                 setNewInstance(prev => {
                   const dbNameInSync =
                     !prev.database.name || prev.database.name === prev.name;
-                  const dbUserInSync =
-                    !prev.database.user ||
-                    prev.database.user === 'dhis2' ||
-                    prev.database.user === prev.name;
                   return {
                     ...prev,
                     name: newName,
                     database: {
                       ...prev.database,
                       name: dbNameInSync ? newName : prev.database.name,
-                      user:
-                        createDbAccount && dbUserInSync && newName
-                          ? newName
-                          : prev.database.user,
                     },
                   };
                 });
+                // Keep the suggested "new account" username in sync with
+                // the instance name while the user hasn't customised it.
+                setNewDbUser(prev =>
+                  !prev || prev === newInstance.name ? newName : prev,
+                );
               }}
               className={classes.formField}
               helperText="Used as the proxy path segment and as the default database name"
@@ -927,44 +933,13 @@ export const DHIS2Page = () => {
             <Typography variant="h6" gutterBottom style={{ marginTop: 16 }}>
               Database Configuration
             </Typography>
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={createDbAccount}
-                  onChange={e => {
-                    const next = e.target.checked;
-                    setCreateDbAccount(next);
-                    if (next) {
-                      // Switching back to "create new" — prefill sensible
-                      // defaults the user can still edit.
-                      setNewInstance(prev => ({
-                        ...prev,
-                        database: {
-                          ...prev.database,
-                          user:
-                            prev.database.user && prev.database.user !== 'dhis2'
-                              ? prev.database.user
-                              : prev.name || 'dhis2',
-                          password:
-                            prev.database.password || generateStrongPassword(),
-                        },
-                      }));
-                    }
-                  }}
-                  color="primary"
-                />
-              }
-              label="Create a new database account for this instance"
-            />
             <Typography
-              variant="caption"
+              variant="body2"
               color="textSecondary"
-              component="div"
               style={{ marginBottom: 8 }}
             >
-              {createDbAccount
-                ? 'A new PostgreSQL role will be created with the values below. The username defaults to the instance name and a strong password is suggested.'
-                : 'Provide credentials for an existing PostgreSQL role with privileges on the database below.'}
+              Provide credentials for an existing PostgreSQL role with
+              privileges on the database below.
             </Typography>
             <TextField
               fullWidth
@@ -979,35 +954,25 @@ export const DHIS2Page = () => {
             />
             <TextField
               fullWidth
-              label={createDbAccount ? 'New Database Username' : 'Database Username'}
+              label="Database Username"
               value={newInstance.database.user}
               onChange={e => setNewInstance({
                 ...newInstance,
                 database: { ...newInstance.database, user: e.target.value },
               })}
               className={classes.formField}
-              helperText={
-                createDbAccount
-                  ? 'Defaults to the instance name; rename if your conventions differ.'
-                  : undefined
-              }
               required
             />
             <TextField
               fullWidth
               type={showDbPassword ? 'text' : 'password'}
-              label={createDbAccount ? 'New Database Password' : 'Database Password'}
+              label="Database Password"
               value={newInstance.database.password}
               onChange={e => setNewInstance({
                 ...newInstance,
                 database: { ...newInstance.database, password: e.target.value },
               })}
               className={classes.formField}
-              helperText={
-                createDbAccount
-                  ? 'A strong password is suggested. Use the key icon to regenerate.'
-                  : undefined
-              }
               required
               InputProps={{
                 endAdornment: (
@@ -1024,44 +989,109 @@ export const DHIS2Page = () => {
                         )}
                       </IconButton>
                     </Tooltip>
-                    {createDbAccount && (
-                      <Tooltip title="Generate strong password">
-                        <IconButton
-                          size="small"
-                          onClick={() =>
-                            setNewInstance(prev => ({
-                              ...prev,
-                              database: {
-                                ...prev.database,
-                                password: generateStrongPassword(),
-                              },
-                            }))
-                          }
-                        >
-                          <VpnKeyIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {createDbAccount && (
-                      <Tooltip title="Copy password to clipboard">
-                        <IconButton
-                          size="small"
-                          onClick={() => {
-                            if (newInstance.database.password) {
-                              navigator.clipboard
-                                ?.writeText(newInstance.database.password)
-                                .catch(() => {});
-                            }
-                          }}
-                        >
-                          <FileCopyIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    )}
                   </InputAdornment>
                 ),
               }}
             />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={createDbAccount}
+                  onChange={e => {
+                    const next = e.target.checked;
+                    setCreateDbAccount(next);
+                    if (next) {
+                      // Pre-fill sensible defaults the user can still edit:
+                      // username defaults to the instance name and a strong
+                      // password is generated.
+                      setNewDbUser(prev => prev || newInstance.name || 'dhis2');
+                      setNewDbPassword(prev => prev || generateStrongPassword());
+                    }
+                  }}
+                  color="primary"
+                />
+              }
+              label="Create a new database account for this instance"
+            />
+            <Typography
+              variant="caption"
+              color="textSecondary"
+              component="div"
+              style={{ marginBottom: 8 }}
+            >
+              {createDbAccount
+                ? 'A new PostgreSQL role will be created using the credentials below. The role above is used to perform the provisioning.'
+                : 'Tick to create a new PostgreSQL role in addition to using the credentials above. The new role will be granted ownership of the database.'}
+            </Typography>
+            {createDbAccount && (
+              <>
+                <TextField
+                  fullWidth
+                  label="New Database Username"
+                  value={newDbUser}
+                  onChange={e => setNewDbUser(e.target.value)}
+                  className={classes.formField}
+                  helperText="Defaults to the instance name; rename if your conventions differ."
+                  required
+                />
+                <TextField
+                  fullWidth
+                  type={showNewDbPassword ? 'text' : 'password'}
+                  label="New Database Password"
+                  value={newDbPassword}
+                  onChange={e => setNewDbPassword(e.target.value)}
+                  className={classes.formField}
+                  helperText="A strong password is suggested. Use the key icon to regenerate."
+                  required
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <Tooltip
+                          title={
+                            showNewDbPassword ? 'Hide password' : 'Show password'
+                          }
+                        >
+                          <IconButton
+                            size="small"
+                            onClick={() => setShowNewDbPassword(s => !s)}
+                          >
+                            {showNewDbPassword ? (
+                              <VisibilityOffIcon fontSize="small" />
+                            ) : (
+                              <VisibilityIcon fontSize="small" />
+                            )}
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Generate strong password">
+                          <IconButton
+                            size="small"
+                            onClick={() =>
+                              setNewDbPassword(generateStrongPassword())
+                            }
+                          >
+                            <VpnKeyIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Copy password to clipboard">
+                          <IconButton
+                            size="small"
+                            onClick={() => {
+                              if (newDbPassword) {
+                                navigator.clipboard
+                                  ?.writeText(newDbPassword)
+                                  .catch(() => {});
+                              }
+                            }}
+                          >
+                            <FileCopyIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </>
+            )}
             <Typography variant="h6" gutterBottom style={{ marginTop: 16 }}>
               Initial Data
             </Typography>

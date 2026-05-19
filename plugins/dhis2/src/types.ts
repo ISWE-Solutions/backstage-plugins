@@ -136,6 +136,16 @@ export interface CreateInstanceRequest {
    * omitted, an empty DHIS2 schema is initialised by DHIS2 itself.
    */
   restore?: RestoreSource;
+  /**
+   * Optional new PostgreSQL role to provision alongside the database. When
+   * provided, the orchestrator (using the privileged credentials in
+   * `database`) creates this role and grants it ownership of the new
+   * database. DHIS2 is then configured to connect using these credentials.
+   */
+  newDbAccount?: {
+    user: string;
+    password: string;
+  };
 }
 
 // Restore-from-backup types
