@@ -45,6 +45,7 @@ import CloudIcon from '@material-ui/icons/Cloud';
 import DnsIcon from '@material-ui/icons/Dns';
 import { DHIS2Instance, CreateInstanceRequest, ProxmoxNode } from '../types';
 import { dhis2Service } from '../services/dhis2Service';
+import { fetchApiRef, useApi } from '@backstage/core-plugin-api';
 import { DHIS2SettingsPage } from './DHIS2SettingsPage';
 import { DHIS2LogsPanel } from './DHIS2LogsPanel';
 import { ProxmoxClusterPanel } from './ProxmoxClusterPanel';
@@ -107,6 +108,7 @@ function TabPanel(props: TabPanelProps) {
 
 export const DHIS2Page = () => {
   const classes = useStyles();
+  const { fetch: backstageFetch } = useApi(fetchApiRef);
   const [instances, setInstances] = useState<DHIS2Instance[]>([]);
   const [loading, setLoading] = useState(true);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -158,7 +160,7 @@ export const DHIS2Page = () => {
 
   const loadNodes = async () => {
     try {
-      const data = await dhis2Service.getNodes();
+      const data = await dhis2Service.getNodes(undefined, backstageFetch);
       setNodes(data);
       if (data.length > 0 && !newInstance.node) {
         setNewInstance(prev => ({ ...prev, node: data[0].node }));

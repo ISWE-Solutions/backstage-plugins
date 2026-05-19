@@ -194,8 +194,9 @@ export class DHIS2Service {
    */
   async getNodes(
     overrideSettings?: ProxmoxClusterSettings,
+    fetchFn?: typeof fetch,
   ): Promise<ProxmoxNode[]> {
-    const result = await this.fetchNodes(overrideSettings);
+    const result = await this.fetchNodes(overrideSettings, fetchFn);
     return result.nodes;
   }
 
@@ -204,7 +205,10 @@ export class DHIS2Service {
    * can show meaningful feedback (e.g. when a Refresh click silently fell
    * back to mock data because the API is unreachable).
    */
-  async fetchNodes(overrideSettings?: ProxmoxClusterSettings): Promise<{
+  async fetchNodes(
+    overrideSettings?: ProxmoxClusterSettings,
+    fetchFn: typeof fetch = (...args) => fetch(...args),
+  ): Promise<{
     nodes: ProxmoxNode[];
     source: 'api' | 'mock';
     error?: string;
@@ -252,7 +256,7 @@ export class DHIS2Service {
     let res: Response | undefined;
     let rawBody = '';
     try {
-      res = await fetch(url, { headers });
+      res = await fetchFn(url, { headers });
       rawBody = await res.text();
       if (!res.ok) {
         throw new Error(`HTTP ${res.status} ${res.statusText}`);

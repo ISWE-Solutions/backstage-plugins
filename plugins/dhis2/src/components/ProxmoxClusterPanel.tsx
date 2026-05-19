@@ -37,6 +37,7 @@ import {
 } from '../types';
 import { dhis2Service } from '../services/dhis2Service';
 import { settingsService } from '../services/settingsService';
+import { fetchApiRef, useApi } from '@backstage/core-plugin-api';
 
 const useStyles = makeStyles(theme => ({
   section: { marginBottom: theme.spacing(3) },
@@ -60,6 +61,7 @@ const bytesToGiB = (n: number) => n / 1024 ** 3;
 
 export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
   const classes = useStyles();
+  const { fetch: backstageFetch } = useApi(fetchApiRef);
   const [settings, setSettings] = useState<DHIS2PluginSettings>(() =>
     settingsService.load(),
   );
@@ -85,9 +87,7 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
     async (silent = false) => {
       setLoadingNodes(true);
       try {
-        // Use the current in-memory settings so the user doesn't have to
-        // click Save before Refresh / Test connection picks up edits.
-        const result = await dhis2Service.fetchNodes(proxmox);
+        const result = await dhis2Service.fetchNodes(proxmox, backstageFetch);
         setNodes(result.nodes);
         onNodesChange?.(result.nodes);
         const ok = result.source === 'api';
@@ -109,7 +109,7 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
         setLoadingNodes(false);
       }
     },
-    [onNodesChange, proxmox],
+    [onNodesChange, proxmox, backstageFetch],
   );
 
   useEffect(() => {
@@ -128,7 +128,7 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
     setLoadingNodes(true);
     setSnackbar('Testing Proxmox connection…');
     try {
-      const result = await dhis2Service.fetchNodes(proxmox);
+      const result = await dhis2Service.fetchNodes(proxmox, backstageFetch);
       setNodes(result.nodes);
       onNodesChange?.(result.nodes);
       const ok = result.source === 'api';
