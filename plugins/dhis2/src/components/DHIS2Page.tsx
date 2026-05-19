@@ -504,87 +504,17 @@ export const DHIS2Page = () => {
         {/* Tabs */}
         <Paper style={{ marginBottom: 24 }}>
           <Tabs value={tabValue} onChange={(_e, newValue) => setTabValue(newValue)} indicatorColor="primary">
-            <Tab label="Instances" />
             <Tab label="Proxmox Cluster" />
+            <Tab label="Instances" />
             <Tab label="Proxy" />
             <Tab label="Logs" />
           </Tabs>
         </Paper>
 
-        {/* Statistics */}
-        <Grid container spacing={3} alignItems="stretch" style={{ marginBottom: 24 }}>
-          <Grid item xs={12} sm={6} md={4} lg={2}>
-            <Card className={classes.statCard}>
-              <StorageIcon className={classes.statIcon} style={{ color: '#1976d2' }} />
-              <Typography className={classes.statValue}>{instances.length}</Typography>
-              <Typography variant="subtitle1" color="textSecondary" className={classes.statLabel}>
-                Total Instances
-              </Typography>
-            </Card>
-          </Grid>
-          <Grid item xs={12} sm={6} md={4} lg={2}>
-            <Card className={classes.statCard}>
-              <PlayArrowIcon className={classes.statIcon} style={{ color: '#4caf50' }} />
-              <Typography className={classes.statValue}>{runningInstances}</Typography>
-              <Typography variant="subtitle1" color="textSecondary" className={classes.statLabel}>
-                Running
-              </Typography>
-            </Card>
-          </Grid>
-          <Grid item xs={12} sm={6} md={4} lg={2}>
-            <Card className={classes.statCard}>
-              <CloudIcon className={classes.statIcon} style={{ color: '#ff9800' }} />
-              <Typography className={classes.statValue}>{totalVCPUs}</Typography>
-              <Typography variant="subtitle1" color="textSecondary" className={classes.statLabel}>
-                Total vCPUs
-              </Typography>
-            </Card>
-          </Grid>
-          <Grid item xs={12} sm={6} md={4} lg={2}>
-            <Card className={classes.statCard}>
-              <DnsIcon className={classes.statIcon} style={{ color: '#9c27b0' }} />
-              <Typography className={classes.statValue}>
-                {formatCapacity(totalMemoryBytes)}
-              </Typography>
-              <Typography variant="subtitle1" color="textSecondary" className={classes.statLabel}>
-                Total Memory
-              </Typography>
-            </Card>
-          </Grid>
-          <Grid item xs={12} sm={6} md={4} lg={2}>
-            <Card className={classes.statCard}>
-              <SdStorageIcon className={classes.statIcon} style={{ color: '#00897b' }} />
-              <Typography className={classes.statValue}>
-                {formatCapacity(totalDiskBytes)}
-              </Typography>
-              <Typography variant="subtitle1" color="textSecondary" className={classes.statLabel}>
-                Storage Capacity
-              </Typography>
-            </Card>
-          </Grid>
-          <Grid item xs={12} sm={6} md={4} lg={2}>
-            <Card className={classes.statCard}>
-              <DeviceHubIcon className={classes.statIcon} style={{ color: '#3949ab' }} />
-              <Typography className={classes.statValue}>
-                {onlineNodes}
-                <Typography
-                  component="span"
-                  style={{ fontSize: '1.25rem', color: 'inherit', opacity: 0.6 }}
-                >
-                  {` / ${nodes.length}`}
-                </Typography>
-              </Typography>
-              <Typography variant="subtitle1" color="textSecondary" className={classes.statLabel}>
-                Cluster Nodes
-              </Typography>
-            </Card>
-          </Grid>
-        </Grid>
-
         {/* Tab panels */}
         <Paper>
           {/* Instances Tab */}
-          <TabPanel value={tabValue} index={0}>
+          <TabPanel value={tabValue} index={1}>
             {loading ? (
               <Box display="flex" justifyContent="center" p={4}>
                 <CircularProgress />
@@ -675,7 +605,75 @@ export const DHIS2Page = () => {
           </TabPanel>
 
           {/* Proxmox Cluster Tab */}
-          <TabPanel value={tabValue} index={1}>
+          <TabPanel value={tabValue} index={0}>
+            <Grid container spacing={3} alignItems="stretch" style={{ marginBottom: 24 }}>
+              <Grid item xs={12} sm={6} md={4} lg={2}>
+                <Card className={classes.statCard}>
+                  <StorageIcon className={classes.statIcon} style={{ color: '#1976d2' }} />
+                  <Typography className={classes.statValue}>{instances.length}</Typography>
+                  <Typography variant="subtitle1" color="textSecondary" className={classes.statLabel}>
+                    Total Instances
+                  </Typography>
+                </Card>
+              </Grid>
+              <Grid item xs={12} sm={6} md={4} lg={2}>
+                <Card className={classes.statCard}>
+                  <PlayArrowIcon className={classes.statIcon} style={{ color: '#4caf50' }} />
+                  <Typography className={classes.statValue}>{runningInstances}</Typography>
+                  <Typography variant="subtitle1" color="textSecondary" className={classes.statLabel}>
+                    Running
+                  </Typography>
+                </Card>
+              </Grid>
+              <Grid item xs={12} sm={6} md={4} lg={2}>
+                <Card className={classes.statCard}>
+                  <CloudIcon className={classes.statIcon} style={{ color: '#ff9800' }} />
+                  <Typography className={classes.statValue}>{totalVCPUs}</Typography>
+                  <Typography variant="subtitle1" color="textSecondary" className={classes.statLabel}>
+                    Total vCPUs
+                  </Typography>
+                </Card>
+              </Grid>
+              <Grid item xs={12} sm={6} md={4} lg={2}>
+                <Card className={classes.statCard}>
+                  <DnsIcon className={classes.statIcon} style={{ color: '#9c27b0' }} />
+                  <Typography className={classes.statValue}>
+                    {formatCapacity(totalMemoryBytes)}
+                  </Typography>
+                  <Typography variant="subtitle1" color="textSecondary" className={classes.statLabel}>
+                    Total Memory
+                  </Typography>
+                </Card>
+              </Grid>
+              <Grid item xs={12} sm={6} md={4} lg={2}>
+                <Card className={classes.statCard}>
+                  <SdStorageIcon className={classes.statIcon} style={{ color: '#00897b' }} />
+                  <Typography className={classes.statValue}>
+                    {formatCapacity(totalDiskBytes)}
+                  </Typography>
+                  <Typography variant="subtitle1" color="textSecondary" className={classes.statLabel}>
+                    Storage Capacity
+                  </Typography>
+                </Card>
+              </Grid>
+              <Grid item xs={12} sm={6} md={4} lg={2}>
+                <Card className={classes.statCard}>
+                  <DeviceHubIcon className={classes.statIcon} style={{ color: '#3949ab' }} />
+                  <Typography className={classes.statValue}>
+                    {onlineNodes}
+                    <Typography
+                      component="span"
+                      style={{ fontSize: '1.25rem', color: 'inherit', opacity: 0.6 }}
+                    >
+                      {` / ${nodes.length}`}
+                    </Typography>
+                  </Typography>
+                  <Typography variant="subtitle1" color="textSecondary" className={classes.statLabel}>
+                    Cluster Nodes
+                  </Typography>
+                </Card>
+              </Grid>
+            </Grid>
             <ProxmoxClusterPanel
               instances={instances}
               onNodesChange={setNodes}
