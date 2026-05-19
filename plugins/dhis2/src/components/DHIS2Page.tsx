@@ -39,12 +39,14 @@ import StopIcon from '@material-ui/icons/Stop';
 import RefreshIcon from '@material-ui/icons/Refresh';
 import DeleteIcon from '@material-ui/icons/Delete';
 import SettingsIcon from '@material-ui/icons/Settings';
+import DescriptionIcon from '@material-ui/icons/Description';
 import StorageIcon from '@material-ui/icons/Storage';
 import CloudIcon from '@material-ui/icons/Cloud';
 import DnsIcon from '@material-ui/icons/Dns';
 import { DHIS2Instance, CreateInstanceRequest } from '../types';
 import { dhis2Service } from '../services/dhis2Service';
 import { DHIS2SettingsPage } from './DHIS2SettingsPage';
+import { DHIS2LogsPanel } from './DHIS2LogsPanel';
 
 const useStyles = makeStyles(theme => ({
   card: {
@@ -110,6 +112,12 @@ export const DHIS2Page = () => {
   const [tabValue, setTabValue] = useState(0);
   const [nodes, setNodes] = useState<string[]>([]);
   const [versions, setVersions] = useState<string[]>([]);
+  const [logsDialog, setLogsDialog] = useState<{
+    open: boolean;
+    instance: DHIS2Instance | null;
+    lines: string[];
+    loading: boolean;
+  }>({ open: false, instance: null, lines: [], loading: false });
 
   const [newInstance, setNewInstance] = useState<CreateInstanceRequest>({
     name: '',
@@ -237,6 +245,39 @@ export const DHIS2Page = () => {
     }
   };
 
+  const handleViewInstanceLogs = async (instance: DHIS2Instance) => {
+    setLogsDialog({ open: true, instance, lines: [], loading: true });
+    try {
+      const lines = await dhis2Service.getInstanceLogs(instance.id, 200);
+      setLogsDialog(prev => ({ ...prev, lines, loading: false }));
+    } catch (error) {
+      console.error('Failed to load instance logs:', error);
+      setLogsDialog(prev => ({
+        ...prev,
+        lines: ['Failed to load logs. See console for details.'],
+        loading: false,
+      }));
+    }
+  };
+
+  const refreshInstanceLogs = async () => {
+    if (!logsDialog.instance) return;
+    setLogsDialog(prev => ({ ...prev, loading: true }));
+    try {
+      const lines = await dhis2Service.getInstanceLogs(
+        logsDialog.instance.id,
+        200,
+      );
+      setLogsDialog(prev => ({ ...prev, lines, loading: false }));
+    } catch (error) {
+      console.error('Failed to refresh instance logs:', error);
+      setLogsDialog(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const closeLogsDialog = () =>
+    setLogsDialog({ open: false, instance: null, lines: [], loading: false });
+
   const getStatusColor = (status: string): 'default' | 'primary' | 'secondary' => {
     switch (status) {
       case 'running':
@@ -273,6 +314,17 @@ export const DHIS2Page = () => {
             <RefreshIcon />
           </IconButton>
         </ContentHeader>
+
+        {/* Tabs */}
+        <Paper style={{ marginBottom: 24 }}>
+          <Tabs value={tabValue} onChange={(_e, newValue) => setTabValue(newValue)} indicatorColor="primary">
+            <Tab label="Instances" />
+            <Tab label="Cluster Nodes" />
+            <Tab label="Nginx Configuration" />
+            <Tab label="Logs" />
+            <Tab label="Settings" />
+          </Tabs>
+        </Paper>
 
         {/* Statistics */}
         <Grid container spacing={3} style={{ marginBottom: 24 }}>
@@ -314,15 +366,8 @@ export const DHIS2Page = () => {
           </Grid>
         </Grid>
 
-        {/* Tabs */}
+        {/* Tab panels */}
         <Paper>
-          <Tabs value={tabValue} onChange={(_e, newValue) => setTabValue(newValue)} indicatorColor="primary">
-            <Tab label="Instances" />
-            <Tab label="Cluster Nodes" />
-            <Tab label="Nginx Configuration" />
-            <Tab label="Settings" />
-          </Tabs>
-
           {/* Instances Tab */}
           <TabPanel value={tabValue} index={0}>
             {loading ? (
@@ -387,6 +432,9 @@ export const DHIS2Page = () => {
                                 <RefreshIcon />
                               </IconButton>
                             )}
+                            <IconButton onClick={() => handleViewInstanceLogs(instance)} title="View Logs">
+                              <DescriptionIcon />
+                            </IconButton>
                             <IconButton title="Settings">
                               <SettingsIcon />
                             </IconButton>
@@ -475,11 +523,67 @@ export const DHIS2Page = () => {
             </TableContainer>
           </TabPanel>
 
-          {/* Settings Tab */}
+          {/* Logs Tab */}
           <TabPanel value={tabValue} index={3}>
+            <DHIS2LogsPanel />
+          </TabPanel>
+
+          {/* Settings Tab */}
+          <TabPanel value={tabValue} index={4}>
             <DHIS2SettingsPage />
           </TabPanel>
         </Paper>
+
+        {/* Instance Logs Dialog */}
+        <Dialog open={logsDialog.open} onClose={closeLogsDialog} maxWidth="md" fullWidth>
+          <DialogTitle>
+            <Box display="flex" alignItems="center" justifyContent="space-between">
+              <span>
+                Logs
+                {logsDialog.instance ? ` — ${logsDialog.instance.name}` : ''}
+              </span>
+              <IconButton
+                size="small"
+                onClick={refreshInstanceLogs}
+                disabled={logsDialog.loading}
+                title="Refresh"
+              >
+                <RefreshIcon />
+              </IconButton>
+            </Box>
+          </DialogTitle>
+          <DialogContent dividers>
+            {logsDialog.loading ? (
+              <Box display="flex" justifyContent="center" p={4}>
+                <CircularProgress />
+              </Box>
+            ) : (
+              <Box
+                component="pre"
+                style={{
+                  margin: 0,
+                  padding: 12,
+                  backgroundColor: '#0e0e0e',
+                  color: '#e0e0e0',
+                  fontFamily: 'monospace',
+                  fontSize: '0.85rem',
+                  maxHeight: 480,
+                  overflow: 'auto',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  borderRadius: 4,
+                }}
+              >
+                {logsDialog.lines.length > 0
+                  ? logsDialog.lines.join('\n')
+                  : 'No log output.'}
+              </Box>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeLogsDialog}>Close</Button>
+          </DialogActions>
+        </Dialog>
 
         {/* Create Instance Dialog */}
         <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="md" fullWidth>

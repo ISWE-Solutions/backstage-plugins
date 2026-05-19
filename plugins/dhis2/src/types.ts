@@ -223,6 +223,40 @@ export interface DHIS2PluginSettings {
   dhis2: DHIS2DefaultsSettings;
 }
 
+// Orchestration logs
+
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+export type LogAction =
+  | 'create-instance'
+  | 'start-instance'
+  | 'stop-instance'
+  | 'restart-instance'
+  | 'delete-instance'
+  | 'update-resources'
+  | 'proxy-update'
+  | 'proxmox-api'
+  | 'backup'
+  | 'system';
+
+export interface OrchestrationLogEntry {
+  id: string;
+  timestamp: string;
+  level: LogLevel;
+  action: LogAction;
+  message: string;
+  /** Optional related instance id */
+  instanceId?: string;
+  /** Optional instance display name (denormalised for the UI) */
+  instanceName?: string;
+  /** Optional Proxmox task UPID */
+  taskId?: string;
+  /** User who triggered the action */
+  user?: string;
+  /** Free-form structured details */
+  details?: Record<string, unknown>;
+}
+
 export const DEFAULT_SETTINGS: DHIS2PluginSettings = {
   proxmox: {
     apiUrl: 'https://pve.example.com:8006',

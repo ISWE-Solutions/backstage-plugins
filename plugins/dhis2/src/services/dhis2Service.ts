@@ -1,4 +1,4 @@
-import { DHIS2Instance, CreateInstanceRequest } from '../types';
+import { DHIS2Instance, CreateInstanceRequest, OrchestrationLogEntry } from '../types';
 
 /**
  * Service for managing DHIS2 instances
@@ -203,6 +203,114 @@ export class DHIS2Service {
   ): Promise<void> {
     console.log(`Updating resources for instance ${id}:`, resources);
     // Call Proxmox API to update container resources
+  }
+
+  /**
+   * Get orchestration logs across all instances. In production this would
+   * stream from a backend; for now we return mock entries that cover the
+   * different log levels and actions the UI needs to render.
+   */
+  async getOrchestrationLogs(): Promise<OrchestrationLogEntry[]> {
+    const now = Date.now();
+    const t = (offsetSec: number) =>
+      new Date(now - offsetSec * 1000).toISOString();
+
+    return [
+      {
+        id: 'log-1001',
+        timestamp: t(5),
+        level: 'info',
+        action: 'system',
+        message: 'Orchestrator started, connected to Proxmox cluster (3 nodes online)',
+        user: 'system',
+      },
+      {
+        id: 'log-1002',
+        timestamp: t(45),
+        level: 'info',
+        action: 'create-instance',
+        message: 'Creating LXC container for DHIS2 instance "hmis-staging"',
+        instanceId: 'dhis2-004',
+        instanceName: 'hmis-staging',
+        taskId: 'UPID:pve1:0000A1B2:0001C3D4:6657ABCD:vzcreate:104:root@pam:',
+        user: 'admin',
+      },
+      {
+        id: 'log-1003',
+        timestamp: t(40),
+        level: 'debug',
+        action: 'proxmox-api',
+        message: 'POST /nodes/pve1/lxc → 200 OK (vmid=104)',
+        instanceId: 'dhis2-004',
+        instanceName: 'hmis-staging',
+      },
+      {
+        id: 'log-1004',
+        timestamp: t(30),
+        level: 'info',
+        action: 'proxy-update',
+        message: 'Wrote nginx site config /etc/nginx/conf.d/hmis-staging.conf and reloaded',
+        instanceId: 'dhis2-004',
+        instanceName: 'hmis-staging',
+      },
+      {
+        id: 'log-1005',
+        timestamp: t(120),
+        level: 'info',
+        action: 'start-instance',
+        message: 'Container 100 started successfully',
+        instanceId: 'dhis2-001',
+        instanceName: 'DHIS2 Production',
+        user: 'admin',
+      },
+      {
+        id: 'log-1006',
+        timestamp: t(360),
+        level: 'warn',
+        action: 'backup',
+        message: 'Backup completed with warnings: 2 large tables exceeded the 30m budget',
+        instanceId: 'dhis2-001',
+        instanceName: 'DHIS2 Production',
+        details: { sizeBytes: 5_872_402_944, durationSec: 1923 },
+      },
+      {
+        id: 'log-1007',
+        timestamp: t(900),
+        level: 'error',
+        action: 'restart-instance',
+        message: 'Restart failed: tomcat did not bind to port 8080 within 90s',
+        instanceId: 'dhis2-003',
+        instanceName: 'DHIS2 Development',
+        user: 'admin',
+      },
+      {
+        id: 'log-1008',
+        timestamp: t(1500),
+        level: 'info',
+        action: 'stop-instance',
+        message: 'Container 102 stopped gracefully',
+        instanceId: 'dhis2-003',
+        instanceName: 'DHIS2 Development',
+        user: 'admin',
+      },
+      {
+        id: 'log-1009',
+        timestamp: t(3600),
+        level: 'info',
+        action: 'update-resources',
+        message: 'Resized container 101: cpu 2→4, memory 4096→8192MB',
+        instanceId: 'dhis2-002',
+        instanceName: 'DHIS2 Testing',
+        user: 'admin',
+      },
+      {
+        id: 'log-1010',
+        timestamp: t(7200),
+        level: 'debug',
+        action: 'proxmox-api',
+        message: 'GET /cluster/resources → 200 OK (cached 30s)',
+      },
+    ];
   }
 }
 
