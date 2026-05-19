@@ -114,6 +114,16 @@ export type ProxmoxAuthMethod = 'token' | 'password';
 export interface ProxmoxClusterSettings {
   /** Proxmox VE API base URL, e.g. https://pve.example.org:8006 */
   apiUrl: string;
+  /**
+   * If true (recommended), route Proxmox API calls through the Backstage
+   * backend proxy (configured in app-config.yaml under `proxy./proxmox`)
+   * instead of calling the Proxmox API directly from the browser. This
+   * avoids CORS, self-signed TLS, and private-network reachability issues,
+   * and keeps the API token off the client.
+   */
+  useBackstageProxy: boolean;
+  /** Backstage proxy path, e.g. /api/proxy/proxmox */
+  backstageProxyPath: string;
   authMethod: ProxmoxAuthMethod;
   /** Token id, e.g. backstage@pve!orchestrator */
   tokenId?: string;
@@ -260,6 +270,8 @@ export interface OrchestrationLogEntry {
 export const DEFAULT_SETTINGS: DHIS2PluginSettings = {
   proxmox: {
     apiUrl: 'https://pve.example.com:8006',
+    useBackstageProxy: true,
+    backstageProxyPath: '/api/proxy/proxmox',
     authMethod: 'token',
     tokenId: '',
     tokenSecret: '',

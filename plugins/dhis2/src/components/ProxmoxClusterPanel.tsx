@@ -145,13 +145,56 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
           </Typography>
 
           <Grid container spacing={2}>
-            <Grid item xs={12} md={8}>
+            <Grid item xs={12}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={proxmox.useBackstageProxy}
+                    onChange={e =>
+                      updateProxmox({ useBackstageProxy: e.target.checked })
+                    }
+                  />
+                }
+                label="Route through Backstage backend proxy (recommended)"
+              />
+              <Typography
+                variant="caption"
+                color="textSecondary"
+                display="block"
+              >
+                When enabled, calls go to the Backstage proxy path below and
+                the API token is injected server-side. When disabled, the
+                browser calls the Proxmox API directly (requires CORS and
+                network reachability).
+              </Typography>
+            </Grid>
+
+            {proxmox.useBackstageProxy && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Backstage Proxy Path"
+                  value={proxmox.backstageProxyPath}
+                  onChange={e =>
+                    updateProxmox({ backstageProxyPath: e.target.value })
+                  }
+                  helperText="Configured in app-config.yaml proxy.endpoints, e.g. /api/proxy/proxmox"
+                  className={classes.field}
+                />
+              </Grid>
+            )}
+
+            <Grid item xs={12} md={proxmox.useBackstageProxy ? 6 : 8}>
               <TextField
                 fullWidth
                 label="API URL"
                 value={proxmox.apiUrl}
                 onChange={e => updateProxmox({ apiUrl: e.target.value })}
-                helperText="e.g. https://pve.example.org:8006"
+                helperText={
+                  proxmox.useBackstageProxy
+                    ? 'Informational only — actual target is set in app-config.yaml'
+                    : 'e.g. https://pve.example.org:8006'
+                }
                 className={classes.field}
               />
             </Grid>
