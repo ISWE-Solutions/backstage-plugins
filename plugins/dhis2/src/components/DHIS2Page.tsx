@@ -44,6 +44,7 @@ import CloudIcon from '@material-ui/icons/Cloud';
 import DnsIcon from '@material-ui/icons/Dns';
 import { DHIS2Instance, CreateInstanceRequest } from '../types';
 import { dhis2Service } from '../services/dhis2Service';
+import { DHIS2SettingsPage } from './DHIS2SettingsPage';
 
 const useStyles = makeStyles(theme => ({
   card: {
@@ -319,6 +320,7 @@ export const DHIS2Page = () => {
             <Tab label="Instances" />
             <Tab label="Cluster Nodes" />
             <Tab label="Nginx Configuration" />
+            <Tab label="Settings" />
           </Tabs>
 
           {/* Instances Tab */}
@@ -471,6 +473,11 @@ export const DHIS2Page = () => {
                 </TableBody>
               </Table>
             </TableContainer>
+          </TabPanel>
+
+          {/* Settings Tab */}
+          <TabPanel value={tabValue} index={3}>
+            <DHIS2SettingsPage />
           </TabPanel>
         </Paper>
 
