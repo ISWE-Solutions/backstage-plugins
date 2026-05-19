@@ -55,8 +55,10 @@ export class SettingsService {
     if (proxy.mode === 'subdomain') {
       return `${scheme}://${instanceName}.${proxy.baseDomain}`;
     }
-    const prefix = proxy.pathPrefix ? `/${proxy.pathPrefix}` : '';
-    return `${scheme}://${proxy.baseDomain}${prefix}/${instanceName}`;
+    if (proxy.pathPrefix) {
+      return `${scheme}://${proxy.baseDomain}/${proxy.pathPrefix}`;
+    }
+    return `${scheme}://${proxy.baseDomain}/${instanceName}`;
   }
 }
 

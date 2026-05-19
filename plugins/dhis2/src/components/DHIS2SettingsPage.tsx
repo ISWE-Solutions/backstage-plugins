@@ -80,10 +80,12 @@ export const DHIS2SettingsPage = () => {
         `${scheme}://hmis-dev.${proxy.baseDomain}`,
       ];
     }
-    const prefix = proxy.pathPrefix ? `/${proxy.pathPrefix}` : '';
+    if (proxy.pathPrefix) {
+      return [`${scheme}://${proxy.baseDomain}/${proxy.pathPrefix}`];
+    }
     return [
-      `${scheme}://${proxy.baseDomain}${prefix}/hmis`,
-      `${scheme}://${proxy.baseDomain}${prefix}/hmis-dev`,
+      `${scheme}://${proxy.baseDomain}/hmis`,
+      `${scheme}://${proxy.baseDomain}/hmis-dev`,
     ];
   })();
 
@@ -145,7 +147,7 @@ export const DHIS2SettingsPage = () => {
                   onChange={e =>
                     update('proxy', { pathPrefix: e.target.value })
                   }
-                  helperText='e.g. "dhis2" → base/dhis2/hmis'
+                  helperText='e.g. "hmis" → base/hmis'
                   className={classes.field}
                 />
               </Grid>

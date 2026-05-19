@@ -119,6 +119,16 @@ export interface CreateInstanceRequest {
     password: string;
   };
   adminPassword: string;
+  /**
+   * Optional per-instance overrides for the reverse-proxy routing settings.
+   * When provided, these replace the corresponding values from the global
+   * proxy settings for this instance only.
+   */
+  proxyOverride?: {
+    mode: ProxyMode;
+    baseDomain: string;
+    pathPrefix?: string;
+  };
 }
 
 // Nginx configuration types

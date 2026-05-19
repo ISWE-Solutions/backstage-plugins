@@ -47,6 +47,7 @@ import SdStorageIcon from '@material-ui/icons/SdStorage';
 import DeviceHubIcon from '@material-ui/icons/DeviceHub';
 import { DHIS2Instance, CreateInstanceRequest, ProxmoxNode } from '../types';
 import { dhis2Service } from '../services/dhis2Service';
+import { settingsService } from '../services/settingsService';
 import { fetchApiRef, useApi } from '@backstage/core-plugin-api';
 import { DHIS2SettingsPage } from './DHIS2SettingsPage';
 import { DHIS2LogsPanel } from './DHIS2LogsPanel';
@@ -143,22 +144,30 @@ export const DHIS2Page = () => {
     loading: boolean;
   }>({ open: false, instance: null, lines: [], loading: false });
 
-  const [newInstance, setNewInstance] = useState<CreateInstanceRequest>({
-    name: '',
-    domain: '',
-    version: '',
-    node: '',
-    resources: {
-      cpu: 4,
-      memory: 8192,
-      storage: 100,
-    },
-    database: {
+  const [newInstance, setNewInstance] = useState<CreateInstanceRequest>(() => {
+    const { proxy } = settingsService.load();
+    return {
       name: '',
-      user: 'dhis2',
-      password: '',
-    },
-    adminPassword: '',
+      domain: '',
+      version: '',
+      node: '',
+      resources: {
+        cpu: 4,
+        memory: 8192,
+        storage: 100,
+      },
+      database: {
+        name: '',
+        user: 'dhis2',
+        password: '',
+      },
+      adminPassword: '',
+      proxyOverride: {
+        mode: proxy.mode,
+        baseDomain: proxy.baseDomain,
+        pathPrefix: proxy.pathPrefix ?? '',
+      },
+    };
   });
 
   useEffect(() => {
@@ -209,6 +218,7 @@ export const DHIS2Page = () => {
       setCreateDialogOpen(false);
       loadInstances();
       // Reset form
+      const { proxy } = settingsService.load();
       setNewInstance({
         name: '',
         domain: '',
@@ -225,6 +235,11 @@ export const DHIS2Page = () => {
           password: '',
         },
         adminPassword: '',
+        proxyOverride: {
+          mode: proxy.mode,
+          baseDomain: proxy.baseDomain,
+          pathPrefix: proxy.pathPrefix ?? '',
+        },
       });
     } catch (error) {
       console.error('Failed to create instance:', error);
@@ -779,6 +794,110 @@ export const DHIS2Page = () => {
               helperText="Password for the DHIS2 admin user"
               required
             />
+            <Typography variant="h6" gutterBottom style={{ marginTop: 16 }}>
+              Reverse Proxy Routing (override)
+            </Typography>
+            <Typography variant="body2" color="textSecondary" style={{ marginBottom: 8 }}>
+              These values default to the global Reverse Proxy settings. Adjust
+              them to override how this specific instance is exposed.
+            </Typography>
+            {(() => {
+              const override = newInstance.proxyOverride ?? {
+                mode: 'path' as const,
+                baseDomain: '',
+                pathPrefix: '',
+              };
+              const updateOverride = (
+                patch: Partial<NonNullable<CreateInstanceRequest['proxyOverride']>>,
+              ) =>
+                setNewInstance({
+                  ...newInstance,
+                  proxyOverride: { ...override, ...patch },
+                });
+              const scheme = settingsService.load().proxy.forceHttps
+                ? 'https'
+                : 'http';
+              const examples =
+                override.mode === 'subdomain'
+                  ? [
+                      `${scheme}://${newInstance.name || 'hmis'}.${override.baseDomain}`,
+                    ]
+                  : override.pathPrefix
+                    ? [`${scheme}://${override.baseDomain}/${override.pathPrefix}`]
+                    : [
+                        `${scheme}://${override.baseDomain}/${newInstance.name || 'hmis'}`,
+                      ];
+              return (
+                <>
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} md={4}>
+                      <TextField
+                        fullWidth
+                        select
+                        label="Routing mode"
+                        value={override.mode}
+                        onChange={e =>
+                          updateOverride({
+                            mode: e.target.value as 'path' | 'subdomain',
+                          })
+                        }
+                        className={classes.formField}
+                      >
+                        <MenuItem value="path">Path-based (base/instance)</MenuItem>
+                        <MenuItem value="subdomain">
+                          Subdomain-based (instance.base)
+                        </MenuItem>
+                      </TextField>
+                    </Grid>
+                    <Grid item xs={12} md={override.mode === 'path' ? 4 : 8}>
+                      <TextField
+                        fullWidth
+                        label="Base domain"
+                        value={override.baseDomain}
+                        onChange={e =>
+                          updateOverride({ baseDomain: e.target.value })
+                        }
+                        className={classes.formField}
+                        helperText={
+                          override.mode === 'path'
+                            ? 'e.g. dhis2.example.org'
+                            : 'e.g. example.org'
+                        }
+                      />
+                    </Grid>
+                    {override.mode === 'path' && (
+                      <Grid item xs={12} md={4}>
+                        <TextField
+                          fullWidth
+                          label="Path prefix (optional)"
+                          value={override.pathPrefix ?? ''}
+                          onChange={e =>
+                            updateOverride({ pathPrefix: e.target.value })
+                          }
+                          className={classes.formField}
+                          helperText='e.g. "hmis" → base/hmis'
+                        />
+                      </Grid>
+                    )}
+                  </Grid>
+                  <Typography variant="caption" color="textSecondary">
+                    Example URLs:
+                  </Typography>
+                  <Box
+                    style={{
+                      fontFamily: 'monospace',
+                      fontSize: '0.85rem',
+                      marginTop: 4,
+                      marginBottom: 8,
+                    }}
+                  >
+                    {examples.map(u => (
+                      <div key={u}>{u}</div>
+                    ))}
+                  </Box>
+                </>
+              );
+            })()}
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
