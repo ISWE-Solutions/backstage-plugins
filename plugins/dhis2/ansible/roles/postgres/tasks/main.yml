@@ -1,0 +1,71 @@
+---
+- name: Install PostgreSQL packages
+  ansible.builtin.apt:
+    name:
+      - "postgresql-{{ postgresql_version }}"
+      - "postgresql-contrib-{{ postgresql_version }}"
+      - "postgresql-{{ postgresql_version }}-postgis-3"
+      - python3-psycopg2
+    state: present
+    update_cache: true
+
+- name: Ensure PostgreSQL service is running
+  ansible.builtin.systemd:
+    name: postgresql
+    state: started
+    enabled: true
+
+- name: Create DHIS2 database user
+  community.postgresql.postgresql_user:
+    name: "{{ dhis2_db_user }}"
+    password: "{{ dhis2_db_password }}"
+    state: present
+  become: true
+  become_user: postgres
+  no_log: true
+
+- name: Create DHIS2 database
+  community.postgresql.postgresql_db:
+    name: "{{ dhis2_db_name }}"
+    owner: "{{ dhis2_db_user }}"
+    encoding: UTF-8
+    lc_collate: en_US.UTF-8
+    lc_ctype: en_US.UTF-8
+    template: template0
+    state: present
+  become: true
+  become_user: postgres
+
+- name: Install required PostgreSQL extensions
+  community.postgresql.postgresql_ext:
+    name: "{{ item }}"
+    db: "{{ dhis2_db_name }}"
+    state: present
+  loop: "{{ postgresql_extensions }}"
+  become: true
+  become_user: postgres
+
+- name: Grant database privileges to DHIS2 user
+  community.postgresql.postgresql_privs:
+    db: "{{ dhis2_db_name }}"
+    roles: "{{ dhis2_db_user }}"
+    type: database
+    privs: ALL
+    state: present
+  become: true
+  become_user: postgres
+
+- name: Restore database backup if requested
+  ansible.builtin.include_tasks: restore.yml
+  when: dhis2_restore is defined and dhis2_restore
+
+- name: Apply PostgreSQL tuning parameters
+  ansible.builtin.lineinfile:
+    path: "/etc/postgresql/{{ postgresql_version }}/main/postgresql.conf"
+    regexp: "^#?\\s*{{ item.key }}\\s*="
+    line: "{{ item.key }} = {{ item.value }}"
+    state: present
+  loop:
+    - { key: "max_connections", value: "{{ postgresql_max_connections }}" }
+    - { key: "shared_buffers", value: "{{ postgresql_shared_buffers }}" }
+  notify: Restart PostgreSQL

@@ -1,0 +1,88 @@
+---
+- name: Install Java and Tomcat
+  ansible.builtin.apt:
+    name:
+      - "openjdk-{{ java_version }}-jdk-headless"
+      - "{{ tomcat_package }}"
+    state: present
+    update_cache: true
+
+- name: Create DHIS2 directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ tomcat_user }}"
+    group: "{{ tomcat_group }}"
+    mode: "0750"
+  loop:
+    - "{{ dhis2_install_dir }}"
+    - "{{ dhis2_home }}"
+    - "{{ dhis2_files_dir }}"
+
+- name: Download DHIS2 WAR (from releases.dhis2.org)
+  ansible.builtin.get_url:
+    url: "{{ dhis2_war_url }}"
+    dest: "{{ dhis2_install_dir }}/dhis.war"
+    owner: "{{ tomcat_user }}"
+    group: "{{ tomcat_group }}"
+    mode: "0640"
+  when: dhis2_war_file | length == 0
+
+- name: Copy DHIS2 WAR (from local override path)
+  ansible.builtin.copy:
+    src: "{{ dhis2_war_file }}"
+    dest: "{{ dhis2_install_dir }}/dhis.war"
+    owner: "{{ tomcat_user }}"
+    group: "{{ tomcat_group }}"
+    mode: "0640"
+    remote_src: "{{ dhis2_war_file is match('^/') }}"
+  when: dhis2_war_file | length > 0
+
+- name: Render dhis.conf
+  ansible.builtin.template:
+    src: dhis.conf.j2
+    dest: "{{ dhis2_home }}/dhis.conf"
+    owner: "{{ tomcat_user }}"
+    group: "{{ tomcat_group }}"
+    mode: "0640"
+  no_log: true
+  notify: Restart Tomcat
+
+- name: Remove default Tomcat webapps
+  ansible.builtin.file:
+    path: "{{ tomcat_webapps_dir }}/{{ item }}"
+    state: absent
+  loop:
+    - ROOT
+    - docs
+    - examples
+    - host-manager
+    - manager
+
+- name: Deploy DHIS2 WAR as ROOT
+  ansible.builtin.copy:
+    src: "{{ dhis2_install_dir }}/dhis.war"
+    dest: "{{ tomcat_webapps_dir }}/ROOT.war"
+    owner: "{{ tomcat_user }}"
+    group: "{{ tomcat_group }}"
+    mode: "0640"
+    remote_src: true
+  notify: Restart Tomcat
+
+- name: Configure Tomcat defaults (JAVA_OPTS + DHIS2_HOME)
+  ansible.builtin.copy:
+    dest: "{{ tomcat_defaults_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by the dhis2 Ansible role — edits will be overwritten.
+      JAVA_OPTS="{{ tomcat_java_opts }}"
+      DHIS2_HOME={{ dhis2_home }}
+  notify: Restart Tomcat
+
+- name: Ensure Tomcat is enabled and running
+  ansible.builtin.systemd:
+    name: "{{ tomcat_package }}"
+    state: started
+    enabled: true

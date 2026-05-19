@@ -1,0 +1,261 @@
+---
+# Restore an existing DHIS2 database backup into the freshly created DB.
+#
+# Expects fact `dhis2_restore` (dict) with at least:
+#   kind:          upload|url|s3|instance|vzdump|local
+#   dump_format:   plain|custom|directory   (optional; auto-detected for upload/url)
+#   local_staging_path: absolute path on the *managed host* where the orchestrator
+#                       (provision-instance.sh) already staged the dump for
+#                       'upload', 'vzdump' and 'instance' kinds.
+#
+# For 'url'   the role downloads in-place.
+# For 's3'    the role pulls the object using amazon.aws.s3_object.
+# For 'local' the role copies from `dhis2_restore.path` on the managed host
+#             (path must already exist there).
+#
+# After staging, the file is decompressed if needed and restored via psql or
+# pg_restore depending on dump_format.
+
+- name: Restore | ensure staging directory exists
+  ansible.builtin.file:
+    path: /var/lib/dhis2-restore
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0750"
+
+- name: Restore | set staged dump path (orchestrator-supplied)
+  ansible.builtin.set_fact:
+    _dhis2_restore_staged: "{{ dhis2_restore.local_staging_path | default('/var/lib/dhis2-restore/dump.bin') }}"
+
+# ---------------------------------------------------------------------------
+# Source acquisition
+# ---------------------------------------------------------------------------
+
+- name: Restore | download dump from URL
+  ansible.builtin.get_url:
+    url: "{{ dhis2_restore.url }}"
+    dest: "{{ _dhis2_restore_staged }}"
+    headers: "{{ dhis2_restore.headers | default({}) }}"
+    mode: "0640"
+    owner: postgres
+    group: postgres
+    force: true
+  when: dhis2_restore.kind == 'url'
+
+- name: Restore | fetch dump from S3
+  amazon.aws.s3_object:
+    bucket: "{{ dhis2_restore.bucket }}"
+    object: "{{ dhis2_restore.key }}"
+    dest: "{{ _dhis2_restore_staged }}"
+    mode: get
+    region: "{{ dhis2_restore.region | default(omit) }}"
+    endpoint_url: "{{ dhis2_restore.endpoint | default(omit) }}"
+    aws_access_key: "{{ dhis2_restore.access_key | default(omit) }}"
+    aws_secret_key: "{{ dhis2_restore.secret_key | default(omit) }}"
+  when: dhis2_restore.kind == 's3'
+  no_log: true
+
+- name: Restore | copy dump from a local path on the managed host
+  ansible.builtin.copy:
+    src: "{{ dhis2_restore.path }}"
+    dest: "{{ _dhis2_restore_staged }}"
+    remote_src: true
+    owner: postgres
+    group: postgres
+    mode: "0640"
+  when: dhis2_restore.kind == 'local'
+
+# For kinds 'upload', 'vzdump', and 'instance' the orchestrator script has
+# already placed the dump at `local_staging_path` on this host (extracted from
+# the vzdump tarball for vzdump, scp'd via pg_dump for instance, uploaded for
+# upload). Just verify it exists.
+
+- name: Restore | verify staged dump exists
+  ansible.builtin.stat:
+    path: "{{ _dhis2_restore_staged }}"
+  register: _dhis2_restore_stat
+  when: dhis2_restore.kind in ['upload', 'vzdump', 'instance']
+
+- name: Restore | fail if staged dump missing
+  ansible.builtin.fail:
+    msg: "Expected pre-staged dump at {{ _dhis2_restore_staged }} but it was not found."
+  when:
+    - dhis2_restore.kind in ['upload', 'vzdump', 'instance']
+    - not _dhis2_restore_stat.stat.exists
+
+# ---------------------------------------------------------------------------
+# Decompress (.gz / .zst) if applicable
+# ---------------------------------------------------------------------------
+
+- name: Restore | install decompression utilities
+  ansible.builtin.apt:
+    name:
+      - gzip
+      - zstd
+    state: present
+    update_cache: false
+
+- name: Restore | decompress .gz dump
+  ansible.builtin.command:
+    cmd: "gunzip -f {{ _dhis2_restore_staged }}"
+  args:
+    removes: "{{ _dhis2_restore_staged }}"
+    creates: "{{ _dhis2_restore_staged | regex_replace('\\.gz$', '') }}"
+  when: _dhis2_restore_staged is match('.*\\.gz$')
+  register: _dhis2_gunzip
+
+- name: Restore | decompress .zst dump
+  ansible.builtin.command:
+    cmd: "zstd -d -f --rm {{ _dhis2_restore_staged }}"
+  args:
+    removes: "{{ _dhis2_restore_staged }}"
+    creates: "{{ _dhis2_restore_staged | regex_replace('\\.zst$', '') }}"
+  when: _dhis2_restore_staged is match('.*\\.zst$')
+  register: _dhis2_unzstd
+
+- name: Restore | update staged path after decompression
+  ansible.builtin.set_fact:
+    _dhis2_restore_staged: "{{ _dhis2_restore_staged | regex_replace('\\.(gz|zst)$', '') }}"
+  when: _dhis2_gunzip.changed | default(false) or _dhis2_unzstd.changed | default(false)
+
+# ---------------------------------------------------------------------------
+# Format auto-detection
+# ---------------------------------------------------------------------------
+
+- name: Restore | sniff dump format if not provided
+  when: dhis2_restore.dump_format is not defined
+  block:
+    - name: Restore | read first bytes of dump
+      ansible.builtin.command:
+        cmd: "head -c 5 {{ _dhis2_restore_staged }}"
+      register: _dhis2_dump_head
+      changed_when: false
+
+    - name: Restore | set dump_format based on magic bytes
+      ansible.builtin.set_fact:
+        _dhis2_dump_format: "{{ 'custom' if (_dhis2_dump_head.stdout.startswith('PGDMP')) else 'plain' }}"
+
+- name: Restore | use provided dump_format
+  ansible.builtin.set_fact:
+    _dhis2_dump_format: "{{ dhis2_restore.dump_format }}"
+  when: dhis2_restore.dump_format is defined
+
+# ---------------------------------------------------------------------------
+# (Re)create the target database to ensure a clean slate
+# ---------------------------------------------------------------------------
+
+- name: Restore | terminate existing connections to target DB
+  community.postgresql.postgresql_query:
+    db: postgres
+    query: >
+      SELECT pg_terminate_backend(pid)
+      FROM pg_stat_activity
+      WHERE datname = %s AND pid <> pg_backend_pid()
+    positional_args:
+      - "{{ dhis2_db_name }}"
+  become: true
+  become_user: postgres
+
+- name: Restore | drop existing database
+  community.postgresql.postgresql_db:
+    name: "{{ dhis2_db_name }}"
+    state: absent
+  become: true
+  become_user: postgres
+
+- name: Restore | recreate empty database
+  community.postgresql.postgresql_db:
+    name: "{{ dhis2_db_name }}"
+    owner: "{{ dhis2_db_user }}"
+    encoding: UTF-8
+    lc_collate: en_US.UTF-8
+    lc_ctype: en_US.UTF-8
+    template: template0
+    state: present
+  become: true
+  become_user: postgres
+
+- name: Restore | reinstall required PostgreSQL extensions
+  community.postgresql.postgresql_ext:
+    name: "{{ item }}"
+    db: "{{ dhis2_db_name }}"
+    state: present
+  loop: "{{ postgresql_extensions }}"
+  become: true
+  become_user: postgres
+
+# ---------------------------------------------------------------------------
+# Restore the dump
+# ---------------------------------------------------------------------------
+
+- name: Restore | apply plain SQL dump with psql
+  ansible.builtin.command:
+    cmd: >
+      psql --single-transaction --set ON_ERROR_STOP=on
+      -d {{ dhis2_db_name }} -f {{ _dhis2_restore_staged }}
+  become: true
+  become_user: postgres
+  when: _dhis2_dump_format == 'plain'
+
+- name: Restore | apply custom-format dump with pg_restore
+  ansible.builtin.command:
+    cmd: >
+      pg_restore --no-owner --role={{ dhis2_db_user }}
+      --dbname={{ dhis2_db_name }} --jobs=4
+      {{ _dhis2_restore_staged }}
+  become: true
+  become_user: postgres
+  when: _dhis2_dump_format == 'custom'
+  register: _dhis2_pgrestore_custom
+  failed_when:
+    - _dhis2_pgrestore_custom.rc != 0
+    - "'errors ignored on restore' not in _dhis2_pgrestore_custom.stderr | default('')"
+
+- name: Restore | apply directory-format dump with pg_restore
+  ansible.builtin.command:
+    cmd: >
+      pg_restore --no-owner --role={{ dhis2_db_user }}
+      --dbname={{ dhis2_db_name }} --jobs=4 --format=directory
+      {{ _dhis2_restore_staged }}
+  become: true
+  become_user: postgres
+  when: _dhis2_dump_format == 'directory'
+  register: _dhis2_pgrestore_dir
+  failed_when:
+    - _dhis2_pgrestore_dir.rc != 0
+    - "'errors ignored on restore' not in _dhis2_pgrestore_dir.stderr | default('')"
+
+# ---------------------------------------------------------------------------
+# Post-restore housekeeping
+# ---------------------------------------------------------------------------
+
+- name: Restore | reassign ownership to DHIS2 user
+  community.postgresql.postgresql_query:
+    db: "{{ dhis2_db_name }}"
+    query: "REASSIGN OWNED BY postgres TO {{ dhis2_db_user }}"
+  become: true
+  become_user: postgres
+  ignore_errors: true
+
+- name: Restore | re-grant privileges to DHIS2 user
+  community.postgresql.postgresql_privs:
+    db: "{{ dhis2_db_name }}"
+    roles: "{{ dhis2_db_user }}"
+    type: database
+    privs: ALL
+    state: present
+  become: true
+  become_user: postgres
+
+- name: Restore | ANALYZE database
+  community.postgresql.postgresql_query:
+    db: "{{ dhis2_db_name }}"
+    query: "ANALYZE"
+  become: true
+  become_user: postgres
+
+- name: Restore | remove staged dump file
+  ansible.builtin.file:
+    path: "{{ _dhis2_restore_staged }}"
+    state: absent

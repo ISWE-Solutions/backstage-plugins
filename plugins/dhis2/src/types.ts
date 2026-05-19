@@ -129,6 +129,107 @@ export interface CreateInstanceRequest {
     baseDomain: string;
     pathPrefix?: string;
   };
+  /**
+   * Optional initial-data restore. When set, the orchestrator stages the
+   * dump described by `restore` and loads it into the freshly created
+   * PostgreSQL database before DHIS2 is started for the first time. When
+   * omitted, an empty DHIS2 schema is initialised by DHIS2 itself.
+   */
+  restore?: RestoreSource;
+}
+
+// Restore-from-backup types
+
+/**
+ * Format of a PostgreSQL dump file. Determines which tool the playbook
+ * uses to load it:
+ *   - `plain`     → `psql -f` (text SQL, may be gzip/zstd compressed)
+ *   - `custom`    → `pg_restore -Fc` (single-file binary `pg_dump -Fc`)
+ *   - `directory` → `pg_restore -Fd` (tar-of-directory `pg_dump -Fd`)
+ */
+export type DumpFormat = 'plain' | 'custom' | 'directory';
+
+/**
+ * Where the DB dump should be fetched from. The shape is a discriminated
+ * union on `kind` so the UI / backend / Ansible can switch behaviour
+ * exhaustively. Credentials supplied here are transient and are never
+ * persisted in the browser (use plugin Settings for long-lived secrets).
+ */
+export type RestoreSource =
+  | {
+      kind: 'upload';
+      /** Opaque token returned by POST /api/dhis2/restore/upload */
+      uploadToken: string;
+      originalFilename: string;
+      sizeBytes: number;
+      format: DumpFormat;
+    }
+  | {
+      kind: 'url';
+      url: string;
+      format: DumpFormat;
+      /** Optional auth/custom headers forwarded by the backend when fetching the URL */
+      headers?: Record<string, string>;
+    }
+  | {
+      kind: 's3';
+      bucket: string;
+      key: string;
+      region?: string;
+      /** Custom S3-compatible endpoint (MinIO, Wasabi, R2, …). Empty = AWS. */
+      endpoint?: string;
+      accessKeyId?: string;
+      secretAccessKey?: string;
+      format: DumpFormat;
+      /**
+       * When true, missing credentials fall back to the plugin settings
+       * (the configured offsite backup bucket credentials).
+       */
+      useSettingsCredentials?: boolean;
+    }
+  | {
+      kind: 'instance';
+      /** id of a managed DHIS2 instance to clone via live pg_dump */
+      sourceInstanceId: string;
+      /** Also copy the DHIS2 files dir (uploaded resources). Default false. */
+      includeFiles?: boolean;
+    }
+  | {
+      kind: 'vzdump';
+      /** Proxmox node that owns the backup storage */
+      node: string;
+      /** Storage id (must have `content` including `backup`) */
+      storage: string;
+      /** Volid of the vzdump archive, e.g. `local:backup/vzdump-lxc-100-2026_05_01-02_00_00.tar.zst` */
+      volid: string;
+    }
+  | {
+      kind: 'local';
+      /** Proxmox node where the dump file lives */
+      node: string;
+      /** Absolute path on the host */
+      path: string;
+      format: DumpFormat;
+    };
+
+/**
+ * Status of a restore job (initial or post-create). Mirrors `AnsibleTask`
+ * shape so the existing logs/progress UI can be reused.
+ */
+export interface RestoreJob {
+  jobId: string;
+  instanceId: string;
+  status:
+    | 'queued'
+    | 'staging'
+    | 'restoring'
+    | 'completed'
+    | 'failed'
+    | 'cancelled';
+  startedAt: string;
+  finishedAt?: string;
+  exitCode?: number;
+  message?: string;
 }
 
 // Nginx configuration types

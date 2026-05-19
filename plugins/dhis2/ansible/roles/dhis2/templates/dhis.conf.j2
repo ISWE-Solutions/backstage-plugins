@@ -1,0 +1,28 @@
+{# Rendered by the dhis2 Ansible role. Do not edit by hand. #}
+{# Reference: https://docs.dhis2.org/en/manage/performing-system-administration/dhis-core-version-master/installation.html #}
+
+# Database connection
+connection.dialect = org.hibernate.dialect.PostgreSQLDialect
+connection.driver_class = org.postgresql.Driver
+connection.url = jdbc:postgresql://{{ dhis2_db_host }}:{{ dhis2_db_port }}/{{ dhis2_db_name }}
+connection.username = {{ dhis2_db_user }}
+connection.password = {{ dhis2_db_password }}
+
+# Database pool
+connection.pool.max_size = 80
+connection.pool.min_size = 10
+
+# Server configuration
+server.base.url = {{ dhis2_server_base_url }}
+
+# File storage
+filestore.provider = filesystem
+filestore.container = {{ dhis2_files_dir }}
+
+# Analytics
+analytics.cache.expiration = 3600
+
+# System monitoring (left empty — populated by ops if/when needed).
+system.monitoring.url =
+system.monitoring.username =
+system.monitoring.password =

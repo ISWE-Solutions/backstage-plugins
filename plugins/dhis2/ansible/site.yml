@@ -1,0 +1,40 @@
+---
+# Wrapper playbook for the dhis2 Backstage plugin.
+#
+# Configures everything inside the LXC container created by
+# ../scripts/create-container.sh:
+#   - base packages + timezone (`common` role)
+#   - PostgreSQL with required extensions and DHIS2 db/user (`postgres` role)
+#   - Tomcat + DHIS2 WAR + dhis.conf (`dhis2` role)
+#
+# TLS is handled at the Proxmox host by the central Nginx
+# (see ../scripts/configure-host-proxy.sh) so this playbook does NOT
+# install or configure any in-container web proxy.
+
+- name: Pre-flight — verify SSH reachability
+  hosts: managed
+  gather_facts: false
+  tasks:
+    - name: Ping all managed hosts
+      ansible.builtin.ping:
+
+- name: Provision DHIS2 instance
+  hosts: instances
+  become: true
+  gather_facts: true
+  roles:
+    - role: common
+    - role: postgres
+    - role: dhis2
+
+  post_tasks:
+    - name: Wait for DHIS2 web endpoint to respond
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8080/dhis-web-commons/security/login.action"
+        status_code: [200, 302]
+        validate_certs: false
+      register: dhis2_health
+      retries: 60
+      delay: 10
+      until: dhis2_health.status in [200, 302]
+      changed_when: false

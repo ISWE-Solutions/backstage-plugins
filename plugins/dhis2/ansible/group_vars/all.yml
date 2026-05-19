@@ -1,0 +1,14 @@
+---
+# Defaults applied to every host in the dhis2 plugin's Ansible runs.
+# Per-role defaults live under roles/<role>/defaults/main.yml; values here
+# override those when needed and centralise vars consumed by multiple roles.
+
+java_version: 17
+postgresql_version: 16
+
+# DB co-located in the same container by default. Change dhis2_db_host
+# (e.g. via --extra-vars) for a split topology.
+dhis2_db_host: localhost
+dhis2_db_port: 5432
+
+unattended_upgrades: true

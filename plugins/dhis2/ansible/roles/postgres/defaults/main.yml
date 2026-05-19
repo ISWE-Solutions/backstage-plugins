@@ -1,0 +1,8 @@
+---
+postgresql_version: 16
+postgresql_max_connections: 200
+postgresql_shared_buffers: 2GB
+postgresql_extensions:
+  - postgis
+  - pg_trgm
+  - btree_gin

@@ -1,0 +1,55 @@
+# Rendered by plugins/dhis2/scripts/provision-instance.sh via envsubst.
+# All ${VAR} placeholders below are substituted at provisioning time.
+
+# Loopback required by upstream playbook for "all:vars" connection vars.
+127.0.0.1 ansible_connection=local
+
+# PostgreSQL is co-located with DHIS2 inside the same Proxmox LXC container,
+# so the database group points at the same host as the instance.
+[databases]
+postgres ansible_host=${CONTAINER_IP}
+
+[instances]
+${INSTANCE_NAME} ansible_host=${CONTAINER_IP} database_host=postgres dhis2_version=${DHIS2_VERSION} fqdn=${DOMAIN} proxy_rewrite=True
+
+# Monitoring / backups groups are intentionally empty; opt-in via
+# ENABLE_MONITORING / ENABLE_BACKUPS env vars handled by site.yml conditionals.
+[monitoring]
+
+[backup_servers]
+
+[integration]
+
+# Group of hosts the orchestrator reaches via SSH (everything except 127.0.0.1).
+[managed:children]
+databases
+instances
+
+[managed:vars]
+ansible_connection=ssh
+ansible_user=${ANSIBLE_USER}
+ansible_ssh_private_key_file=${ANSIBLE_SSH_KEY}
+ansible_become=True
+ansible_become_method=sudo
+
+# Variables applying to all hosts.
+[all:vars]
+fqdn=${DOMAIN}
+email=${LETSENCRYPT_EMAIL}
+timezone=${TIMEZONE}
+
+postgresql_version=${POSTGRESQL_VERSION}
+java_version=${JAVA_VERSION}
+
+# Central Nginx on the Proxmox host terminates TLS — skip the upstream
+# proxy role and run the container with a self-signed cert (Tomcat exposes
+# :8080 to the bridge; the host Nginx talks plain HTTP to it).
+proxy=none
+TLS_TYPE=selfsigned
+
+# Instance-group defaults (mirrors upstream hosts.template).
+[instances:vars]
+database_host=postgres
+create_db=yes
+dhis2_auto_upgrade=false
+unattended_upgrades=yes

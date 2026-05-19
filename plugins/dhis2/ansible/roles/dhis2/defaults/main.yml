@@ -1,0 +1,22 @@
+---
+java_version: 17
+dhis2_home: /opt/dhis2/config
+dhis2_install_dir: /opt/dhis2
+dhis2_files_dir: /opt/dhis2/files
+dhis2_war_url: "https://releases.dhis2.org/{{ dhis2_version }}/dhis.war"
+# When set, this overrides dhis2_war_url and is fetched instead.
+dhis2_war_file: ""
+
+tomcat_user: tomcat
+tomcat_group: tomcat
+tomcat_webapps_dir: /var/lib/tomcat9/webapps
+tomcat_defaults_file: /etc/default/tomcat9
+tomcat_java_opts: "-Djava.awt.headless=true -Xmx4G -Xms2G"
+tomcat_package: tomcat9
+
+# DB connection (database lives on the same host by default — see site.yml).
+dhis2_db_host: localhost
+dhis2_db_port: 5432
+
+# Server base URL used in dhis.conf.
+dhis2_server_base_url: "https://{{ fqdn }}"

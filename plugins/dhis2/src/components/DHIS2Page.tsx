@@ -14,6 +14,12 @@ import {
   DialogActions,
   TextField,
   MenuItem,
+  RadioGroup,
+  Radio,
+  FormControlLabel,
+  Checkbox,
+  InputAdornment,
+  Tooltip,
   Table,
   TableBody,
   TableCell,
@@ -45,13 +51,26 @@ import CloudIcon from '@material-ui/icons/Cloud';
 import DnsIcon from '@material-ui/icons/Dns';
 import SdStorageIcon from '@material-ui/icons/SdStorage';
 import DeviceHubIcon from '@material-ui/icons/DeviceHub';
-import { DHIS2Instance, CreateInstanceRequest, ProxmoxNode } from '../types';
+import SettingsBackupRestoreIcon from '@material-ui/icons/SettingsBackupRestore';
+import VpnKeyIcon from '@material-ui/icons/VpnKey';
+import FileCopyIcon from '@material-ui/icons/FileCopy';
+import VisibilityIcon from '@material-ui/icons/Visibility';
+import VisibilityOffIcon from '@material-ui/icons/VisibilityOff';
+import {
+  DHIS2Instance,
+  CreateInstanceRequest,
+  ProxmoxNode,
+  RestoreSource,
+} from '../types';
 import { dhis2Service } from '../services/dhis2Service';
 import { settingsService } from '../services/settingsService';
+import { validateRestoreSource } from '../services/restoreService';
 import { fetchApiRef, useApi } from '@backstage/core-plugin-api';
 import { DHIS2SettingsPage } from './DHIS2SettingsPage';
 import { DHIS2LogsPanel } from './DHIS2LogsPanel';
 import { ProxmoxClusterPanel } from './ProxmoxClusterPanel';
+import { RestoreSourcePicker } from './RestoreSourcePicker';
+import { RestoreInstanceDialog } from './RestoreInstanceDialog';
 
 const useStyles = makeStyles(theme => ({
   card: {
@@ -107,6 +126,20 @@ const useStyles = makeStyles(theme => ({
   },
 }));
 
+// Cryptographically strong password generator: 24 characters drawn from a
+// URL-safe alphabet that includes a few symbols Postgres accepts in passwords.
+const PASSWORD_ALPHABET =
+  'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789-_!@#%*';
+function generateStrongPassword(length = 13): string {
+  const bytes = new Uint32Array(length);
+  (globalThis.crypto ?? (window as any).crypto).getRandomValues(bytes);
+  let out = '';
+  for (let i = 0; i < length; i++) {
+    out += PASSWORD_ALPHABET[bytes[i] % PASSWORD_ALPHABET.length];
+  }
+  return out;
+}
+
 interface TabPanelProps {
   children?: React.ReactNode;
   index: number;
@@ -144,6 +177,22 @@ export const DHIS2Page = () => {
     loading: boolean;
   }>({ open: false, instance: null, lines: [], loading: false });
 
+  // Restore-from-backup state for the Create dialog.
+  const [restoreEnabled, setRestoreEnabled] = useState(false);
+  const [restoreSource, setRestoreSource] = useState<RestoreSource | undefined>(
+    undefined,
+  );
+
+  // Post-create restore dialog (Restore icon on an existing instance card).
+  const [restoreDialog, setRestoreDialog] = useState<{
+    open: boolean;
+    instance: DHIS2Instance | null;
+  }>({ open: false, instance: null });
+
+  // "Create new database account" option in the Create dialog.
+  const [createDbAccount, setCreateDbAccount] = useState(true);
+  const [showDbPassword, setShowDbPassword] = useState(false);
+
   const [newInstance, setNewInstance] = useState<CreateInstanceRequest>(() => {
     const { proxy } = settingsService.load();
     return {
@@ -159,7 +208,7 @@ export const DHIS2Page = () => {
       database: {
         name: '',
         user: 'dhis2',
-        password: '',
+        password: generateStrongPassword(),
       },
       adminPassword: '',
       proxyOverride: {
@@ -213,7 +262,11 @@ export const DHIS2Page = () => {
 
   const handleCreateInstance = async () => {
     try {
-      await dhis2Service.createInstance(newInstance);
+      const payload: CreateInstanceRequest = {
+        ...newInstance,
+        restore: restoreEnabled ? restoreSource : undefined,
+      };
+      await dhis2Service.createInstance(payload);
       setCreateDialogOpen(false);
       loadInstances();
       // Reset form
@@ -231,7 +284,7 @@ export const DHIS2Page = () => {
         database: {
           name: '',
           user: 'dhis2',
-          password: '',
+          password: generateStrongPassword(),
         },
         adminPassword: '',
         proxyOverride: {
@@ -239,10 +292,18 @@ export const DHIS2Page = () => {
           baseDomain: proxy.baseDomain,
         },
       });
+      setRestoreEnabled(false);
+      setRestoreSource(undefined);
+      setCreateDbAccount(true);
+      setShowDbPassword(false);
     } catch (error) {
       console.error('Failed to create instance:', error);
     }
   };
+
+  const restoreValidationError = restoreEnabled
+    ? validateRestoreSource(restoreSource) ?? (restoreSource ? null : 'Pick a backup source.')
+    : null;
 
   const handleStartInstance = async (id: string) => {
     try {
@@ -520,6 +581,14 @@ export const DHIS2Page = () => {
                             <IconButton onClick={() => handleViewInstanceLogs(instance)} title="View Logs">
                               <DescriptionIcon />
                             </IconButton>
+                            <IconButton
+                              onClick={() =>
+                                setRestoreDialog({ open: true, instance })
+                              }
+                              title="Restore from backup"
+                            >
+                              <SettingsBackupRestoreIcon />
+                            </IconButton>
                             <IconButton title="Settings">
                               <SettingsIcon />
                             </IconButton>
@@ -739,14 +808,22 @@ export const DHIS2Page = () => {
               onChange={e => {
                 const newName = e.target.value;
                 setNewInstance(prev => {
-                  const dbInSync =
+                  const dbNameInSync =
                     !prev.database.name || prev.database.name === prev.name;
+                  const dbUserInSync =
+                    !prev.database.user ||
+                    prev.database.user === 'dhis2' ||
+                    prev.database.user === prev.name;
                   return {
                     ...prev,
                     name: newName,
                     database: {
                       ...prev.database,
-                      name: dbInSync ? newName : prev.database.name,
+                      name: dbNameInSync ? newName : prev.database.name,
+                      user:
+                        createDbAccount && dbUserInSync && newName
+                          ? newName
+                          : prev.database.user,
                     },
                   };
                 });
@@ -850,6 +927,45 @@ export const DHIS2Page = () => {
             <Typography variant="h6" gutterBottom style={{ marginTop: 16 }}>
               Database Configuration
             </Typography>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={createDbAccount}
+                  onChange={e => {
+                    const next = e.target.checked;
+                    setCreateDbAccount(next);
+                    if (next) {
+                      // Switching back to "create new" — prefill sensible
+                      // defaults the user can still edit.
+                      setNewInstance(prev => ({
+                        ...prev,
+                        database: {
+                          ...prev.database,
+                          user:
+                            prev.database.user && prev.database.user !== 'dhis2'
+                              ? prev.database.user
+                              : prev.name || 'dhis2',
+                          password:
+                            prev.database.password || generateStrongPassword(),
+                        },
+                      }));
+                    }
+                  }}
+                  color="primary"
+                />
+              }
+              label="Create a new database account for this instance"
+            />
+            <Typography
+              variant="caption"
+              color="textSecondary"
+              component="div"
+              style={{ marginBottom: 8 }}
+            >
+              {createDbAccount
+                ? 'A new PostgreSQL role will be created with the values below. The username defaults to the instance name and a strong password is suggested.'
+                : 'Provide credentials for an existing PostgreSQL role with privileges on the database below.'}
+            </Typography>
             <TextField
               fullWidth
               label="Database Name"
@@ -863,27 +979,136 @@ export const DHIS2Page = () => {
             />
             <TextField
               fullWidth
-              label="Database User"
+              label={createDbAccount ? 'New Database Username' : 'Database Username'}
               value={newInstance.database.user}
               onChange={e => setNewInstance({
                 ...newInstance,
                 database: { ...newInstance.database, user: e.target.value },
               })}
               className={classes.formField}
+              helperText={
+                createDbAccount
+                  ? 'Defaults to the instance name; rename if your conventions differ.'
+                  : undefined
+              }
               required
             />
             <TextField
               fullWidth
-              type="password"
-              label="Database Password"
+              type={showDbPassword ? 'text' : 'password'}
+              label={createDbAccount ? 'New Database Password' : 'Database Password'}
               value={newInstance.database.password}
               onChange={e => setNewInstance({
                 ...newInstance,
                 database: { ...newInstance.database, password: e.target.value },
               })}
               className={classes.formField}
+              helperText={
+                createDbAccount
+                  ? 'A strong password is suggested. Use the key icon to regenerate.'
+                  : undefined
+              }
               required
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <Tooltip title={showDbPassword ? 'Hide password' : 'Show password'}>
+                      <IconButton
+                        size="small"
+                        onClick={() => setShowDbPassword(s => !s)}
+                      >
+                        {showDbPassword ? (
+                          <VisibilityOffIcon fontSize="small" />
+                        ) : (
+                          <VisibilityIcon fontSize="small" />
+                        )}
+                      </IconButton>
+                    </Tooltip>
+                    {createDbAccount && (
+                      <Tooltip title="Generate strong password">
+                        <IconButton
+                          size="small"
+                          onClick={() =>
+                            setNewInstance(prev => ({
+                              ...prev,
+                              database: {
+                                ...prev.database,
+                                password: generateStrongPassword(),
+                              },
+                            }))
+                          }
+                        >
+                          <VpnKeyIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {createDbAccount && (
+                      <Tooltip title="Copy password to clipboard">
+                        <IconButton
+                          size="small"
+                          onClick={() => {
+                            if (newInstance.database.password) {
+                              navigator.clipboard
+                                ?.writeText(newInstance.database.password)
+                                .catch(() => {});
+                            }
+                          }}
+                        >
+                          <FileCopyIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                  </InputAdornment>
+                ),
+              }}
             />
+            <Typography variant="h6" gutterBottom style={{ marginTop: 16 }}>
+              Initial Data
+            </Typography>
+            <RadioGroup
+              row
+              value={restoreEnabled ? 'restore' : 'empty'}
+              onChange={e => {
+                const next = e.target.value === 'restore';
+                setRestoreEnabled(next);
+                if (!next) setRestoreSource(undefined);
+              }}
+            >
+              <FormControlLabel
+                value="empty"
+                control={<Radio />}
+                label="Empty database (DHIS2 initialises the schema)"
+              />
+              <FormControlLabel
+                value="restore"
+                control={<Radio />}
+                label="Restore from an existing backup"
+              />
+            </RadioGroup>
+            {restoreEnabled && (
+              <Box mt={1} mb={2}>
+                <RestoreSourcePicker
+                  value={restoreSource}
+                  onChange={setRestoreSource}
+                  nodes={nodes}
+                />
+                {restoreValidationError && (
+                  <Typography variant="caption" color="error">
+                    {restoreValidationError}
+                  </Typography>
+                )}
+                <Typography
+                  variant="caption"
+                  color="textSecondary"
+                  component="div"
+                  style={{ marginTop: 8 }}
+                >
+                  Note: the restored database keeps its own admin user and
+                  password. The "DHIS2 Admin Password" below is ignored when
+                  restoring from a backup.
+                </Typography>
+              </Box>
+            )}
             <TextField
               fullWidth
               type="password"
@@ -891,17 +1116,35 @@ export const DHIS2Page = () => {
               value={newInstance.adminPassword}
               onChange={e => setNewInstance({ ...newInstance, adminPassword: e.target.value })}
               className={classes.formField}
-              helperText="Password for the DHIS2 admin user"
-              required
+              helperText={
+                restoreEnabled
+                  ? 'Ignored when restoring from a backup (the restored admin password is preserved).'
+                  : 'Password for the DHIS2 admin user'
+              }
+              disabled={restoreEnabled}
+              required={!restoreEnabled}
             />
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreateInstance} color="primary" variant="contained">
+            <Button
+              onClick={handleCreateInstance}
+              color="primary"
+              variant="contained"
+              disabled={Boolean(restoreValidationError)}
+            >
               Create Instance
             </Button>
           </DialogActions>
         </Dialog>
+
+        {/* Restore-from-backup for an existing instance */}
+        <RestoreInstanceDialog
+          open={restoreDialog.open}
+          instance={restoreDialog.instance}
+          nodes={nodes}
+          onClose={() => setRestoreDialog({ open: false, instance: null })}
+        />
       </Content>
     </Page>
   );

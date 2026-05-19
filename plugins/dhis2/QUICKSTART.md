@@ -323,12 +323,66 @@ cat /opt/dhis2/config/dhis.conf
 ✅ Monitor logs for suspicious activity  
 ✅ Implement fail2ban for brute force protection  
 
+## Provisioning (hybrid Bash + Ansible)
+
+Instance provisioning is a hybrid pipeline: a thin Bash layer handles the
+Proxmox-native parts (LXC creation, SSH bootstrap, central Nginx + Let's
+Encrypt), and a self-contained set of in-tree Ansible roles configures
+everything *inside* the container over SSH. No upstream Ansible dependency.
+
+```
+plugins/dhis2/
+├── scripts/
+│   ├── create-container.sh      # Proxmox: pvesh/pct + SSH bootstrap
+│   ├── configure-host-proxy.sh  # central Nginx + certbot (on PVE host)
+│   └── provision-instance.sh    # orchestrator: phases 1 → 2 → 3
+└── ansible/
+    ├── ansible.cfg
+    ├── site.yml                 # plays the in-tree roles
+    ├── inventory/hosts.tmpl     # rendered at runtime via envsubst
+    ├── group_vars/all.yml
+    └── roles/
+        ├── common/              # apt + base pkgs + timezone
+        ├── postgres/            # PostgreSQL + extensions + tuning
+        └── dhis2/               # Tomcat + WAR + dhis.conf
+```
+
+### First-time setup (on the Proxmox host)
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_dhis2 -N ''
+ansible-galaxy collection install -p plugins/dhis2/ansible/collections \
+  community.general community.postgresql ansible.posix
+```
+
+### Provision an instance
+
+Secrets are passed via env vars (never argv); the orchestrator renders a
+mode-`0600` `vars.yml` in a temp dir and removes it on exit.
+
+```bash
+export DHIS2_DB_PASS='…'
+export DHIS2_ADMIN_PASS='…'
+export ROOT_PASSWORD='…'
+
+cd plugins/dhis2/scripts
+./provision-instance.sh \
+  --vmid 200 --node pve1 --hostname dhis2-prod \
+  --domain dhis2.example.org --email admin@example.org \
+  --dhis2-version 2.42 --db-name dhis2 --db-user dhis2 \
+  --rollback-on-failure
+```
+
+Re-running is idempotent — Ansible will report `changed=0` for stable
+roles. Tear-down: `./configure-host-proxy.sh --remove --vmid 200 --domain dhis2.example.org && pct destroy 200 --purge`.
+
 ## Getting Help
 
 - **Plugin Documentation:** `/plugins/dhis2/README.md`
 - **Backend Guide:** `/docs/dhis2-backend-api-example.md`
 - **Implementation Summary:** `/docs/DHIS2_IMPLEMENTATION.md`
-- **Provisioning Script:** `/plugins/dhis2/scripts/provision-instance.sh`
+- **Provisioning Scripts:** `/plugins/dhis2/scripts/`
+- **Ansible Playbook:** `/plugins/dhis2/ansible/site.yml`
 
 **External Resources:**
 - DHIS2: https://docs.dhis2.org/

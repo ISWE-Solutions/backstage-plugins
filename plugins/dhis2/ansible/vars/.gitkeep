@@ -1,0 +1,2 @@
+# Placeholder so the vars/ directory is tracked while its contents
+# (rendered secrets like vars.yml) are gitignored.

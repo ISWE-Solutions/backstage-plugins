@@ -1,0 +1,9 @@
+# Local runtime artefacts — never commit.
+inventory/hosts
+vars/*.yml
+!vars/.gitkeep
+.ansible-facts/
+*.retry
+.vault_pass
+.ssh/
+collections/
