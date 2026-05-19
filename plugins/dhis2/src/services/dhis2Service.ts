@@ -208,31 +208,94 @@ export class DHIS2Service {
     nodes: ProxmoxNode[];
     source: 'api' | 'mock';
     error?: string;
+    url?: string;
+    status?: number;
+    statusText?: string;
+    bodySample?: string;
+    durationMs?: number;
   }> {
     const proxmox = overrideSettings ?? settingsService.load().proxmox;
-    const auth = buildProxmoxAuthHeader(proxmox);
-    if (!proxmox.apiUrl || !auth) {
-      const error =
-        'Proxmox API not fully configured (need API URL + API token).';
-      console.warn(`${error} Using mock nodes.`);
-      return { nodes: MOCK_NODES, source: 'mock', error };
+
+    // Determine target URL + headers. Prefer routing through the Backstage
+    // backend proxy (configured in app-config.yaml under `proxy./proxmox`)
+    // so the browser doesn't talk to Proxmox directly — this avoids CORS,
+    // self-signed TLS and private-network reachability problems, and keeps
+    // the API token off the client.
+    let url: string;
+    const headers: Record<string, string> = { Accept: 'application/json' };
+
+    if (proxmox.useBackstageProxy) {
+      if (!proxmox.backstageProxyPath) {
+        const error =
+          'Backstage proxy path is empty (e.g. /api/proxy/proxmox).';
+        console.warn(`${error} Using mock nodes.`);
+        return { nodes: MOCK_NODES, source: 'mock', error };
+      }
+      url = `${proxmox.backstageProxyPath.replace(
+        /\/+$/,
+        '',
+      )}/api2/json/nodes`;
+      // Auth header is injected by the backend proxy from env vars.
+    } else {
+      const auth = buildProxmoxAuthHeader(proxmox);
+      if (!proxmox.apiUrl || !auth) {
+        const error =
+          'Proxmox API not fully configured (need API URL + API token).';
+        console.warn(`${error} Using mock nodes.`);
+        return { nodes: MOCK_NODES, source: 'mock', error, url: proxmox.apiUrl };
+      }
+      url = `${proxmox.apiUrl.replace(/\/+$/, '')}/api2/json/nodes`;
+      headers.Authorization = auth;
     }
+
+    const started = performance.now();
+    let res: Response | undefined;
+    let rawBody = '';
     try {
-      const url = `${proxmox.apiUrl.replace(/\/+$/, '')}/api2/json/nodes`;
-      const res = await fetch(url, {
-        headers: { Authorization: auth, Accept: 'application/json' },
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-      const body = (await res.json()) as { data: ProxmoxNode[] };
-      return { nodes: body.data ?? [], source: 'api' };
+      res = await fetch(url, { headers });
+      rawBody = await res.text();
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status} ${res.statusText}`);
+      }
+      let parsed: { data?: ProxmoxNode[] } = {};
+      try {
+        parsed = JSON.parse(rawBody);
+      } catch (e) {
+        throw new Error(
+          `Response was not valid JSON: ${(e as Error).message}`,
+        );
+      }
+      const durationMs = Math.round(performance.now() - started);
+      console.info(
+        `[dhis2] fetched ${parsed.data?.length ?? 0} Proxmox node(s) from ${url} in ${durationMs}ms`,
+      );
+      return {
+        nodes: parsed.data ?? [],
+        source: 'api',
+        url,
+        status: res.status,
+        statusText: res.statusText,
+        durationMs,
+        bodySample: rawBody.slice(0, 500),
+      };
     } catch (err) {
+      const durationMs = Math.round(performance.now() - started);
       const error =
         err instanceof Error ? err.message : 'Unknown error fetching nodes';
-      console.warn(
-        'Failed to fetch Proxmox nodes, falling back to mock data:',
-        err,
+      console.error(
+        `[dhis2] Failed to fetch Proxmox nodes from ${url} after ${durationMs}ms: ${error}`,
+        { url, status: res?.status, body: rawBody.slice(0, 1000), err },
       );
-      return { nodes: MOCK_NODES, source: 'mock', error };
+      return {
+        nodes: MOCK_NODES,
+        source: 'mock',
+        error,
+        url,
+        status: res?.status,
+        statusText: res?.statusText,
+        durationMs,
+        bodySample: rawBody.slice(0, 500),
+      };
     }
   }
 

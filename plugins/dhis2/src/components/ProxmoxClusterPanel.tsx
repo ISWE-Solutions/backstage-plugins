@@ -66,6 +66,16 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
   const [nodes, setNodes] = useState<ProxmoxNode[]>([]);
   const [loadingNodes, setLoadingNodes] = useState(false);
   const [snackbar, setSnackbar] = useState<string | null>(null);
+  const [lastResult, setLastResult] = useState<{
+    ok: boolean;
+    message: string;
+    url?: string;
+    status?: number;
+    statusText?: string;
+    durationMs?: number;
+    bodySample?: string;
+    timestamp: string;
+  } | null>(null);
 
   const proxmox = settings.proxmox;
   const updateProxmox = (patch: Partial<typeof proxmox>) =>
@@ -77,20 +87,24 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
       try {
         // Use the current in-memory settings so the user doesn't have to
         // click Save before Refresh / Test connection picks up edits.
-        const { nodes: data, source, error } = await dhis2Service.fetchNodes(
-          proxmox,
-        );
-        setNodes(data);
-        onNodesChange?.(data);
-        if (!silent) {
-          if (source === 'api') {
-            setSnackbar(`Loaded ${data.length} node(s) from Proxmox API`);
-          } else {
-            setSnackbar(
-              `Using mock nodes — ${error ?? 'Proxmox API unreachable'}`,
-            );
-          }
-        }
+        const result = await dhis2Service.fetchNodes(proxmox);
+        setNodes(result.nodes);
+        onNodesChange?.(result.nodes);
+        const ok = result.source === 'api';
+        const message = ok
+          ? `Loaded ${result.nodes.length} node(s) from Proxmox API`
+          : `Using mock nodes — ${result.error ?? 'Proxmox API unreachable'}`;
+        setLastResult({
+          ok,
+          message,
+          url: result.url,
+          status: result.status,
+          statusText: result.statusText,
+          durationMs: result.durationMs,
+          bodySample: result.bodySample,
+          timestamp: new Date().toISOString(),
+        });
+        if (!silent) setSnackbar(message);
       } finally {
         setLoadingNodes(false);
       }
@@ -114,16 +128,24 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
     setLoadingNodes(true);
     setSnackbar('Testing Proxmox connection…');
     try {
-      const { nodes: data, source, error } = await dhis2Service.fetchNodes(
-        proxmox,
-      );
-      setNodes(data);
-      onNodesChange?.(data);
-      if (source === 'api') {
-        setSnackbar(`Connected — ${data.length} node(s) returned`);
-      } else {
-        setSnackbar(`Connection failed — ${error ?? 'unknown error'}`);
-      }
+      const result = await dhis2Service.fetchNodes(proxmox);
+      setNodes(result.nodes);
+      onNodesChange?.(result.nodes);
+      const ok = result.source === 'api';
+      const message = ok
+        ? `Connected — ${result.nodes.length} node(s) returned`
+        : `Connection failed — ${result.error ?? 'unknown error'}`;
+      setLastResult({
+        ok,
+        message,
+        url: result.url,
+        status: result.status,
+        statusText: result.statusText,
+        durationMs: result.durationMs,
+        bodySample: result.bodySample,
+        timestamp: new Date().toISOString(),
+      });
+      setSnackbar(message);
     } finally {
       setLoadingNodes(false);
     }
@@ -145,13 +167,56 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
           </Typography>
 
           <Grid container spacing={2}>
-            <Grid item xs={12} md={8}>
+            <Grid item xs={12}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={proxmox.useBackstageProxy}
+                    onChange={e =>
+                      updateProxmox({ useBackstageProxy: e.target.checked })
+                    }
+                  />
+                }
+                label="Route through Backstage backend proxy (recommended)"
+              />
+              <Typography
+                variant="caption"
+                color="textSecondary"
+                display="block"
+              >
+                When enabled, calls go to the Backstage proxy path below and
+                the API token is injected server-side. When disabled, the
+                browser calls the Proxmox API directly (requires CORS and
+                network reachability).
+              </Typography>
+            </Grid>
+
+            {proxmox.useBackstageProxy && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Backstage Proxy Path"
+                  value={proxmox.backstageProxyPath}
+                  onChange={e =>
+                    updateProxmox({ backstageProxyPath: e.target.value })
+                  }
+                  helperText="Configured in app-config.yaml proxy.endpoints, e.g. /api/proxy/proxmox"
+                  className={classes.field}
+                />
+              </Grid>
+            )}
+
+            <Grid item xs={12} md={proxmox.useBackstageProxy ? 6 : 8}>
               <TextField
                 fullWidth
                 label="API URL"
                 value={proxmox.apiUrl}
                 onChange={e => updateProxmox({ apiUrl: e.target.value })}
-                helperText="e.g. https://pve.example.org:8006"
+                helperText={
+                  proxmox.useBackstageProxy
+                    ? 'Informational only — actual target is set in app-config.yaml'
+                    : 'e.g. https://pve.example.org:8006'
+                }
                 className={classes.field}
               />
             </Grid>
@@ -375,6 +440,61 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
               Test connection
             </Button>
           </Box>
+
+          {lastResult && (
+            <Box
+              mt={2}
+              p={2}
+              border={1}
+              borderRadius={4}
+              borderColor={lastResult.ok ? 'success.main' : 'error.main'}
+              bgcolor={lastResult.ok ? 'success.light' : 'error.light'}
+              style={{ opacity: 0.95 }}
+            >
+              <Typography variant="subtitle2">
+                {lastResult.ok ? '✓ ' : '✗ '}
+                {lastResult.message}
+              </Typography>
+              <Typography
+                variant="caption"
+                component="div"
+                style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', marginTop: 8 }}
+              >
+                {[
+                  `time:     ${lastResult.timestamp}`,
+                  `url:      ${lastResult.url ?? '(not built)'}`,
+                  `status:   ${
+                    lastResult.status !== undefined
+                      ? `${lastResult.status} ${lastResult.statusText ?? ''}`.trim()
+                      : '(no response — likely network / CORS / backend down)'
+                  }`,
+                  `duration: ${
+                    lastResult.durationMs !== undefined
+                      ? `${lastResult.durationMs}ms`
+                      : '-'
+                  }`,
+                  lastResult.bodySample
+                    ? `body:\n${lastResult.bodySample}`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join('\n')}
+              </Typography>
+              {!lastResult.ok && (
+                <Typography
+                  variant="caption"
+                  color="textSecondary"
+                  component="div"
+                  style={{ marginTop: 8 }}
+                >
+                  Troubleshooting:
+                  {proxmox.useBackstageProxy
+                    ? ' verify the Backstage backend is running, PROXMOX_API_URL / PROXMOX_TOKEN_ID / PROXMOX_TOKEN_SECRET env vars are set, and the proxy endpoint is registered (curl the URL above from this host).'
+                    : ' verify the browser can reach the Proxmox API URL directly (CORS, self-signed TLS and private-network reachability all apply when not using the Backstage proxy).'}
+                </Typography>
+              )}
+            </Box>
+          )}
         </CardContent>
       </Card>
 
