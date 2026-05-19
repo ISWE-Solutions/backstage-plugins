@@ -165,7 +165,6 @@ export const DHIS2Page = () => {
       proxyOverride: {
         mode: proxy.mode,
         baseDomain: proxy.baseDomain,
-        pathPrefix: proxy.pathPrefix ?? '',
       },
     };
   });
@@ -238,7 +237,6 @@ export const DHIS2Page = () => {
         proxyOverride: {
           mode: proxy.mode,
           baseDomain: proxy.baseDomain,
-          pathPrefix: proxy.pathPrefix ?? '',
         },
       });
     } catch (error) {
@@ -647,12 +645,114 @@ export const DHIS2Page = () => {
         <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="md" fullWidth>
           <DialogTitle>Create New DHIS2 Instance</DialogTitle>
           <DialogContent>
+            <Typography variant="h6" gutterBottom>
+              Reverse Proxy Routing (override)
+            </Typography>
+            <Typography variant="body2" color="textSecondary" style={{ marginBottom: 8 }}>
+              These values default to the global Reverse Proxy settings. Adjust
+              them to override how this specific instance is exposed.
+            </Typography>
+            {(() => {
+              const override = newInstance.proxyOverride ?? {
+                mode: 'path' as const,
+                baseDomain: '',
+              };
+              const updateOverride = (
+                patch: Partial<NonNullable<CreateInstanceRequest['proxyOverride']>>,
+              ) =>
+                setNewInstance({
+                  ...newInstance,
+                  proxyOverride: { ...override, ...patch },
+                });
+              const scheme = settingsService.load().proxy.forceHttps
+                ? 'https'
+                : 'http';
+              const examples =
+                override.mode === 'subdomain'
+                  ? [
+                      `${scheme}://${newInstance.name || 'hmis'}.${override.baseDomain}`,
+                    ]
+                  : [
+                      `${scheme}://${override.baseDomain}/${newInstance.name || 'hmis'}`,
+                    ];
+              return (
+                <>
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} md={4}>
+                      <TextField
+                        fullWidth
+                        select
+                        label="Routing mode"
+                        value={override.mode}
+                        onChange={e =>
+                          updateOverride({
+                            mode: e.target.value as 'path' | 'subdomain',
+                          })
+                        }
+                        className={classes.formField}
+                      >
+                        <MenuItem value="path">Path-based (base/instance)</MenuItem>
+                        <MenuItem value="subdomain">
+                          Subdomain-based (instance.base)
+                        </MenuItem>
+                      </TextField>
+                    </Grid>
+                    <Grid item xs={12} md={8}>
+                      <TextField
+                        fullWidth
+                        label="Base domain"
+                        value={override.baseDomain}
+                        onChange={e =>
+                          updateOverride({ baseDomain: e.target.value })
+                        }
+                        className={classes.formField}
+                        helperText={
+                          override.mode === 'path'
+                            ? 'e.g. dhis2.example.org — path uses the instance name below'
+                            : 'e.g. example.org'
+                        }
+                      />
+                    </Grid>
+                  </Grid>
+                  <Typography variant="caption" color="textSecondary">
+                    Example URLs:
+                  </Typography>
+                  <Box
+                    style={{
+                      fontFamily: 'monospace',
+                      fontSize: '0.85rem',
+                      marginTop: 4,
+                      marginBottom: 16,
+                    }}
+                  >
+                    {examples.map(u => (
+                      <div key={u}>{u}</div>
+                    ))}
+                  </Box>
+                </>
+              );
+            })()}
             <TextField
               fullWidth
               label="Instance Name"
               value={newInstance.name}
-              onChange={e => setNewInstance({ ...newInstance, name: e.target.value })}
+              onChange={e => {
+                const newName = e.target.value;
+                setNewInstance(prev => {
+                  const dbInSync =
+                    !prev.database.name || prev.database.name === prev.name;
+                  return {
+                    ...prev,
+                    name: newName,
+                    database: {
+                      ...prev.database,
+                      name: dbInSync ? newName : prev.database.name,
+                    },
+                  };
+                });
+              }}
               className={classes.formField}
+              helperText="Used as the proxy path segment and as the default database name"
               required
             />
             <TextField
@@ -794,110 +894,6 @@ export const DHIS2Page = () => {
               helperText="Password for the DHIS2 admin user"
               required
             />
-            <Typography variant="h6" gutterBottom style={{ marginTop: 16 }}>
-              Reverse Proxy Routing (override)
-            </Typography>
-            <Typography variant="body2" color="textSecondary" style={{ marginBottom: 8 }}>
-              These values default to the global Reverse Proxy settings. Adjust
-              them to override how this specific instance is exposed.
-            </Typography>
-            {(() => {
-              const override = newInstance.proxyOverride ?? {
-                mode: 'path' as const,
-                baseDomain: '',
-                pathPrefix: '',
-              };
-              const updateOverride = (
-                patch: Partial<NonNullable<CreateInstanceRequest['proxyOverride']>>,
-              ) =>
-                setNewInstance({
-                  ...newInstance,
-                  proxyOverride: { ...override, ...patch },
-                });
-              const scheme = settingsService.load().proxy.forceHttps
-                ? 'https'
-                : 'http';
-              const examples =
-                override.mode === 'subdomain'
-                  ? [
-                      `${scheme}://${newInstance.name || 'hmis'}.${override.baseDomain}`,
-                    ]
-                  : override.pathPrefix
-                    ? [`${scheme}://${override.baseDomain}/${override.pathPrefix}`]
-                    : [
-                        `${scheme}://${override.baseDomain}/${newInstance.name || 'hmis'}`,
-                      ];
-              return (
-                <>
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} md={4}>
-                      <TextField
-                        fullWidth
-                        select
-                        label="Routing mode"
-                        value={override.mode}
-                        onChange={e =>
-                          updateOverride({
-                            mode: e.target.value as 'path' | 'subdomain',
-                          })
-                        }
-                        className={classes.formField}
-                      >
-                        <MenuItem value="path">Path-based (base/instance)</MenuItem>
-                        <MenuItem value="subdomain">
-                          Subdomain-based (instance.base)
-                        </MenuItem>
-                      </TextField>
-                    </Grid>
-                    <Grid item xs={12} md={override.mode === 'path' ? 4 : 8}>
-                      <TextField
-                        fullWidth
-                        label="Base domain"
-                        value={override.baseDomain}
-                        onChange={e =>
-                          updateOverride({ baseDomain: e.target.value })
-                        }
-                        className={classes.formField}
-                        helperText={
-                          override.mode === 'path'
-                            ? 'e.g. dhis2.example.org'
-                            : 'e.g. example.org'
-                        }
-                      />
-                    </Grid>
-                    {override.mode === 'path' && (
-                      <Grid item xs={12} md={4}>
-                        <TextField
-                          fullWidth
-                          label="Path prefix (optional)"
-                          value={override.pathPrefix ?? ''}
-                          onChange={e =>
-                            updateOverride({ pathPrefix: e.target.value })
-                          }
-                          className={classes.formField}
-                          helperText='e.g. "hmis" → base/hmis'
-                        />
-                      </Grid>
-                    )}
-                  </Grid>
-                  <Typography variant="caption" color="textSecondary">
-                    Example URLs:
-                  </Typography>
-                  <Box
-                    style={{
-                      fontFamily: 'monospace',
-                      fontSize: '0.85rem',
-                      marginTop: 4,
-                      marginBottom: 8,
-                    }}
-                  >
-                    {examples.map(u => (
-                      <div key={u}>{u}</div>
-                    ))}
-                  </Box>
-                </>
-              );
-            })()}
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setCreateDialogOpen(false)}>Cancel</Button>

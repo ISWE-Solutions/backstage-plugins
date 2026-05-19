@@ -75,18 +75,9 @@ export const DHIS2SettingsPage = () => {
   const examplePreview = (() => {
     const scheme = proxy.forceHttps ? 'https' : 'http';
     if (proxy.mode === 'subdomain') {
-      return [
-        `${scheme}://hmis.${proxy.baseDomain}`,
-        `${scheme}://hmis-dev.${proxy.baseDomain}`,
-      ];
+      return [`${scheme}://hmis.${proxy.baseDomain}`];
     }
-    if (proxy.pathPrefix) {
-      return [`${scheme}://${proxy.baseDomain}/${proxy.pathPrefix}`];
-    }
-    return [
-      `${scheme}://${proxy.baseDomain}/hmis`,
-      `${scheme}://${proxy.baseDomain}/hmis-dev`,
-    ];
+    return [`${scheme}://${proxy.baseDomain}/hmis`];
   })();
 
   return (
@@ -124,7 +115,7 @@ export const DHIS2SettingsPage = () => {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12} md={5}>
+            <Grid item xs={12} md={8}>
               <TextField
                 fullWidth
                 label="Base domain"
@@ -132,26 +123,12 @@ export const DHIS2SettingsPage = () => {
                 onChange={e => update('proxy', { baseDomain: e.target.value })}
                 helperText={
                   proxy.mode === 'path'
-                    ? 'e.g. dhis2.example.org — instances become dhis2.example.org/hmis'
-                    : 'e.g. example.org — instances become hmis.example.org'
+                    ? 'e.g. dhis2.example.org — instances become dhis2.example.org/<instance>'
+                    : 'e.g. example.org — instances become <instance>.example.org'
                 }
                 className={classes.field}
               />
             </Grid>
-            {proxy.mode === 'path' && (
-              <Grid item xs={12} md={3}>
-                <TextField
-                  fullWidth
-                  label="Path prefix (optional)"
-                  value={proxy.pathPrefix ?? ''}
-                  onChange={e =>
-                    update('proxy', { pathPrefix: e.target.value })
-                  }
-                  helperText='e.g. "hmis" → base/hmis'
-                  className={classes.field}
-                />
-              </Grid>
-            )}
 
             <Grid item xs={12}>
               <Typography variant="caption" color="textSecondary">
