@@ -44,6 +44,7 @@ import StorageIcon from '@material-ui/icons/Storage';
 import CloudIcon from '@material-ui/icons/Cloud';
 import DnsIcon from '@material-ui/icons/Dns';
 import SdStorageIcon from '@material-ui/icons/SdStorage';
+import DeviceHubIcon from '@material-ui/icons/DeviceHub';
 import { DHIS2Instance, CreateInstanceRequest, ProxmoxNode } from '../types';
 import { dhis2Service } from '../services/dhis2Service';
 import { fetchApiRef, useApi } from '@backstage/core-plugin-api';
@@ -322,6 +323,7 @@ export const DHIS2Page = () => {
   const totalVCPUs = nodes.reduce((sum, n) => sum + (n.maxcpu ?? 0), 0);
   const totalMemoryBytes = nodes.reduce((sum, n) => sum + (n.maxmem ?? 0), 0);
   const totalDiskBytes = nodes.reduce((sum, n) => sum + (n.maxdisk ?? 0), 0);
+  const onlineNodes = nodes.filter(n => n.status === 'online').length;
 
   const bytesToGB = (b: number) => b / 1024 ** 3;
   const formatCapacity = (bytes: number) => {
@@ -414,6 +416,23 @@ export const DHIS2Page = () => {
               </Typography>
               <Typography variant="subtitle1" color="textSecondary" className={classes.statLabel}>
                 Storage Capacity
+              </Typography>
+            </Card>
+          </Grid>
+          <Grid item xs={12} sm={6} md={4} lg={2}>
+            <Card className={classes.statCard}>
+              <DeviceHubIcon className={classes.statIcon} style={{ color: '#3949ab' }} />
+              <Typography className={classes.statValue}>
+                {onlineNodes}
+                <Typography
+                  component="span"
+                  style={{ fontSize: '1.25rem', color: 'inherit', opacity: 0.6 }}
+                >
+                  {` / ${nodes.length}`}
+                </Typography>
+              </Typography>
+              <Typography variant="subtitle1" color="textSecondary" className={classes.statLabel}>
+                Cluster Nodes
               </Typography>
             </Card>
           </Grid>

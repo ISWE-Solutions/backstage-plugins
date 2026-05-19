@@ -25,6 +25,7 @@ import {
   TableRow,
   TextField,
   InputAdornment,
+  LinearProgress,
   Tooltip,
   Typography,
   makeStyles,
@@ -36,7 +37,6 @@ import {
   DHIS2Instance,
   DHIS2PluginSettings,
   ProxmoxNode,
-  ProxmoxStorage,
   ClusterContainer,
 } from '../types';
 import { dhis2Service } from '../services/dhis2Service';
@@ -52,7 +52,17 @@ const useStyles = makeStyles(theme => ({
     gap: theme.spacing(2),
     marginTop: theme.spacing(1),
   },
+  usageCell: {
+    minWidth: 140,
+  },
+  usageBar: {
+    marginTop: 4,
+    height: 6,
+    borderRadius: 3,
+  },
 }));
+
+const bytesToGiB = (b: number) => b / 1024 ** 3;
 
 interface Props {
   instances: DHIS2Instance[];
@@ -67,7 +77,6 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
   );
   const [nodes, setNodes] = useState<ProxmoxNode[]>([]);
   const [loadingNodes, setLoadingNodes] = useState(false);
-  const [nodeStorages, setNodeStorages] = useState<Record<string, ProxmoxStorage[]>>({});
   const [containers, setContainers] = useState<ClusterContainer[]>([]);
   const [loadingContainers, setLoadingContainers] = useState(false);
   const [containerSearch, setContainerSearch] = useState('');
@@ -101,22 +110,6 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
         const result = await dhis2Service.fetchNodes(proxmox, backstageFetch);
         setNodes(result.nodes);
         onNodesChange?.(result.nodes);
-
-        // Kick off storage fetches per node (in parallel). These are best-effort
-        // and fall back to mock storages on error, so we don't need to block
-        // the main node table rendering on them.
-        Promise.all(
-          result.nodes.map(async n => {
-            const storages = await dhis2Service.fetchNodeStorage(
-              n.node,
-              proxmox,
-              backstageFetch,
-            );
-            return [n.node, storages] as const;
-          }),
-        ).then(entries => {
-          setNodeStorages(Object.fromEntries(entries));
-        });
 
         const ok = result.source === 'api';
         const message = ok
@@ -623,7 +616,9 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
                     <TableCell>Node</TableCell>
                     <TableCell>Status</TableCell>
                     <TableCell>DHIS2 Instances</TableCell>
-                    <TableCell>Storage</TableCell>
+                    <TableCell>CPU</TableCell>
+                    <TableCell>Memory</TableCell>
+                    <TableCell>Disk</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -631,7 +626,11 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
                     const nodeInstances = instances.filter(
                       i => i.node === n.node,
                     );
-                    const storages = nodeStorages[n.node];
+                    const cpuPct = n.maxcpu > 0 ? (n.cpu / 1) * 100 : 0;
+                    const memPct =
+                      n.maxmem > 0 ? (n.mem / n.maxmem) * 100 : 0;
+                    const diskPct =
+                      n.maxdisk > 0 ? (n.disk / n.maxdisk) * 100 : 0;
                     return (
                       <TableRow key={n.node}>
                         <TableCell>
@@ -645,36 +644,37 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
                           />
                         </TableCell>
                         <TableCell>{nodeInstances.length}</TableCell>
-                        <TableCell>
-                          {storages === undefined ? (
-                            <Typography variant="caption" color="textSecondary">
-                              Loading…
-                            </Typography>
-                          ) : storages.length === 0 ? (
-                            <Typography variant="caption" color="textSecondary">
-                              No storages
-                            </Typography>
-                          ) : (
-                            <Box display="flex" flexWrap="wrap" style={{ gap: 4 }}>
-                              {storages.map(s => (
-                                <Tooltip
-                                  key={s.storage}
-                                  title={`type: ${s.type}${
-                                    s.content ? ` · content: ${s.content}` : ''
-                                  }`}
-                                >
-                                  <Chip
-                                    label={`${s.storage} (${s.type})`}
-                                    size="small"
-                                    variant="outlined"
-                                    color={
-                                      s.active === 0 ? 'default' : 'primary'
-                                    }
-                                  />
-                                </Tooltip>
-                              ))}
-                            </Box>
-                          )}
+                        <TableCell className={classes.usageCell}>
+                          <Typography variant="caption">
+                            {cpuPct.toFixed(1)}% of {n.maxcpu} vCPU
+                          </Typography>
+                          <LinearProgress
+                            variant="determinate"
+                            value={Math.min(100, cpuPct)}
+                            className={classes.usageBar}
+                          />
+                        </TableCell>
+                        <TableCell className={classes.usageCell}>
+                          <Typography variant="caption">
+                            {bytesToGiB(n.mem).toFixed(1)} /{' '}
+                            {bytesToGiB(n.maxmem).toFixed(0)} GiB
+                          </Typography>
+                          <LinearProgress
+                            variant="determinate"
+                            value={Math.min(100, memPct)}
+                            className={classes.usageBar}
+                          />
+                        </TableCell>
+                        <TableCell className={classes.usageCell}>
+                          <Typography variant="caption">
+                            {bytesToGiB(n.disk).toFixed(0)} /{' '}
+                            {bytesToGiB(n.maxdisk).toFixed(0)} GiB
+                          </Typography>
+                          <LinearProgress
+                            variant="determinate"
+                            value={Math.min(100, diskPct)}
+                            className={classes.usageBar}
+                          />
                         </TableCell>
                       </TableRow>
                     );
