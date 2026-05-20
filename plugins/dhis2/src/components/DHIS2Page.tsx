@@ -56,6 +56,7 @@ import VpnKeyIcon from '@material-ui/icons/VpnKey';
 import FileCopyIcon from '@material-ui/icons/FileCopy';
 import VisibilityIcon from '@material-ui/icons/Visibility';
 import VisibilityOffIcon from '@material-ui/icons/VisibilityOff';
+import { Alert } from '@material-ui/lab';
 import {
   DHIS2Instance,
   CreateInstanceRequest,
@@ -236,6 +237,9 @@ export const DHIS2Page = () => {
   const [availableDatabases, setAvailableDatabases] = useState<string[]>([]);
   const [loadingDatabases, setLoadingDatabases] = useState(false);
   const [databasesError, setDatabasesError] = useState<string | null>(null);
+  const [dbTestResult, setDbTestResult] = useState<
+    { ok: boolean; message: string } | null
+  >(null);
 
   // "Customize dhis.conf template" option in the Create dialog.
   const [customizeDhisConf, setCustomizeDhisConf] = useState(false);
@@ -322,6 +326,24 @@ export const DHIS2Page = () => {
   const fetchExistingDatabases = async () => {
     setLoadingDatabases(true);
     setDatabasesError(null);
+    setDbTestResult(null);
+
+    // Validate inputs before hitting the backend so users see clear,
+    // actionable errors in the dialog instead of a vague network failure.
+    const missing: string[] = [];
+    if (!dhis2Settings.postgresHost) missing.push('Postgres host');
+    if (!dhis2Settings.postgresPort) missing.push('Postgres port');
+    if (!newInstance.database.user) missing.push('Database username');
+    if (!newInstance.database.password) missing.push('Database password');
+    if (missing.length > 0) {
+      const message = `Provide ${missing.join(', ')} before testing the connection.`;
+      setDatabasesError(message);
+      setDbTestResult({ ok: false, message });
+      setAvailableDatabases([]);
+      setLoadingDatabases(false);
+      return;
+    }
+
     try {
       const data = await dhis2Service.listDatabases({
         host: dhis2Settings.postgresHost,
@@ -330,14 +352,19 @@ export const DHIS2Page = () => {
         password: newInstance.database.password,
       });
       setAvailableDatabases(data);
+      setDbTestResult({
+        ok: true,
+        message: `Connected to ${dhis2Settings.postgresHost}:${dhis2Settings.postgresPort} — ${data.length} database(s) found.`,
+      });
     } catch (error) {
       console.error('Failed to list databases:', error);
       setAvailableDatabases([]);
-      setDatabasesError(
+      const message =
         error instanceof Error
           ? error.message
-          : 'Failed to list databases on the provided server.',
-      );
+          : 'Failed to list databases on the provided server.';
+      setDatabasesError(message);
+      setDbTestResult({ ok: false, message });
     } finally {
       setLoadingDatabases(false);
     }
@@ -408,6 +435,7 @@ export const DHIS2Page = () => {
       setAvailableDatabases([]);
       setDatabasesError(null);
       setLoadingDatabases(false);
+      setDbTestResult(null);
       setCustomizeDhisConf(false);
       setDhisConfTemplate(DEFAULT_DHIS_CONF_TEMPLATE);
       const fresh = settingsService.load();
@@ -1303,7 +1331,7 @@ export const DHIS2Page = () => {
                   }}
                 />
               </Grid>
-              <Grid item xs={12} sm={6} md={6} style={{ display: 'flex', alignItems: 'center' }}>
+              <Grid item xs={12} sm={6} md={6} style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                 <FormControlLabel
                   control={
                     <Checkbox
@@ -1319,6 +1347,7 @@ export const DHIS2Page = () => {
                         } else {
                           setAvailableDatabases([]);
                           setDatabasesError(null);
+                          setDbTestResult(null);
                         }
                       }}
                       color="primary"
@@ -1326,8 +1355,30 @@ export const DHIS2Page = () => {
                   }
                   label="Connect to an existing database"
                 />
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => fetchExistingDatabases()}
+                  disabled={loadingDatabases}
+                  startIcon={
+                    loadingDatabases ? (
+                      <CircularProgress size={16} />
+                    ) : undefined
+                  }
+                >
+                  Test connection
+                </Button>
               </Grid>
             </Grid>
+            {dbTestResult && (
+              <Alert
+                severity={dbTestResult.ok ? 'success' : 'error'}
+                onClose={() => setDbTestResult(null)}
+                style={{ marginTop: 8, marginBottom: 8 }}
+              >
+                {dbTestResult.message}
+              </Alert>
+            )}
             {useExistingDb ? (
               <FormControl
                 fullWidth
