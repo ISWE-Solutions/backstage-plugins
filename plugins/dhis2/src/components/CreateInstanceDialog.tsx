@@ -211,31 +211,6 @@ export const CreateInstanceDialog = ({
     }
   }, [versions, newInstance.version]);
 
-  const resetForm = () => {
-    const { proxy, dhis2 } = settingsService.load();
-    setProxySettings(proxy);
-    setDhis2Settings(dhis2);
-    setNewInstance({
-      ...buildInitialInstance(proxy),
-      version: versions[0] || '',
-      node: nodes[0]?.node || '',
-    });
-    setRestoreEnabled(false);
-    setRestoreSource(undefined);
-    setCreateDbAccount(false);
-    setShowDbPassword(false);
-    setNewDbUser('');
-    setNewDbPassword('');
-    setShowNewDbPassword(false);
-    setUseExistingDb(false);
-    setAvailableDatabases([]);
-    setDatabasesError(null);
-    setLoadingDatabases(false);
-    setDbTestResult(null);
-    setCustomizeDhisConf(false);
-    setDhisConfTemplate(DEFAULT_DHIS_CONF_TEMPLATE);
-  };
-
   const fetchExistingDatabases = async () => {
     setLoadingDatabases(true);
     setDatabasesError(null);
@@ -337,9 +312,11 @@ export const CreateInstanceDialog = ({
       proxySettings,
       dhis2Settings,
     };
+    // Intentionally do NOT close/reset the dialog here. The parent stacks
+    // the provisioning-progress dialog on top of this one so the form
+    // values stay intact — if the job fails, the user can adjust a field
+    // and click "Create Instance" again without re-entering everything.
     onSubmit({ request, derivedDomain, proxySettings, dhis2Settings });
-    resetForm();
-    onClose();
   };
 
   return (

@@ -134,6 +134,11 @@ export const DHIS2Page = () => {
   const [instances, setInstances] = useState<DHIS2Instance[]>([]);
   const [loading, setLoading] = useState(true);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  // Bumped after a successful provisioning run so the CreateInstanceDialog
+  // remounts with a fresh form. While provisioning is in progress (or has
+  // failed) we keep the same key so the form values stay intact and the
+  // user can retry without re-entering everything.
+  const [createDialogKey, setCreateDialogKey] = useState(0);
   const [tabValue, setTabValue] = useState(0);
   const [nodes, setNodes] = useState<ProxmoxNode[]>([]);
   const [versions, setVersions] = useState<string[]>([]);
@@ -355,6 +360,10 @@ export const DHIS2Page = () => {
             `Instance "${request.name}" provisioned successfully (exit 0).`,
           );
           loadInstances();
+          // Job succeeded — close the Create dialog and bump its key so the
+          // next "Create Instance" click starts with a clean form.
+          setCreateDialogOpen(false);
+          setCreateDialogKey(k => k + 1);
           break;
         }
         // status === 'failed'
@@ -670,8 +679,13 @@ export const DHIS2Page = () => {
           </DialogActions>
         </Dialog>
 
-        {/* Create Instance Dialog (extracted to CreateInstanceDialog.tsx) */}
+        {/* Create Instance Dialog (extracted to CreateInstanceDialog.tsx).
+            The provisioning-progress dialog below stacks on top of this one
+            while a job runs, so the form values remain available for retry
+            if anything fails. `key` is bumped after a successful run to
+            reset the form on the next open. */}
         <CreateInstanceDialog
+          key={createDialogKey}
           open={createDialogOpen}
           onClose={() => setCreateDialogOpen(false)}
           nodes={nodes}

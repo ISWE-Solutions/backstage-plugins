@@ -799,7 +799,21 @@ export class DHIS2Service {
       let msg = `Provision request failed (HTTP ${res.status})`;
       try {
         const body = await res.json();
-        if (body?.error) msg = body.error;
+        // Backstage's default error handler returns `{ error: { message } }`,
+        // while our backend returns `{ error: string }`. Handle both, and
+        // never fall through to `String(obj)` which yields "[object Object]".
+        const err = body?.error;
+        if (typeof err === 'string' && err.trim()) {
+          msg = err;
+        } else if (err && typeof err === 'object') {
+          if (typeof err.message === 'string' && err.message.trim()) {
+            msg = err.message;
+          } else if (typeof err.name === 'string' && err.name.trim()) {
+            msg = err.name;
+          }
+        } else if (typeof body?.message === 'string' && body.message.trim()) {
+          msg = body.message;
+        }
       } catch {
         // ignore body parse failure
       }

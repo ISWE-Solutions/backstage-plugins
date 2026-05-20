@@ -271,7 +271,14 @@ export async function createRouter(
       });
       return;
     }
-    const payload = parseProvisionRequest(req.body);
+    let payload;
+    try {
+      payload = parseProvisionRequest(req.body);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(400).json({ error: message });
+      return;
+    }
     const job = provisionService.startJob(payload);
     logger.info(
       `DHIS2: provision job ${job.id} started for ${payload.name} (vmid=${payload.vmid}, node=${payload.node})`,
