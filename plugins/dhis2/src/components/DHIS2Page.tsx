@@ -1228,7 +1228,7 @@ export const DHIS2Page = () => {
                 : 'Provide credentials for an existing PostgreSQL role with privileges on the database below.'}
             </Typography>
             <Grid container spacing={2} style={{ marginTop: 16 }}>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} sm={8} md={6}>
                 <TextField
                   fullWidth
                   label="Shared Postgres host"
@@ -1242,7 +1242,7 @@ export const DHIS2Page = () => {
                   className={classes.formField}
                 />
               </Grid>
-              <Grid item xs={6} md={2}>
+              <Grid item xs={6} sm={4} md={2}>
                 <TextField
                   fullWidth
                   type="number"
@@ -1258,7 +1258,7 @@ export const DHIS2Page = () => {
                   className={classes.formField}
                 />
               </Grid>
-              <Grid item xs={6} md={4}>
+              <Grid item xs={6} sm={6} md={4}>
                 <TextField
                   fullWidth
                   label="Database Username"
@@ -1271,7 +1271,7 @@ export const DHIS2Page = () => {
                   required
                 />
               </Grid>
-              <Grid item xs={12} md={3}>
+              <Grid item xs={12} sm={6} md={6}>
                 <TextField
                   fullWidth
                   type={showDbPassword ? 'text' : 'password'}
@@ -1303,7 +1303,7 @@ export const DHIS2Page = () => {
                   }}
                 />
               </Grid>
-              <Grid item xs={12} md={3} style={{ display: 'flex', alignItems: 'center' }}>
+              <Grid item xs={12} sm={6} md={6} style={{ display: 'flex', alignItems: 'center' }}>
                 <FormControlLabel
                   control={
                     <Checkbox
