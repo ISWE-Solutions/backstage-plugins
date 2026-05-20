@@ -1249,17 +1249,6 @@ export const DHIS2Page = () => {
             )}
             <TextField
               fullWidth
-              label="Database Name"
-              value={newInstance.database.name}
-              onChange={e => setNewInstance({
-                ...newInstance,
-                database: { ...newInstance.database, name: e.target.value },
-              })}
-              className={classes.formField}
-              required
-            />
-            <TextField
-              fullWidth
               label="Database Username"
               value={newInstance.database.user}
               onChange={e => setNewInstance({
@@ -1299,10 +1288,7 @@ export const DHIS2Page = () => {
                 ),
               }}
             />
-            <Typography variant="subtitle2" color="textSecondary" gutterBottom style={{ marginTop: 16 }}>
-              Shared PostgreSQL (leave host blank to install per-instance)
-            </Typography>
-            <Grid container spacing={2}>
+            <Grid container spacing={2} style={{ marginTop: 16 }}>
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
@@ -1336,7 +1322,7 @@ export const DHIS2Page = () => {
               <Grid item xs={6} md={4}>
                 <TextField
                   fullWidth
-                  label="Admin user"
+                  label="Database Username"
                   value={dhis2Settings.postgresAdminUser}
                   onChange={e =>
                     setDhis2Settings({
@@ -1351,7 +1337,7 @@ export const DHIS2Page = () => {
                 <TextField
                   fullWidth
                   type="password"
-                  label="Admin password"
+                  label="Database Password"
                   value={dhis2Settings.postgresAdminPassword}
                   onChange={e =>
                     setDhis2Settings({
@@ -1363,6 +1349,17 @@ export const DHIS2Page = () => {
                 />
               </Grid>
             </Grid>
+            <TextField
+              fullWidth
+              label="Database Name"
+              value={newInstance.database.name}
+              onChange={e => setNewInstance({
+                ...newInstance,
+                database: { ...newInstance.database, name: e.target.value },
+              })}
+              className={classes.formField}
+              required
+            />
             <FormControlLabel
               control={
                 <Checkbox
