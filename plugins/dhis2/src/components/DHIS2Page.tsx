@@ -68,7 +68,7 @@ import {
 import { dhis2Service } from '../services/dhis2Service';
 import { settingsService } from '../services/settingsService';
 import { validateRestoreSource } from '../services/restoreService';
-import { fetchApiRef, useApi } from '@backstage/core-plugin-api';
+import { fetchApiRef, useApi, discoveryApiRef } from '@backstage/core-plugin-api';
 import { DHIS2LogsPanel } from './DHIS2LogsPanel';
 import { ProxmoxClusterPanel } from './ProxmoxClusterPanel';
 import { RestoreSourcePicker } from './RestoreSourcePicker';
@@ -200,6 +200,7 @@ function TabPanel(props: TabPanelProps) {
 export const DHIS2Page = () => {
   const classes = useStyles();
   const { fetch: backstageFetch } = useApi(fetchApiRef);
+  const discoveryApi = useApi(discoveryApiRef);
   const [instances, setInstances] = useState<DHIS2Instance[]>([]);
   const [loading, setLoading] = useState(true);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -345,16 +346,37 @@ export const DHIS2Page = () => {
     }
 
     try {
-      const data = await dhis2Service.listDatabases({
+      const baseUrl = await discoveryApi.getBaseUrl('dhis2');
+      const creds = {
         host: dhis2Settings.postgresHost,
         port: dhis2Settings.postgresPort,
         user: newInstance.database.user,
         password: newInstance.database.password,
-      });
+      };
+      // First do an explicit test so we can show server version / error
+      // detail even when listing happens to succeed against an empty DB.
+      const test = await dhis2Service.testDatabaseConnection(
+        creds,
+        baseUrl,
+        backstageFetch,
+      );
+      if (!test.ok) {
+        setAvailableDatabases([]);
+        setDatabasesError(test.message);
+        setDbTestResult({ ok: false, message: test.message });
+        return;
+      }
+      const data = await dhis2Service.listDatabases(
+        creds,
+        baseUrl,
+        backstageFetch,
+      );
       setAvailableDatabases(data);
       setDbTestResult({
         ok: true,
-        message: `Connected to ${dhis2Settings.postgresHost}:${dhis2Settings.postgresPort} — ${data.length} database(s) found.`,
+        message: `Connected to ${creds.host}:${creds.port}${
+          test.serverVersion ? ` (${test.serverVersion})` : ''
+        } — ${data.length} database(s) found.`,
       });
     } catch (error) {
       console.error('Failed to list databases:', error);

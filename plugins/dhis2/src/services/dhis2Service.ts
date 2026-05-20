@@ -492,23 +492,122 @@ export class DHIS2Service {
    * credentials. Used by the Create dialog when "Connect to an existing
    * database" is enabled so the user can pick a database instead of typing
    * its name.
+   *
+   * Calls the `@internal/plugin-dhis2-backend` endpoint
+   * `POST <baseUrl>/databases/list` which opens a short-lived PG connection
+   * and runs:
+   *   SELECT datname FROM pg_database WHERE NOT datistemplate ORDER BY 1
+   *
+   * The caller must resolve `baseUrl` via `discoveryApi.getBaseUrl('dhis2')`
+   * and pass `fetchApi.fetch` so the request carries the Backstage auth
+   * token. Throws an `Error` with a user-facing message on failure.
    */
-  async listDatabases(_params: {
-    host: string;
-    port: number;
-    user: string;
-    password: string;
-  }): Promise<string[]> {
-    // In production this would call the backend, which would open a
-    // short-lived connection to `host:port` as `user` and run
-    // `SELECT datname FROM pg_database WHERE NOT datistemplate ORDER BY 1`.
-    return [
-      'dhis2',
-      'dhis2_prod',
-      'dhis2_staging',
-      'dhis2_dev',
-      'dhis2_archive',
-    ];
+  async listDatabases(
+    params: {
+      host: string;
+      port: number;
+      user: string;
+      password: string;
+    },
+    baseUrl: string,
+    fetchFn: typeof fetch = (...args) => fetch(...args),
+  ): Promise<string[]> {
+    const url = `${baseUrl.replace(/\/+$/, '')}/databases/list`;
+    let res: Response;
+    try {
+      res = await fetchFn(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      });
+    } catch (err) {
+      throw new Error(
+        `Unable to reach DHIS2 backend at ${url}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+    const text = await res.text();
+    let body: any = {};
+    try {
+      body = text ? JSON.parse(text) : {};
+    } catch {
+      // fall through with raw text below
+    }
+    if (!res.ok) {
+      const message =
+        (body && (body.error || body.message)) ||
+        text ||
+        `HTTP ${res.status} ${res.statusText}`;
+      throw new Error(message);
+    }
+    if (!body || !Array.isArray(body.databases)) {
+      throw new Error('Unexpected response from DHIS2 backend');
+    }
+    return body.databases as string[];
+  }
+
+  /**
+   * Test connectivity to a PostgreSQL server using the credentials typed
+   * into the Create dialog. Returns a structured result so the UI can
+   * render an Alert with the server version or a precise error message.
+   *
+   * Backed by `POST <baseUrl>/databases/test`.
+   */
+  async testDatabaseConnection(
+    params: {
+      host: string;
+      port: number;
+      user: string;
+      password: string;
+    },
+    baseUrl: string,
+    fetchFn: typeof fetch = (...args) => fetch(...args),
+  ): Promise<{
+    ok: boolean;
+    message: string;
+    serverVersion?: string;
+    code?: string;
+    durationMs?: number;
+  }> {
+    const url = `${baseUrl.replace(/\/+$/, '')}/databases/test`;
+    try {
+      const res = await fetchFn(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      });
+      const text = await res.text();
+      let body: any = {};
+      try {
+        body = text ? JSON.parse(text) : {};
+      } catch {
+        // fall through
+      }
+      if (!res.ok && typeof body?.ok !== 'boolean') {
+        return {
+          ok: false,
+          message:
+            (body && (body.error || body.message)) ||
+            text ||
+            `HTTP ${res.status} ${res.statusText}`,
+        };
+      }
+      return {
+        ok: Boolean(body.ok),
+        message: body.message ?? (body.ok ? 'Connected' : 'Connection failed'),
+        serverVersion: body.serverVersion,
+        code: body.code,
+        durationMs: body.durationMs,
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        message: `Unable to reach DHIS2 backend at ${url}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      };
+    }
   }
 
   /**
