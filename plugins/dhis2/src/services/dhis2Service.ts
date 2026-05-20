@@ -488,6 +488,30 @@ export class DHIS2Service {
   }
 
   /**
+   * List databases on an existing PostgreSQL server using the provided
+   * credentials. Used by the Create dialog when "Connect to an existing
+   * database" is enabled so the user can pick a database instead of typing
+   * its name.
+   */
+  async listDatabases(_params: {
+    host: string;
+    port: number;
+    user: string;
+    password: string;
+  }): Promise<string[]> {
+    // In production this would call the backend, which would open a
+    // short-lived connection to `host:port` as `user` and run
+    // `SELECT datname FROM pg_database WHERE NOT datistemplate ORDER BY 1`.
+    return [
+      'dhis2',
+      'dhis2_prod',
+      'dhis2_staging',
+      'dhis2_dev',
+      'dhis2_archive',
+    ];
+  }
+
+  /**
    * Get instance logs
    */
   async getInstanceLogs(_id: string, _lines: number = 100): Promise<string[]> {

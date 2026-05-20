@@ -18,6 +18,7 @@ import {
   Radio,
   FormControl,
   FormControlLabel,
+  FormHelperText,
   InputLabel,
   Select,
   Switch,
@@ -232,8 +233,9 @@ export const DHIS2Page = () => {
 
   // "Connect to an existing database" option in the Create dialog.
   const [useExistingDb, setUseExistingDb] = useState(false);
-  const [existingDbHost, setExistingDbHost] = useState('');
-  const [existingDbPort, setExistingDbPort] = useState<number>(5432);
+  const [availableDatabases, setAvailableDatabases] = useState<string[]>([]);
+  const [loadingDatabases, setLoadingDatabases] = useState(false);
+  const [databasesError, setDatabasesError] = useState<string | null>(null);
 
   // "Customize dhis.conf template" option in the Create dialog.
   const [customizeDhisConf, setCustomizeDhisConf] = useState(false);
@@ -317,6 +319,30 @@ export const DHIS2Page = () => {
     }
   };
 
+  const fetchExistingDatabases = async () => {
+    setLoadingDatabases(true);
+    setDatabasesError(null);
+    try {
+      const data = await dhis2Service.listDatabases({
+        host: dhis2Settings.postgresHost,
+        port: dhis2Settings.postgresPort,
+        user: newInstance.database.user,
+        password: newInstance.database.password,
+      });
+      setAvailableDatabases(data);
+    } catch (error) {
+      console.error('Failed to list databases:', error);
+      setAvailableDatabases([]);
+      setDatabasesError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to list databases on the provided server.',
+      );
+    } finally {
+      setLoadingDatabases(false);
+    }
+  };
+
   const handleCreateInstance = async () => {
     try {
       const derivedDomain =
@@ -329,8 +355,8 @@ export const DHIS2Page = () => {
         database: {
           ...newInstance.database,
           existing: useExistingDb || undefined,
-          host: useExistingDb ? existingDbHost : undefined,
-          port: useExistingDb ? existingDbPort : undefined,
+          host: useExistingDb ? dhis2Settings.postgresHost : undefined,
+          port: useExistingDb ? dhis2Settings.postgresPort : undefined,
         },
         restore: restoreEnabled ? restoreSource : undefined,
         newDbAccount:
@@ -379,8 +405,9 @@ export const DHIS2Page = () => {
       setNewDbPassword('');
       setShowNewDbPassword(false);
       setUseExistingDb(false);
-      setExistingDbHost('');
-      setExistingDbPort(5432);
+      setAvailableDatabases([]);
+      setDatabasesError(null);
+      setLoadingDatabases(false);
       setCustomizeDhisConf(false);
       setDhisConfTemplate(DEFAULT_DHIS_CONF_TEMPLATE);
       const fresh = settingsService.load();
@@ -1197,56 +1224,9 @@ export const DHIS2Page = () => {
               style={{ marginBottom: 8 }}
             >
               {useExistingDb
-                ? 'DHIS2 will connect to the external PostgreSQL server below. No database or role will be provisioned.'
+                ? 'DHIS2 will connect to the PostgreSQL server below using the provided credentials. Pick an existing database from the list.'
                 : 'Provide credentials for an existing PostgreSQL role with privileges on the database below.'}
             </Typography>
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={useExistingDb}
-                  onChange={e => {
-                    const next = e.target.checked;
-                    setUseExistingDb(next);
-                    if (next) {
-                      // Connecting to an external DB is mutually exclusive
-                      // with provisioning a new role on the managed DB.
-                      setCreateDbAccount(false);
-                    }
-                  }}
-                  color="primary"
-                />
-              }
-              label="Connect to an existing database"
-            />
-            {useExistingDb && (
-              <Grid container spacing={2}>
-                <Grid item xs={8}>
-                  <TextField
-                    fullWidth
-                    label="Database Host"
-                    value={existingDbHost}
-                    onChange={e => setExistingDbHost(e.target.value)}
-                    className={classes.formField}
-                    helperText="Hostname or IP of the existing PostgreSQL server"
-                    required
-                  />
-                </Grid>
-                <Grid item xs={4}>
-                  <TextField
-                    fullWidth
-                    type="number"
-                    label="Database Port"
-                    value={existingDbPort}
-                    onChange={e =>
-                      setExistingDbPort(parseInt(e.target.value, 10) || 5432)
-                    }
-                    className={classes.formField}
-                    inputProps={{ min: 1, max: 65535 }}
-                    required
-                  />
-                </Grid>
-              </Grid>
-            )}
             <Grid container spacing={2} style={{ marginTop: 16 }}>
               <Grid item xs={12} md={4}>
                 <TextField
@@ -1291,7 +1271,7 @@ export const DHIS2Page = () => {
                   required
                 />
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={3}>
                 <TextField
                   fullWidth
                   type={showDbPassword ? 'text' : 'password'}
@@ -1323,18 +1303,98 @@ export const DHIS2Page = () => {
                   }}
                 />
               </Grid>
+              <Grid item xs={12} md={3} style={{ display: 'flex', alignItems: 'center' }}>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={useExistingDb}
+                      onChange={async e => {
+                        const next = e.target.checked;
+                        setUseExistingDb(next);
+                        if (next) {
+                          // Connecting to an existing DB is mutually exclusive
+                          // with provisioning a new role on the managed DB.
+                          setCreateDbAccount(false);
+                          await fetchExistingDatabases();
+                        } else {
+                          setAvailableDatabases([]);
+                          setDatabasesError(null);
+                        }
+                      }}
+                      color="primary"
+                    />
+                  }
+                  label="Connect to an existing database"
+                />
+              </Grid>
             </Grid>
-            <TextField
-              fullWidth
-              label="Database Name"
-              value={newInstance.database.name}
-              onChange={e => setNewInstance({
-                ...newInstance,
-                database: { ...newInstance.database, name: e.target.value },
-              })}
-              className={classes.formField}
-              required
-            />
+            {useExistingDb ? (
+              <FormControl
+                fullWidth
+                className={classes.formField}
+                required
+                error={Boolean(databasesError)}
+              >
+                <InputLabel>Database</InputLabel>
+                <Select
+                  value={newInstance.database.name}
+                  onChange={e =>
+                    setNewInstance({
+                      ...newInstance,
+                      database: {
+                        ...newInstance.database,
+                        name: e.target.value as string,
+                      },
+                    })
+                  }
+                  endAdornment={
+                    <InputAdornment position="end" style={{ marginRight: 24 }}>
+                      <Tooltip title="Refresh database list">
+                        <span>
+                          <IconButton
+                            size="small"
+                            disabled={loadingDatabases}
+                            onClick={() => fetchExistingDatabases()}
+                          >
+                            <RefreshIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </InputAdornment>
+                  }
+                >
+                  {availableDatabases.length === 0 && (
+                    <MenuItem value="" disabled>
+                      {loadingDatabases
+                        ? 'Loading databases…'
+                        : 'No databases available'}
+                    </MenuItem>
+                  )}
+                  {availableDatabases.map(db => (
+                    <MenuItem key={db} value={db}>
+                      {db}
+                    </MenuItem>
+                  ))}
+                </Select>
+                <FormHelperText>
+                  {databasesError
+                    ? databasesError
+                    : `Listed from ${dhis2Settings.postgresHost || '<host>'}:${dhis2Settings.postgresPort} as ${newInstance.database.user || '<user>'}`}
+                </FormHelperText>
+              </FormControl>
+            ) : (
+              <TextField
+                fullWidth
+                label="Database Name"
+                value={newInstance.database.name}
+                onChange={e => setNewInstance({
+                  ...newInstance,
+                  database: { ...newInstance.database, name: e.target.value },
+                })}
+                className={classes.formField}
+                required
+              />
+            )}
             <FormControlLabel
               control={
                 <Checkbox
