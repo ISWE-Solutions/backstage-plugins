@@ -1247,47 +1247,6 @@ export const DHIS2Page = () => {
                 </Grid>
               </Grid>
             )}
-            <TextField
-              fullWidth
-              label="Database Username"
-              value={newInstance.database.user}
-              onChange={e => setNewInstance({
-                ...newInstance,
-                database: { ...newInstance.database, user: e.target.value },
-              })}
-              className={classes.formField}
-              required
-            />
-            <TextField
-              fullWidth
-              type={showDbPassword ? 'text' : 'password'}
-              label="Database Password"
-              value={newInstance.database.password}
-              onChange={e => setNewInstance({
-                ...newInstance,
-                database: { ...newInstance.database, password: e.target.value },
-              })}
-              className={classes.formField}
-              required
-              InputProps={{
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <Tooltip title={showDbPassword ? 'Hide password' : 'Show password'}>
-                      <IconButton
-                        size="small"
-                        onClick={() => setShowDbPassword(s => !s)}
-                      >
-                        {showDbPassword ? (
-                          <VisibilityOffIcon fontSize="small" />
-                        ) : (
-                          <VisibilityIcon fontSize="small" />
-                        )}
-                      </IconButton>
-                    </Tooltip>
-                  </InputAdornment>
-                ),
-              }}
-            />
             <Grid container spacing={2} style={{ marginTop: 16 }}>
               <Grid item xs={12} md={6}>
                 <TextField
@@ -1323,29 +1282,45 @@ export const DHIS2Page = () => {
                 <TextField
                   fullWidth
                   label="Database Username"
-                  value={dhis2Settings.postgresAdminUser}
-                  onChange={e =>
-                    setDhis2Settings({
-                      ...dhis2Settings,
-                      postgresAdminUser: e.target.value,
-                    })
-                  }
+                  value={newInstance.database.user}
+                  onChange={e => setNewInstance({
+                    ...newInstance,
+                    database: { ...newInstance.database, user: e.target.value },
+                  })}
                   className={classes.formField}
+                  required
                 />
               </Grid>
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
-                  type="password"
+                  type={showDbPassword ? 'text' : 'password'}
                   label="Database Password"
-                  value={dhis2Settings.postgresAdminPassword}
-                  onChange={e =>
-                    setDhis2Settings({
-                      ...dhis2Settings,
-                      postgresAdminPassword: e.target.value,
-                    })
-                  }
+                  value={newInstance.database.password}
+                  onChange={e => setNewInstance({
+                    ...newInstance,
+                    database: { ...newInstance.database, password: e.target.value },
+                  })}
                   className={classes.formField}
+                  required
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <Tooltip title={showDbPassword ? 'Hide password' : 'Show password'}>
+                          <IconButton
+                            size="small"
+                            onClick={() => setShowDbPassword(s => !s)}
+                          >
+                            {showDbPassword ? (
+                              <VisibilityOffIcon fontSize="small" />
+                            ) : (
+                              <VisibilityIcon fontSize="small" />
+                            )}
+                          </IconButton>
+                        </Tooltip>
+                      </InputAdornment>
+                    ),
+                  }}
                 />
               </Grid>
             </Grid>
