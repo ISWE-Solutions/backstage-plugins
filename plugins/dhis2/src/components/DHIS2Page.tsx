@@ -1336,14 +1336,13 @@ export const DHIS2Page = () => {
                   control={
                     <Checkbox
                       checked={useExistingDb}
-                      onChange={async e => {
+                      onChange={e => {
                         const next = e.target.checked;
                         setUseExistingDb(next);
                         if (next) {
                           // Connecting to an existing DB is mutually exclusive
                           // with provisioning a new role on the managed DB.
                           setCreateDbAccount(false);
-                          await fetchExistingDatabases();
                         } else {
                           setAvailableDatabases([]);
                           setDatabasesError(null);
@@ -1418,7 +1417,7 @@ export const DHIS2Page = () => {
                     <MenuItem value="" disabled>
                       {loadingDatabases
                         ? 'Loading databases…'
-                        : 'No databases available'}
+                        : 'Click "Test connection" to load databases'}
                     </MenuItem>
                   )}
                   {availableDatabases.map(db => (
