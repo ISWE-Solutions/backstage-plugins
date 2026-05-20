@@ -1248,7 +1248,7 @@ export const DHIS2Page = () => {
               </Grid>
             )}
             <Grid container spacing={2} style={{ marginTop: 16 }}>
-              <Grid item xs={12} md={6}>
+              <Grid item xs={12} md={4}>
                 <TextField
                   fullWidth
                   label="Shared Postgres host"
@@ -1291,7 +1291,7 @@ export const DHIS2Page = () => {
                   required
                 />
               </Grid>
-              <Grid item xs={12} md={6}>
+              <Grid item xs={12} md={4}>
                 <TextField
                   fullWidth
                   type={showDbPassword ? 'text' : 'password'}
