@@ -230,6 +230,11 @@ export const DHIS2Page = () => {
   const [newDbPassword, setNewDbPassword] = useState('');
   const [showNewDbPassword, setShowNewDbPassword] = useState(false);
 
+  // "Connect to an existing database" option in the Create dialog.
+  const [useExistingDb, setUseExistingDb] = useState(false);
+  const [existingDbHost, setExistingDbHost] = useState('');
+  const [existingDbPort, setExistingDbPort] = useState<number>(5432);
+
   // "Customize dhis.conf template" option in the Create dialog.
   const [customizeDhisConf, setCustomizeDhisConf] = useState(false);
   const [dhisConfTemplate, setDhisConfTemplate] = useState(
@@ -314,12 +319,24 @@ export const DHIS2Page = () => {
 
   const handleCreateInstance = async () => {
     try {
+      const derivedDomain =
+        proxySettings.mode === 'subdomain'
+          ? `${newInstance.name}.${proxySettings.baseDomain}`
+          : `${proxySettings.baseDomain}/${newInstance.name}`;
       const payload: CreateInstanceRequest = {
         ...newInstance,
+        domain: derivedDomain,
+        database: {
+          ...newInstance.database,
+          existing: useExistingDb || undefined,
+          host: useExistingDb ? existingDbHost : undefined,
+          port: useExistingDb ? existingDbPort : undefined,
+        },
         restore: restoreEnabled ? restoreSource : undefined,
-        newDbAccount: createDbAccount
-          ? { user: newDbUser, password: newDbPassword }
-          : undefined,
+        newDbAccount:
+          createDbAccount && !useExistingDb
+            ? { user: newDbUser, password: newDbPassword }
+            : undefined,
         dhisConfTemplate:
           customizeDhisConf &&
           dhisConfTemplate !== DEFAULT_DHIS_CONF_TEMPLATE
@@ -361,6 +378,9 @@ export const DHIS2Page = () => {
       setNewDbUser('');
       setNewDbPassword('');
       setShowNewDbPassword(false);
+      setUseExistingDb(false);
+      setExistingDbHost('');
+      setExistingDbPort(5432);
       setCustomizeDhisConf(false);
       setDhisConfTemplate(DEFAULT_DHIS_CONF_TEMPLATE);
       const fresh = settingsService.load();
@@ -957,15 +977,6 @@ export const DHIS2Page = () => {
               helperText="Used as the proxy path segment and as the default database name"
               required
             />
-            <TextField
-              fullWidth
-              label="Domain Name"
-              value={newInstance.domain}
-              onChange={e => setNewInstance({ ...newInstance, domain: e.target.value })}
-              className={classes.formField}
-              helperText="e.g., dhis2-prod.example.com"
-              required
-            />
             <Grid container spacing={2}>
               <Grid item xs={6}>
                 <TextField
@@ -1185,9 +1196,57 @@ export const DHIS2Page = () => {
               color="textSecondary"
               style={{ marginBottom: 8 }}
             >
-              Provide credentials for an existing PostgreSQL role with
-              privileges on the database below.
+              {useExistingDb
+                ? 'DHIS2 will connect to the external PostgreSQL server below. No database or role will be provisioned.'
+                : 'Provide credentials for an existing PostgreSQL role with privileges on the database below.'}
             </Typography>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={useExistingDb}
+                  onChange={e => {
+                    const next = e.target.checked;
+                    setUseExistingDb(next);
+                    if (next) {
+                      // Connecting to an external DB is mutually exclusive
+                      // with provisioning a new role on the managed DB.
+                      setCreateDbAccount(false);
+                    }
+                  }}
+                  color="primary"
+                />
+              }
+              label="Connect to an existing database"
+            />
+            {useExistingDb && (
+              <Grid container spacing={2}>
+                <Grid item xs={8}>
+                  <TextField
+                    fullWidth
+                    label="Database Host"
+                    value={existingDbHost}
+                    onChange={e => setExistingDbHost(e.target.value)}
+                    className={classes.formField}
+                    helperText="Hostname or IP of the existing PostgreSQL server"
+                    required
+                  />
+                </Grid>
+                <Grid item xs={4}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    label="Database Port"
+                    value={existingDbPort}
+                    onChange={e =>
+                      setExistingDbPort(parseInt(e.target.value, 10) || 5432)
+                    }
+                    className={classes.formField}
+                    inputProps={{ min: 1, max: 65535 }}
+                    required
+                  />
+                </Grid>
+              </Grid>
+            )}
             <TextField
               fullWidth
               label="Database Name"
@@ -1244,6 +1303,7 @@ export const DHIS2Page = () => {
               control={
                 <Checkbox
                   checked={createDbAccount}
+                  disabled={useExistingDb}
                   onChange={e => {
                     const next = e.target.checked;
                     setCreateDbAccount(next);

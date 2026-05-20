@@ -117,6 +117,16 @@ export interface CreateInstanceRequest {
     name: string;
     user: string;
     password: string;
+    /**
+     * When true, the orchestrator does NOT provision a new PostgreSQL
+     * database/role; it connects DHIS2 to an existing database reachable
+     * at `host:port` using the credentials above.
+     */
+    existing?: boolean;
+    /** Host of the existing PostgreSQL server. Required when `existing` is true. */
+    host?: string;
+    /** Port of the existing PostgreSQL server. Defaults to 5432. */
+    port?: number;
   };
   adminPassword: string;
   /**
