@@ -18,11 +18,28 @@ export class SettingsService {
       if (!raw) return DEFAULT_SETTINGS;
       const parsed = JSON.parse(raw) as Partial<DHIS2PluginSettings>;
       // Deep-merge with defaults so new fields don't break stored settings.
-      return {
+      const merged: DHIS2PluginSettings = {
         proxmox: { ...DEFAULT_SETTINGS.proxmox, ...(parsed.proxmox ?? {}) },
         proxy: { ...DEFAULT_SETTINGS.proxy, ...(parsed.proxy ?? {}) },
         dhis2: { ...DEFAULT_SETTINGS.dhis2, ...(parsed.dhis2 ?? {}) },
       };
+      // Migrate stale placeholder values from older builds to the current
+      // defaults so the UI reflects the new defaults without forcing users
+      // to clear localStorage manually.
+      const stalePlaceholders: Record<keyof typeof merged.proxy, string[]> = {
+        baseDomain: ['dhis2.example.com'],
+        host: ['proxy.example.com'],
+        sshKeyPath: ['/var/lib/backstage/.ssh/id_ed25519'],
+      } as any;
+      (Object.keys(stalePlaceholders) as Array<keyof typeof merged.proxy>).forEach(
+        key => {
+          const current = merged.proxy[key] as unknown as string;
+          if (stalePlaceholders[key].includes(current)) {
+            (merged.proxy as any)[key] = DEFAULT_SETTINGS.proxy[key];
+          }
+        },
+      );
+      return merged;
     } catch (e) {
       // eslint-disable-next-line no-console
       console.warn('Failed to load DHIS2 plugin settings, using defaults', e);

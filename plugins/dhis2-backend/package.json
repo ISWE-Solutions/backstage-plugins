@@ -37,11 +37,13 @@
     "@backstage/errors": "^1.2.4",
     "express": "^4.17.1",
     "express-promise-router": "^4.1.0",
-    "pg": "^8.11.3"
+    "pg": "^8.11.3",
+    "ssh2": "^1.17.0"
   },
   "devDependencies": {
     "@backstage/cli": "^0.28.1",
-    "@types/pg": "^8.10.9"
+    "@types/pg": "^8.10.9",
+    "@types/ssh2": "^1.15.5"
   },
   "files": [
     "dist"

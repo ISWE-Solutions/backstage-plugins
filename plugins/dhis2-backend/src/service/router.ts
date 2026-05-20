@@ -3,10 +3,12 @@ import { InputError } from '@backstage/errors';
 import express from 'express';
 import Router from 'express-promise-router';
 import { Client } from 'pg';
+import { ProvisionService, ProvisionRequest } from './provisionService';
 
 export interface RouterOptions {
   logger: LoggerService;
   httpAuth: HttpAuthService;
+  provisionService: ProvisionService;
 }
 
 interface DbCredentials {
@@ -114,7 +116,7 @@ function describeError(
 export async function createRouter(
   options: RouterOptions,
 ): Promise<express.Router> {
-  const { logger, httpAuth } = options;
+  const { logger, httpAuth, provisionService } = options;
 
   const router = Router();
   router.use(express.json());
@@ -185,6 +187,110 @@ export async function createRouter(
       );
       res.status(502).json({ error: message, code });
     }
+  });
+
+  // ---------------------------------------------------------------------
+  // Instance provisioning
+  // ---------------------------------------------------------------------
+
+  function parseProvisionRequest(body: unknown): ProvisionRequest {
+    if (!body || typeof body !== 'object') {
+      throw new InputError('Request body must be a JSON object');
+    }
+    const b = body as Record<string, any>;
+    const required = [
+      'name',
+      'domain',
+      'version',
+      'node',
+      'vmid',
+      'hostname',
+      'email',
+      'resources',
+      'database',
+      'adminPassword',
+    ];
+    for (const key of required) {
+      if (b[key] === undefined || b[key] === null || b[key] === '') {
+        throw new InputError(`"${key}" is required`);
+      }
+    }
+    const vmid = Number(b.vmid);
+    if (!Number.isInteger(vmid) || vmid <= 0) {
+      throw new InputError('"vmid" must be a positive integer');
+    }
+    const r = b.resources;
+    if (
+      !r ||
+      typeof r !== 'object' ||
+      typeof r.cpu !== 'number' ||
+      typeof r.memory !== 'number' ||
+      typeof r.storage !== 'number'
+    ) {
+      throw new InputError('"resources" must have numeric cpu/memory/storage');
+    }
+    const d = b.database;
+    if (
+      !d ||
+      typeof d.name !== 'string' ||
+      typeof d.user !== 'string' ||
+      typeof d.password !== 'string'
+    ) {
+      throw new InputError('"database" must have name/user/password strings');
+    }
+    return {
+      name: String(b.name),
+      domain: String(b.domain),
+      version: String(b.version),
+      node: String(b.node),
+      vmid,
+      hostname: String(b.hostname),
+      email: String(b.email),
+      resources: { cpu: r.cpu, memory: r.memory, storage: r.storage },
+      database: { name: d.name, user: d.user, password: d.password },
+      adminPassword: String(b.adminPassword),
+      rootPassword:
+        typeof b.rootPassword === 'string' && b.rootPassword !== ''
+          ? b.rootPassword
+          : undefined,
+      newDbAccount:
+        b.newDbAccount &&
+        typeof b.newDbAccount.user === 'string' &&
+        typeof b.newDbAccount.password === 'string'
+          ? { user: b.newDbAccount.user, password: b.newDbAccount.password }
+          : undefined,
+      skipCertbot: b.skipCertbot === true,
+    };
+  }
+
+  router.post('/instances/provision', async (req, res) => {
+    if (!provisionService.isConfigured()) {
+      res.status(503).json({
+        error:
+          'Provisioning orchestrator is not configured. Set dhis2.orchestrator in app-config.yaml (host, user, privateKeyFile, scriptPath).',
+      });
+      return;
+    }
+    const payload = parseProvisionRequest(req.body);
+    const job = provisionService.startJob(payload);
+    logger.info(
+      `DHIS2: provision job ${job.id} started for ${payload.name} (vmid=${payload.vmid}, node=${payload.node})`,
+    );
+    res.status(202).json({ jobId: job.id, status: job.status });
+  });
+
+  router.get('/instances/jobs/:id', (req, res) => {
+    const job = provisionService.getJob(req.params.id);
+    if (!job) {
+      res.status(404).json({ error: 'Job not found' });
+      return;
+    }
+    res.json(job);
+  });
+
+  router.get('/instances', async (_req, res) => {
+    const instances = await provisionService.listInstances();
+    res.json({ instances });
   });
 
   return router;

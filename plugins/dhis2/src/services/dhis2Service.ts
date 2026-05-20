@@ -634,6 +634,40 @@ export class DHIS2Service {
   }
 
   /**
+   * Apply an edit to an existing instance (rename, change version, resize).
+   * In production this should fan out to the relevant orchestrator steps
+   * (Proxmox resize, DHIS2 redeploy/upgrade, rename DNS, etc.).
+   */
+  async updateInstance(
+    id: string,
+    patch: {
+      name?: string;
+      version?: string;
+      resources?: Partial<{ cpu: number; memory: number; storage: number }>;
+    },
+  ): Promise<void> {
+    console.log(`Updating instance ${id}`, patch);
+  }
+
+  /**
+   * Trigger an on-demand backup for an instance. Returns the ISO timestamp
+   * of the new backup. In production this would invoke the dhis2-backend
+   * backup job and stream progress; here we return immediately.
+   */
+  async backupInstance(id: string): Promise<{ timestamp: string }> {
+    console.log(`Triggering backup for instance ${id}`);
+    return { timestamp: new Date().toISOString() };
+  }
+
+  /**
+   * Refresh status for a single instance from the orchestrator. The default
+   * implementation re-fetches the full list and returns the matching entry.
+   */
+  async refreshInstance(id: string): Promise<DHIS2Instance | null> {
+    return this.getInstance(id);
+  }
+
+  /**
    * Get orchestration logs across all instances. In production this would
    * stream from a backend; for now we return mock entries that cover the
    * different log levels and actions the UI needs to render.
@@ -740,6 +774,108 @@ export class DHIS2Service {
       },
     ];
   }
+
+  // ---------------------------------------------------------------------
+  // Real provisioning (dhis2-backend)
+  // ---------------------------------------------------------------------
+
+  /**
+   * Start a real provisioning job on the backend. Returns the job id; the
+   * caller should poll `getProvisionJob(jobId)` for progress updates.
+   *
+   * `baseUrl` must be resolved via `discoveryApi.getBaseUrl('dhis2')`.
+   */
+  async startProvisionJob(
+    baseUrl: string,
+    payload: ProvisionInstancePayload,
+    fetchFn: typeof fetch = (...args) => fetch(...args),
+  ): Promise<{ jobId: string; status: string }> {
+    const res = await fetchFn(`${baseUrl}/instances/provision`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      let msg = `Provision request failed (HTTP ${res.status})`;
+      try {
+        const body = await res.json();
+        if (body?.error) msg = body.error;
+      } catch {
+        // ignore body parse failure
+      }
+      throw new Error(msg);
+    }
+    return (await res.json()) as { jobId: string; status: string };
+  }
+
+  /**
+   * Snapshot a running or completed provisioning job.
+   */
+  async getProvisionJob(
+    baseUrl: string,
+    jobId: string,
+    fetchFn: typeof fetch = (...args) => fetch(...args),
+  ): Promise<ProvisionJobSnapshot> {
+    const res = await fetchFn(
+      `${baseUrl}/instances/jobs/${encodeURIComponent(jobId)}`,
+    );
+    if (!res.ok) {
+      throw new Error(`Failed to load job (HTTP ${res.status})`);
+    }
+    return (await res.json()) as ProvisionJobSnapshot;
+  }
+
+  /**
+   * List instances actually persisted by the backend (i.e. ones for which
+   * provisioning succeeded). Returns an empty array if the backend has no
+   * orchestrator state file configured.
+   */
+  async getPersistedInstances(
+    baseUrl: string,
+    fetchFn: typeof fetch = (...args) => fetch(...args),
+  ): Promise<DHIS2Instance[]> {
+    const res = await fetchFn(`${baseUrl}/instances`);
+    if (!res.ok) return [];
+    const body = (await res.json()) as { instances?: DHIS2Instance[] };
+    return body.instances ?? [];
+  }
+}
+
+/** Payload sent to POST /api/dhis2/instances/provision. */
+export interface ProvisionInstancePayload {
+  name: string;
+  domain: string;
+  version: string;
+  node: string;
+  vmid: number;
+  hostname: string;
+  email: string;
+  resources: { cpu: number; memory: number; storage: number };
+  database: { name: string; user: string; password: string };
+  adminPassword: string;
+  rootPassword?: string;
+  newDbAccount?: { user: string; password: string };
+  skipCertbot?: boolean;
+}
+
+export type ProvisionJobStatus = 'queued' | 'running' | 'success' | 'failed';
+
+export interface ProvisionJobSnapshot {
+  id: string;
+  status: ProvisionJobStatus;
+  exitCode?: number;
+  error?: string;
+  startedAt: string;
+  finishedAt?: string;
+  lines: string[];
+  request: {
+    name: string;
+    domain: string;
+    version: string;
+    node: string;
+    vmid: number;
+  };
+  instance?: DHIS2Instance;
 }
 
 export const dhis2Service = new DHIS2Service();

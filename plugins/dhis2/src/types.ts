@@ -101,6 +101,8 @@ export interface DHIS2Instance {
   };
   created: string;
   updated: string;
+  /** ISO timestamp of the most recent successful backup, if any. */
+  lastBackup?: string;
 }
 
 export interface CreateInstanceRequest {

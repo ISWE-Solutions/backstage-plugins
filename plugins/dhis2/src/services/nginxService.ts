@@ -203,6 +203,56 @@ server {
   }
 
   /**
+   * Reload configuration for a single site (no-op on most distros — a full
+   * reload is required to pick up changes, but we expose this for symmetry
+   * and to allow per-site validation in the future).
+   */
+  async reloadSite(domain: string): Promise<void> {
+    console.log('Reloading nginx site:', domain);
+    // In production: validate then `systemctl reload nginx`
+  }
+
+  /**
+   * Enable a site by symlinking sites-available -> sites-enabled.
+   */
+  async enableSite(domain: string): Promise<void> {
+    console.log('Enabling nginx site:', domain);
+  }
+
+  /**
+   * Disable a site by removing the sites-enabled symlink.
+   */
+  async disableSite(domain: string): Promise<void> {
+    console.log('Disabling nginx site:', domain);
+  }
+
+  /**
+   * Fetch the tail of the nginx access log, optionally scoped to one site.
+   */
+  async getAccessLog(domain?: string, lines: number = 200): Promise<string[]> {
+    console.log('Fetching nginx access log', { domain, lines });
+    const ts = new Date().toISOString();
+    const target = domain ?? 'global';
+    return [
+      `${ts} 10.0.0.10 - - "GET / HTTP/1.1" 200 1234 "-" "Mozilla/5.0" upstream=${target}`,
+      `${ts} 10.0.0.11 - - "POST /api/me HTTP/1.1" 200 512 "-" "curl/8.0" upstream=${target}`,
+      `${ts} 10.0.0.12 - - "GET /api/system/info HTTP/1.1" 200 2048 "-" "Mozilla/5.0" upstream=${target}`,
+    ];
+  }
+
+  /**
+   * Fetch the tail of the nginx error log, optionally scoped to one site.
+   */
+  async getErrorLog(domain?: string, lines: number = 200): Promise<string[]> {
+    console.log('Fetching nginx error log', { domain, lines });
+    const ts = new Date().toISOString();
+    const target = domain ?? 'global';
+    return [
+      `${ts} [warn] 1234#0: *1 upstream timed out (110: Connection timed out) while reading response header from upstream, host: ${target}`,
+    ];
+  }
+
+  /**
    * Get SSL certificate info for domain
    */
   async getCertificateInfo(_domain: string): Promise<{
