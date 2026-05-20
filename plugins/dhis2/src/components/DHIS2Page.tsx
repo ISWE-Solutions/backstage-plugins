@@ -1299,6 +1299,70 @@ export const DHIS2Page = () => {
                 ),
               }}
             />
+            <Typography variant="subtitle2" color="textSecondary" gutterBottom style={{ marginTop: 16 }}>
+              Shared PostgreSQL (leave host blank to install per-instance)
+            </Typography>
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Shared Postgres host"
+                  value={dhis2Settings.postgresHost}
+                  onChange={e =>
+                    setDhis2Settings({
+                      ...dhis2Settings,
+                      postgresHost: e.target.value,
+                    })
+                  }
+                  className={classes.formField}
+                />
+              </Grid>
+              <Grid item xs={6} md={2}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="Port"
+                  value={dhis2Settings.postgresPort}
+                  onChange={e =>
+                    setDhis2Settings({
+                      ...dhis2Settings,
+                      postgresPort:
+                        parseInt(e.target.value, 10) || 5432,
+                    })
+                  }
+                  className={classes.formField}
+                />
+              </Grid>
+              <Grid item xs={6} md={4}>
+                <TextField
+                  fullWidth
+                  label="Admin user"
+                  value={dhis2Settings.postgresAdminUser}
+                  onChange={e =>
+                    setDhis2Settings({
+                      ...dhis2Settings,
+                      postgresAdminUser: e.target.value,
+                    })
+                  }
+                  className={classes.formField}
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  type="password"
+                  label="Admin password"
+                  value={dhis2Settings.postgresAdminPassword}
+                  onChange={e =>
+                    setDhis2Settings({
+                      ...dhis2Settings,
+                      postgresAdminPassword: e.target.value,
+                    })
+                  }
+                  className={classes.formField}
+                />
+              </Grid>
+            </Grid>
             <FormControlLabel
               control={
                 <Checkbox
@@ -1446,71 +1510,6 @@ export const DHIS2Page = () => {
                 </Typography>
               </Box>
             )}
-            <Divider style={{ margin: '16px 0' }} />
-            <Typography variant="subtitle2" color="textSecondary" gutterBottom>
-              Shared PostgreSQL (leave host blank to install per-instance)
-            </Typography>
-            <Grid container spacing={2}>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  label="Shared Postgres host"
-                  value={dhis2Settings.postgresHost}
-                  onChange={e =>
-                    setDhis2Settings({
-                      ...dhis2Settings,
-                      postgresHost: e.target.value,
-                    })
-                  }
-                  className={classes.formField}
-                />
-              </Grid>
-              <Grid item xs={6} md={2}>
-                <TextField
-                  fullWidth
-                  type="number"
-                  label="Port"
-                  value={dhis2Settings.postgresPort}
-                  onChange={e =>
-                    setDhis2Settings({
-                      ...dhis2Settings,
-                      postgresPort:
-                        parseInt(e.target.value, 10) || 5432,
-                    })
-                  }
-                  className={classes.formField}
-                />
-              </Grid>
-              <Grid item xs={6} md={4}>
-                <TextField
-                  fullWidth
-                  label="Admin user"
-                  value={dhis2Settings.postgresAdminUser}
-                  onChange={e =>
-                    setDhis2Settings({
-                      ...dhis2Settings,
-                      postgresAdminUser: e.target.value,
-                    })
-                  }
-                  className={classes.formField}
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  type="password"
-                  label="Admin password"
-                  value={dhis2Settings.postgresAdminPassword}
-                  onChange={e =>
-                    setDhis2Settings({
-                      ...dhis2Settings,
-                      postgresAdminPassword: e.target.value,
-                    })
-                  }
-                  className={classes.formField}
-                />
-              </Grid>
-            </Grid>
             <Divider style={{ margin: '16px 0' }} />
             <Typography variant="subtitle2" color="textSecondary" gutterBottom>
               Backups
