@@ -16,7 +16,8 @@ interface DbCredentials {
   password: string;
 }
 
-const CONNECTION_TIMEOUT_MS = 5_000;
+const CONNECT_TIMEOUT_MS = 15_000;
+const STATEMENT_TIMEOUT_MS = 10_000;
 
 function parseCredentials(body: unknown): DbCredentials {
   if (!body || typeof body !== 'object') {
@@ -57,8 +58,8 @@ async function withClient<T>(
     user: creds.user,
     password: creds.password,
     database,
-    connectionTimeoutMillis: CONNECTION_TIMEOUT_MS,
-    statement_timeout: CONNECTION_TIMEOUT_MS,
+    connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
+    statement_timeout: STATEMENT_TIMEOUT_MS,
     // Browser-supplied creds; never reuse across requests.
     application_name: 'backstage-dhis2-plugin',
   });
@@ -70,14 +71,41 @@ async function withClient<T>(
   }
 }
 
-function describeError(err: unknown): { message: string; code?: string } {
+function describeError(
+  err: unknown,
+  creds: DbCredentials,
+): { message: string; code?: string } {
   if (err && typeof err === 'object') {
     const e = err as { message?: unknown; code?: unknown };
-    const message =
+    const rawMessage =
       typeof e.message === 'string' && e.message !== ''
         ? e.message
         : 'Failed to connect to PostgreSQL';
     const code = typeof e.code === 'string' ? e.code : undefined;
+
+    // Translate common low-level errors into actionable hints. PG client
+    // surfaces these as plain Error messages without an SQLSTATE code, so we
+    // pattern-match on the message text.
+    const target = `${creds.host}:${creds.port}`;
+    const lower = rawMessage.toLowerCase();
+    let message = rawMessage;
+    if (lower.includes('timeout expired') || code === 'ETIMEDOUT') {
+      message = `Connection to ${target} timed out after ${CONNECT_TIMEOUT_MS / 1000}s. The Backstage backend host could not reach PostgreSQL — check that the port is open from this host (firewall / security group) and that PostgreSQL is listening on ${creds.host} (postgresql.conf: listen_addresses).`;
+    } else if (code === 'ECONNREFUSED' || lower.includes('econnrefused')) {
+      message = `Connection to ${target} was refused. PostgreSQL is not listening on that host/port, or a firewall is rejecting the connection.`;
+    } else if (code === 'ENOTFOUND' || code === 'EAI_AGAIN' || lower.includes('getaddrinfo')) {
+      message = `Hostname ${creds.host} could not be resolved by the Backstage backend (DNS).`;
+    } else if (code === 'EHOSTUNREACH' || lower.includes('ehostunreach')) {
+      message = `Host ${creds.host} is unreachable from the Backstage backend (network/route).`;
+    } else if (
+      lower.includes('no pg_hba.conf entry') ||
+      lower.includes('password authentication failed') ||
+      code === '28000' ||
+      code === '28P01'
+    ) {
+      // pg_hba or bad password — leave server message but prepend context.
+      message = `${rawMessage} (PostgreSQL rejected the connection for ${creds.user}@${target}; check pg_hba.conf and the password).`;
+    }
     return { message, code };
   }
   return { message: 'Failed to connect to PostgreSQL' };
@@ -127,7 +155,7 @@ export async function createRouter(
         durationMs: Date.now() - started,
       });
     } catch (err) {
-      const { message, code } = describeError(err);
+      const { message, code } = describeError(err, creds);
       logger.warn(
         `DHIS2: PG connection FAILED to ${creds.host}:${creds.port} as ${creds.user}: ${message}${code ? ` [${code}]` : ''}`,
       );
@@ -151,7 +179,7 @@ export async function createRouter(
       });
       res.json({ databases });
     } catch (err) {
-      const { message, code } = describeError(err);
+      const { message, code } = describeError(err, creds);
       logger.warn(
         `DHIS2: listDatabases FAILED on ${creds.host}:${creds.port} as ${creds.user}: ${message}${code ? ` [${code}]` : ''}`,
       );

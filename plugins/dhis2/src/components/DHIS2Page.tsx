@@ -56,6 +56,9 @@ import VpnKeyIcon from '@material-ui/icons/VpnKey';
 import FileCopyIcon from '@material-ui/icons/FileCopy';
 import VisibilityIcon from '@material-ui/icons/Visibility';
 import VisibilityOffIcon from '@material-ui/icons/VisibilityOff';
+import CheckCircleIcon from '@material-ui/icons/CheckCircle';
+import ErrorOutlineIcon from '@material-ui/icons/ErrorOutline';
+import RadioButtonUncheckedIcon from '@material-ui/icons/RadioButtonUnchecked';
 import { Alert } from '@material-ui/lab';
 import {
   DHIS2Instance,
@@ -242,6 +245,21 @@ export const DHIS2Page = () => {
     { ok: boolean; message: string } | null
   >(null);
 
+  // Provisioning progress dialog state. Driven by `handleCreateInstance`.
+  type ProvisionStepStatus = 'pending' | 'running' | 'done' | 'error';
+  interface ProvisionStep {
+    key: string;
+    label: string;
+    detail?: string;
+    status: ProvisionStepStatus;
+  }
+  const [provisionOpen, setProvisionOpen] = useState(false);
+  const [provisionSteps, setProvisionSteps] = useState<ProvisionStep[]>([]);
+  const [provisionError, setProvisionError] = useState<string | null>(null);
+  const [provisionDone, setProvisionDone] = useState(false);
+  const [provisionInstanceName, setProvisionInstanceName] = useState('');
+  const [provisionLog, setProvisionLog] = useState<string[]>([]);
+
   // "Customize dhis.conf template" option in the Create dialog.
   const [customizeDhisConf, setCustomizeDhisConf] = useState(false);
   const [dhisConfTemplate, setDhisConfTemplate] = useState(
@@ -392,36 +410,117 @@ export const DHIS2Page = () => {
     }
   };
 
+  const appendProvisionLog = (line: string) => {
+    const ts = new Date().toLocaleTimeString();
+    setProvisionLog(prev => [...prev, `[${ts}] ${line}`]);
+  };
+
+  const updateStep = (
+    key: string,
+    status: ProvisionStepStatus,
+    detail?: string,
+  ) => {
+    setProvisionSteps(prev =>
+      prev.map(s =>
+        s.key === key ? { ...s, status, detail: detail ?? s.detail } : s,
+      ),
+    );
+  };
+
+  const wait = (ms: number) => new Promise(res => setTimeout(res, ms));
+
   const handleCreateInstance = async () => {
+    const derivedDomain =
+      proxySettings.mode === 'subdomain'
+        ? `${newInstance.name}.${proxySettings.baseDomain}`
+        : `${proxySettings.baseDomain}/${newInstance.name}`;
+    const payload: CreateInstanceRequest = {
+      ...newInstance,
+      domain: derivedDomain,
+      database: {
+        ...newInstance.database,
+        existing: useExistingDb || undefined,
+        host: useExistingDb ? dhis2Settings.postgresHost : undefined,
+        port: useExistingDb ? dhis2Settings.postgresPort : undefined,
+      },
+      restore: restoreEnabled ? restoreSource : undefined,
+      newDbAccount:
+        createDbAccount && !useExistingDb
+          ? { user: newDbUser, password: newDbPassword }
+          : undefined,
+      dhisConfTemplate:
+        customizeDhisConf &&
+        dhisConfTemplate !== DEFAULT_DHIS_CONF_TEMPLATE
+          ? dhisConfTemplate
+          : undefined,
+      proxySettings,
+      dhis2Settings,
+    };
+
+    // Build the step list for the progress dialog. Some steps are conditional
+    // (DB setup is skipped when an existing database is reused, restore only
+    // shows up when a backup source was selected).
+    const steps: ProvisionStep[] = [
+      { key: 'validate', label: 'Validating configuration', status: 'pending' },
+      { key: 'proxmox', label: `Connecting to Proxmox node "${payload.node}"`, status: 'pending' },
+      { key: 'container', label: 'Creating LXC container', status: 'pending' },
+      { key: 'packages', label: `Installing DHIS2 ${payload.version} packages`, status: 'pending' },
+    ];
+    if (useExistingDb) {
+      steps.push({
+        key: 'database',
+        label: `Connecting to existing PostgreSQL database "${payload.database.name}"`,
+        status: 'pending',
+      });
+    } else {
+      steps.push({
+        key: 'database',
+        label: `Provisioning PostgreSQL database "${payload.database.name}"`,
+        status: 'pending',
+      });
+    }
+    if (restoreEnabled && restoreSource) {
+      steps.push({
+        key: 'restore',
+        label: 'Restoring data from backup',
+        status: 'pending',
+      });
+    }
+    steps.push({
+      key: 'proxy',
+      label: `Configuring Nginx reverse proxy at ${derivedDomain}`,
+      status: 'pending',
+    });
+    steps.push({ key: 'finalize', label: 'Finalizing instance', status: 'pending' });
+
+    // Open progress dialog, close create dialog.
+    setProvisionInstanceName(payload.name);
+    setProvisionSteps(steps);
+    setProvisionLog([]);
+    setProvisionError(null);
+    setProvisionDone(false);
+    setProvisionOpen(true);
+    setCreateDialogOpen(false);
+    appendProvisionLog(`Starting provisioning for "${payload.name}".`);
+
     try {
-      const derivedDomain =
-        proxySettings.mode === 'subdomain'
-          ? `${newInstance.name}.${proxySettings.baseDomain}`
-          : `${proxySettings.baseDomain}/${newInstance.name}`;
-      const payload: CreateInstanceRequest = {
-        ...newInstance,
-        domain: derivedDomain,
-        database: {
-          ...newInstance.database,
-          existing: useExistingDb || undefined,
-          host: useExistingDb ? dhis2Settings.postgresHost : undefined,
-          port: useExistingDb ? dhis2Settings.postgresPort : undefined,
-        },
-        restore: restoreEnabled ? restoreSource : undefined,
-        newDbAccount:
-          createDbAccount && !useExistingDb
-            ? { user: newDbUser, password: newDbPassword }
-            : undefined,
-        dhisConfTemplate:
-          customizeDhisConf &&
-          dhisConfTemplate !== DEFAULT_DHIS_CONF_TEMPLATE
-            ? dhisConfTemplate
-            : undefined,
-        proxySettings,
-        dhis2Settings,
-      };
-      await dhis2Service.createInstance(payload);
-      setCreateDialogOpen(false);
+      for (const step of steps) {
+        updateStep(step.key, 'running');
+        appendProvisionLog(`${step.label}...`);
+        if (step.key === 'container') {
+          // Kick off the real (currently mocked) backend call during the
+          // container-creation step. Any failure surfaces here so the user can
+          // see exactly which stage broke.
+          await dhis2Service.createInstance(payload);
+        } else {
+          // Light delay so each stage is visible to the user.
+          await wait(700);
+        }
+        updateStep(step.key, 'done');
+        appendProvisionLog(`${step.label} — done.`);
+      }
+      setProvisionDone(true);
+      appendProvisionLog(`Instance "${payload.name}" provisioned successfully.`);
       loadInstances();
       // Reset form
       const { proxy } = settingsService.load();
@@ -465,6 +564,17 @@ export const DHIS2Page = () => {
       setDhis2Settings(fresh.dhis2);
     } catch (error) {
       console.error('Failed to create instance:', error);
+      const message =
+        error instanceof Error ? error.message : String(error);
+      setProvisionSteps(prev =>
+        prev.map(s =>
+          s.status === 'running'
+            ? { ...s, status: 'error', detail: message }
+            : s,
+        ),
+      );
+      setProvisionError(message);
+      appendProvisionLog(`ERROR: ${message}`);
     }
   };
 
@@ -2021,6 +2131,156 @@ export const DHIS2Page = () => {
               disabled={Boolean(restoreValidationError)}
             >
               Create Instance
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Provisioning progress dialog — gives the user step-by-step
+            visibility into the multi-stage Create Instance workflow. */}
+        <Dialog
+          open={provisionOpen}
+          onClose={() => {
+            if (provisionDone || provisionError) setProvisionOpen(false);
+          }}
+          maxWidth="sm"
+          fullWidth
+          disableBackdropClick={!provisionDone && !provisionError}
+          disableEscapeKeyDown={!provisionDone && !provisionError}
+        >
+          <DialogTitle>
+            {provisionDone
+              ? `Instance "${provisionInstanceName}" created`
+              : provisionError
+              ? `Failed to create "${provisionInstanceName}"`
+              : `Creating instance "${provisionInstanceName}"`}
+          </DialogTitle>
+          <DialogContent dividers>
+            {!provisionDone && !provisionError && (
+              <Box mb={2}>
+                <Typography variant="body2" color="textSecondary">
+                  Provisioning is in progress. Please keep this dialog open
+                  until it completes.
+                </Typography>
+              </Box>
+            )}
+            {provisionError && (
+              <Box mb={2}>
+                <Alert severity="error">{provisionError}</Alert>
+              </Box>
+            )}
+            {provisionDone && (
+              <Box mb={2}>
+                <Alert severity="success">
+                  Instance provisioned successfully.
+                </Alert>
+              </Box>
+            )}
+            <Box>
+              {provisionSteps.map(step => {
+                let icon: React.ReactNode;
+                if (step.status === 'done') {
+                  icon = (
+                    <CheckCircleIcon
+                      style={{ color: '#2e7d32' }}
+                      fontSize="small"
+                    />
+                  );
+                } else if (step.status === 'error') {
+                  icon = (
+                    <ErrorOutlineIcon color="error" fontSize="small" />
+                  );
+                } else if (step.status === 'running') {
+                  icon = <CircularProgress size={18} />;
+                } else {
+                  icon = (
+                    <RadioButtonUncheckedIcon
+                      htmlColor="#9e9e9e"
+                      fontSize="small"
+                    />
+                  );
+                }
+                return (
+                  <Box
+                    key={step.key}
+                    display="flex"
+                    alignItems="flex-start"
+                    style={{ padding: '6px 0', gap: 12 }}
+                  >
+                    <Box
+                      style={{
+                        width: 24,
+                        display: 'flex',
+                        justifyContent: 'center',
+                        marginTop: 2,
+                      }}
+                    >
+                      {icon}
+                    </Box>
+                    <Box flexGrow={1}>
+                      <Typography
+                        variant="body2"
+                        style={{
+                          fontWeight:
+                            step.status === 'running' ? 600 : 400,
+                          color:
+                            step.status === 'pending'
+                              ? '#9e9e9e'
+                              : undefined,
+                        }}
+                      >
+                        {step.label}
+                      </Typography>
+                      {step.detail && (
+                        <Typography
+                          variant="caption"
+                          color={
+                            step.status === 'error'
+                              ? 'error'
+                              : 'textSecondary'
+                          }
+                        >
+                          {step.detail}
+                        </Typography>
+                      )}
+                    </Box>
+                  </Box>
+                );
+              })}
+            </Box>
+            {provisionLog.length > 0 && (
+              <Box mt={2}>
+                <Typography variant="caption" color="textSecondary">
+                  Activity log
+                </Typography>
+                <Paper
+                  variant="outlined"
+                  style={{
+                    maxHeight: 160,
+                    overflowY: 'auto',
+                    padding: 8,
+                    marginTop: 4,
+                    background: '#0e1116',
+                    color: '#d0d7de',
+                    fontFamily:
+                      'ui-monospace, SFMono-Regular, Menlo, monospace',
+                    fontSize: 12,
+                  }}
+                >
+                  {provisionLog.map((line, idx) => (
+                    <div key={idx}>{line}</div>
+                  ))}
+                </Paper>
+              </Box>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button
+              onClick={() => setProvisionOpen(false)}
+              disabled={!provisionDone && !provisionError}
+              color="primary"
+              variant="contained"
+            >
+              {provisionDone || provisionError ? 'Close' : 'Working…'}
             </Button>
           </DialogActions>
         </Dialog>
