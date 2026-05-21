@@ -1,24 +1,71 @@
 ---
 # Wrapper playbook for the dhis2 Backstage plugin.
 #
-# Configures everything inside the LXC container created by
-# ../scripts/create-container.sh:
-#   - base packages + timezone (`common` role)
-#   - PostgreSQL with required extensions and DHIS2 db/user (`postgres` role)
-#   - Tomcat + DHIS2 WAR + dhis.conf (`dhis2` role)
+# End-to-end flow (no `pct`/`pvesh` CLI; LXC lifecycle is via REST API):
+#   1. pve_lxc         — create + start the LXC via Proxmox REST API.
+#                        Discovers IP, registers it as `new_containers`.
+#   2. lxc_bootstrap   — SSH as root into the new container; install
+#                        python3 + sudo; create the ansible user; drop the
+#                        orchestrator pubkey; disable root SSH.
+#   3. stage_restore   — copy controller-staged database dump into the
+#                        container (only when dhis2_restore is set).
+#   4. common/postgres/dhis2 — usual roles (run as the ansible user).
 #
 # TLS is handled at the Proxmox host by the central Nginx
 # (see ../scripts/configure-host-proxy.sh) so this playbook does NOT
 # install or configure any in-container web proxy.
 
-- name: Pre-flight — verify SSH reachability
-  hosts: managed
+- name: "Phase 1 — create LXC via Proxmox API"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  roles:
+    - role: pve_lxc
+
+- name: "Phase 2 — bootstrap ansible user inside container (as root)"
+  hosts: new_containers
+  gather_facts: false
+  vars:
+    ansible_user: root
+  roles:
+    - role: lxc_bootstrap
+
+- name: "Phase 2b — re-register container under the ansible user"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Add container to managed/instances groups as the ansible user
+      ansible.builtin.add_host:
+        name: "{{ instance_name | default(pve_hostname) }}"
+        ansible_host: "{{ hostvars[instance_name | default(pve_hostname)].ansible_host }}"
+        ansible_user: "{{ ansible_user_target | default('ansible') }}"
+        ansible_ssh_private_key_file: "{{ hostvars[instance_name | default(pve_hostname)].ansible_ssh_private_key_file }}"
+        ansible_become: true
+        ansible_become_method: sudo
+        groups:
+          - instances
+          - databases
+        database_host: "{{ instance_name | default(pve_hostname) }}"
+        dhis2_version: "{{ dhis2_version }}"
+        fqdn: "{{ fqdn }}"
+        proxy_rewrite: true
+
+- name: "Pre-flight — verify SSH reachability"
+  hosts: instances
   gather_facts: false
   tasks:
     - name: Ping all managed hosts
       ansible.builtin.ping:
 
-- name: Provision DHIS2 instance
+- name: "Phase 3 — stage restore dump (if requested)"
+  hosts: instances
+  become: true
+  gather_facts: false
+  roles:
+    - role: stage_restore
+
+- name: "Phase 4 — provision DHIS2 instance"
   hosts: instances
   become: true
   gather_facts: true

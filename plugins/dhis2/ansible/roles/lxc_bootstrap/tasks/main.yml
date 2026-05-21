@@ -1,0 +1,62 @@
+---
+# lxc_bootstrap — minimal in-container setup so the rest of the playbook
+# can run as a non-root sudoer over SSH.
+#
+# Runs on a freshly created container, connecting as `root` with the SSH
+# public key that pve_lxc injected at create time. Idempotent.
+#
+# Required vars:
+#   ansible_user_target   — non-root user to create (default: "ansible")
+#   ansible_user_pubkey   — public key string to authorize for that user
+
+- name: Install bootstrap packages
+  ansible.builtin.apt:
+    name:
+      - openssh-server
+      - python3
+      - python3-apt
+      - sudo
+      - ca-certificates
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Harden sshd (no root login, no password auth)
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+  loop:
+    - { regexp: "^#?PermitRootLogin",                line: "PermitRootLogin no" }
+    - { regexp: "^#?PasswordAuthentication",         line: "PasswordAuthentication no" }
+    - { regexp: "^#?ChallengeResponseAuthentication", line: "ChallengeResponseAuthentication no" }
+  notify: Restart sshd
+
+- name: Create non-root ansible user
+  ansible.builtin.user:
+    name: "{{ ansible_user_target | default('ansible') }}"
+    shell: /bin/bash
+    create_home: true
+    state: present
+
+- name: Grant NOPASSWD sudo to ansible user
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/90-{{ ansible_user_target | default('ansible') }}"
+    content: "{{ ansible_user_target | default('ansible') }} ALL=(ALL) NOPASSWD:ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "/usr/sbin/visudo -cf %s"
+
+- name: Authorize orchestrator SSH key for ansible user
+  ansible.posix.authorized_key:
+    user: "{{ ansible_user_target | default('ansible') }}"
+    key: "{{ ansible_user_pubkey }}"
+    state: present
+
+- name: Ensure ssh service is enabled and running
+  ansible.builtin.service:
+    name: ssh
+    enabled: true
+    state: started

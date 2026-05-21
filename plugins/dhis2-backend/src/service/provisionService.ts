@@ -5,10 +5,16 @@ import * as path from 'path';
 import { randomUUID, randomBytes } from 'crypto';
 
 /**
- * Configuration for the host that actually runs the provision-instance.sh
- * orchestrator script. This host must be a Proxmox node (the script uses
- * `pct`) and must have the DHIS2 plugin's ansible/ and scripts/ directories
- * available on disk.
+ * Configuration for the host that runs provision-instance.sh.
+ *
+ * In the API-based flow this host is the Backstage backend itself: the
+ * script renders an Ansible playbook that drives Proxmox via the REST API
+ * (community.general.proxmox) — no `pct`/`pvesh` CLI is required and the
+ * Backstage host does NOT need to be a Proxmox node.
+ *
+ * The legacy `host` / `user` / `privateKeyFile` fields are still consumed
+ * by configure-host-proxy.sh (which SSHes to the PVE host to install the
+ * central Nginx + Let's Encrypt cert).
  */
 export interface OrchestratorConfig {
   host: string;
@@ -24,11 +30,9 @@ export interface OrchestratorConfig {
    */
   scriptPath: string;
   /**
-   * Explicit Proxmox node to drive over SSH from the orchestrator script.
-   * When omitted, the backend uses `host` if non-local, otherwise falls
-   * back to the per-request `node` (the PVE node the user chose for the
-   * new container). Set to 'localhost' to force the script to run pct /
-   * pvesh locally (only valid when the Backstage host IS a Proxmox node).
+   * Explicit Proxmox node to SSH to for the central Nginx step (used by
+   * configure-host-proxy.sh). When omitted, falls back to host (if
+   * non-local) and then to the per-request node.
    */
   pveHost?: string;
   /**
@@ -39,6 +43,18 @@ export interface OrchestratorConfig {
   stateFile?: string;
   /** Skip Let's Encrypt cert request (passes --skip-certbot to the script). */
   skipCertbot?: boolean;
+
+  // ---- Proxmox REST API (consumed by the pve_lxc Ansible role) ----
+  /** Proxmox API endpoint, e.g. "pve01.example.com" or "pve01:8006". */
+  apiHost: string;
+  /** Proxmox API user, e.g. "root@pam". */
+  apiUser: string;
+  /** Proxmox API token id (the part after `!`). */
+  apiTokenId: string;
+  /** Proxmox API token secret (UUID). */
+  apiTokenSecret: string;
+  /** Validate the Proxmox API TLS cert. Default: false. */
+  validateApiCerts?: boolean;
 }
 
 export type JobStatus = 'queued' | 'running' | 'success' | 'failed';
@@ -173,25 +189,16 @@ function buildCommand(
   if (cfg.privateKeyFile) {
     args.push('--ssh-key', cfg.privateKeyFile);
   }
-  // Option-2 plumbing: the orchestrator script always runs LOCALLY on the
-  // Backstage host (where Ansible lives). The --pve-host argument tells the
-  // script which Proxmox node to SSH to for each pct/pvesh/pvesm call.
-  //
-  // Resolution order:
-  //   1. cfg.pveHost     — explicit override (use '' or 'localhost' to skip)
-  //   2. cfg.host        — when set to a non-local hostname
-  //   3. req.node        — fall back to the user-selected PVE node
-  const pveHost = resolvePveHost(cfg, req);
-  if (pveHost && !isLocalHost(pveHost)) {
-    args.push('--pve-host', pveHost);
-    if (cfg.user) args.push('--pve-user', cfg.user);
-    if (cfg.privateKeyFile) args.push('--pve-ssh-key', cfg.privateKeyFile);
-  }
-  // Secrets are exported as env vars on the remote shell, NEVER on argv.
+  // Secrets + Proxmox API credentials go via env vars, NEVER on argv.
   const env: Record<string, string> = {
     DHIS2_DB_PASS: req.database.password,
     DHIS2_ADMIN_PASS: req.adminPassword ?? '',
     ROOT_PASSWORD: req.rootPassword ?? req.adminPassword ?? '',
+    PROXMOX_API_HOST: cfg.apiHost,
+    PROXMOX_API_USER: cfg.apiUser,
+    PROXMOX_API_TOKEN_ID: cfg.apiTokenId,
+    PROXMOX_API_TOKEN_SECRET: cfg.apiTokenSecret,
+    PROXMOX_VALIDATE_CERTS: cfg.validateApiCerts ? 'true' : 'false',
   };
   if (req.newDbAccount?.password) {
     env.NEW_DB_PASS = req.newDbAccount.password;
@@ -367,14 +374,9 @@ export class ProvisionService {
     req: ProvisionRequest,
   ): Promise<void> {
     job.status = 'running';
-    const resolvedPve = resolvePveHost(cfg, req);
-    const pveTarget =
-      !resolvedPve || isLocalHost(resolvedPve)
-        ? 'localhost (no SSH)'
-        : `${cfg.user || 'root'}@${resolvedPve}`;
     appendLine(
       job,
-      `[backend] Running provision-instance.sh locally on the Backstage host. PVE target: ${pveTarget}.`,
+      `[backend] Running provision-instance.sh locally on the Backstage host. Proxmox API: ${cfg.apiUser}@${cfg.apiHost} (LXC lifecycle via REST; nginx via SSH to ${resolvePveHost(cfg, req) || 'localhost'}).`,
     );
 
     const command = buildCommand(cfg, req);

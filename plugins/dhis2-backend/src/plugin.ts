@@ -123,6 +123,23 @@ export const dhis2Plugin = createBackendPlugin({
           if (!isLocal && !privateKeyFile) missing.push('privateKeyFile');
           if (!scriptPath) missing.push('scriptPath');
 
+          // Proxmox REST API credentials (required — the pve_lxc Ansible
+          // role drives the API to create the LXC).
+          const apiHost = (sub?.getOptionalString('apiHost') ?? '').trim();
+          const apiUser = (sub?.getOptionalString('apiUser') ?? '').trim();
+          const apiTokenId = (
+            sub?.getOptionalString('apiTokenId') ?? ''
+          ).trim();
+          const apiTokenSecret = (
+            sub?.getOptionalString('apiTokenSecret') ?? ''
+          ).trim();
+          const validateApiCerts =
+            sub?.getOptionalBoolean('validateApiCerts') ?? false;
+          if (!apiHost) missing.push('apiHost');
+          if (!apiUser) missing.push('apiUser');
+          if (!apiTokenId) missing.push('apiTokenId');
+          if (!apiTokenSecret) missing.push('apiTokenSecret');
+
           if (missing.length > 0) {
             logger.warn(
               `DHIS2: orchestrator not fully configured (missing: ${missing.join(
@@ -138,11 +155,16 @@ export const dhis2Plugin = createBackendPlugin({
               passphrase: sub?.getOptionalString('passphrase'),
               scriptPath,
               // Optional explicit override of the Proxmox node the
-              // orchestrator script SSHes to. When undefined, the service
+              // host-proxy step SSHes to. When undefined, the script
               // falls back to host (if non-local) or the per-request node.
               pveHost: sub?.getOptionalString('pveHost'),
               stateFile: sub?.getOptionalString('stateFile'),
               skipCertbot: sub?.getOptionalBoolean('skipCertbot') ?? false,
+              apiHost,
+              apiUser,
+              apiTokenId,
+              apiTokenSecret,
+              validateApiCerts,
             };
             const usingDefaults: string[] = [];
             if (!configuredUser) usingDefaults.push('user');

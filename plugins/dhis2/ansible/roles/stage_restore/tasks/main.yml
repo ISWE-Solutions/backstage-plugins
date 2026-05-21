@@ -1,0 +1,58 @@
+---
+# stage_restore — pre-stage a database dump inside the new container so the
+# `dhis2` role's restore tasks can find it at dhis2_restore.local_staging_path.
+#
+# Runs in the container as root (or via become). Uses pure-Ansible modules,
+# so no `pct push` / SSH-to-PVE is required.
+#
+# Supported dhis2_restore.kind values handled here:
+#   upload    — file already exists on the controller at .controller_path;
+#               we copy it into the container at .local_staging_path.
+#   instance  — controller did a pg_dump and the result lives at
+#               .controller_path; copy into container same as upload.
+#   url|s3    — nothing to do (downloaded inside the dhis2 role).
+#   local     — file on a Proxmox host; not yet supported in API-only mode.
+#   vzdump    — vzdump archive on a Proxmox host; not yet supported in
+#               API-only mode.
+
+- name: Skip restore staging when dhis2_restore is undefined
+  ansible.builtin.meta: end_play
+  when: dhis2_restore is not defined
+
+- name: Reject restore kinds that require pct on a Proxmox node
+  ansible.builtin.fail:
+    msg: >-
+      dhis2_restore.kind={{ dhis2_restore.kind }} is not supported in the
+      API-only provisioning flow yet. Use 'upload' (pre-stage the file on
+      the Backstage host) or 'url'/'s3' (fetched inside the container)
+      instead, or open an issue to add SSH-to-PVE delegation for this kind.
+  when: dhis2_restore.kind in ['local', 'vzdump']
+
+- name: No staging needed for url/s3 (handled inside the container)
+  ansible.builtin.meta: end_play
+  when: dhis2_restore.kind in ['url', 's3']
+
+- name: Validate upload/instance staging spec
+  ansible.builtin.assert:
+    that:
+      - dhis2_restore.controller_path is defined
+      - dhis2_restore.local_staging_path is defined
+    fail_msg: >-
+      dhis2_restore.{controller_path,local_staging_path} must both be set
+      for kind={{ dhis2_restore.kind }}.
+
+- name: Ensure restore directory exists in container
+  ansible.builtin.file:
+    path: "{{ dhis2_restore.local_staging_path | dirname }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0750"
+
+- name: Copy database dump from controller into container
+  ansible.builtin.copy:
+    src: "{{ dhis2_restore.controller_path }}"
+    dest: "{{ dhis2_restore.local_staging_path }}"
+    owner: postgres
+    group: postgres
+    mode: "0640"

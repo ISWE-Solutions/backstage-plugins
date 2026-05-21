@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
-# provision-instance.sh — thin orchestrator for the hybrid Bash + Ansible
-# DHIS2 provisioning flow.
+# provision-instance.sh — thin wrapper around the Ansible DHIS2 playbook.
 #
-#   1) create-container.sh    — Proxmox LXC + SSH bootstrap
-#   2) ansible-playbook       — common + postgres + dhis2 (in-tree roles)
-#   3) configure-host-proxy.sh — central Nginx + Let's Encrypt
+# All Proxmox interaction (LXC create/start + IP discovery) is now done by
+# the `pve_lxc` Ansible role via the Proxmox REST API (community.general.
+# proxmox + proxmoxer). There is no `pct`/`pvesh`/`pvesm` invocation
+# anywhere in the bash side anymore.
+#
+# This script:
+#   1. Parses CLI flags + reads secret env vars.
+#   2. Renders a temp inventory (hosts) + an extra-vars YAML (vars.yml)
+#      containing the container spec, DHIS2 vars, DB credentials, PVE API
+#      credentials, and (optionally) a restore spec.
+#   3. Runs `ansible-playbook site.yml`.
+#   4. Runs configure-host-proxy.sh for central Nginx + Let's Encrypt.
 #
 # Secrets are taken from env vars or a --vars-file (mode 0600) — never argv.
 # A temp vars.yml is rendered for Ansible and removed on exit via `trap`.
@@ -36,33 +44,25 @@ Optional:
   --java-version <int>      Default: 17
   --ssh-key <path>          Orchestrator SSH private key
                             (default: \$HOME/.ssh/id_ed25519_dhis2 or id_ed25519)
-  --ansible-user <name>     Default: ansible
-  --vars-file <path>        YAML extra-vars file with secrets (mode 0600).
+  --ansible-user <name>     In-container user the playbook will SSH as
+                            (default: ansible)
+  --vars-file <path>        YAML/env-style file with secrets (mode 0600).
                             Overridden by env vars if both are set.
   --skip-certbot            Don't request a Let's Encrypt cert
   --rollback-on-failure     Destroy the container if anything fails
   --keep-vars-file          Don't delete the rendered vars.yml on exit
                             (debugging only)
   --restore-spec <path>     JSON file describing a database backup to restore
-                            after provisioning. See docs for schema; supported
-                            kinds: upload, url, s3, instance, vzdump, local.
-                            For 'upload' the spec must include `staged_path`
-                            (absolute path on this orchestrator host) which
-                            will be pushed into the container.
-  --new-db-user <name>      Provision an additional PostgreSQL role and use
-                            it for the DHIS2 application connection. When
-                            given, this role's credentials are written to
-                            dhis.conf instead of --db-user. The --db-user
-                            credentials are retained as the provisioning
-                            (admin) role.
-  --pve-host <host>         Proxmox node to drive over SSH for pct/pvesh/pvesm
-                            operations. Leave empty (or set to localhost) when
-                            this script is running directly on the PVE node.
-                            When set, Ansible itself still runs from THIS host
-                            and reaches the container via a ProxyCommand jump
-                            through the PVE node.
-  --pve-user <user>         SSH user for --pve-host (default: root)
-  --pve-ssh-key <path>      SSH private key for --pve-host
+                            after provisioning. Supported kinds:
+                            upload, url, s3, instance.
+                            For 'upload'/'instance' the spec must include a
+                            file readable by this orchestrator (key
+                            `staged_path` for upload, generated for instance).
+                            'local'/'vzdump' are NOT supported in the API-only
+                            flow yet — they require SSH-to-PVE delegation.
+  --new-db-user <name>      Provision an additional PostgreSQL role used
+                            by the DHIS2 application; --db-user is kept as
+                            the provisioning (admin) role.
   -h | --help               Show this help
 
 Required env vars (or via --vars-file):
@@ -71,6 +71,11 @@ Required env vars (or via --vars-file):
   ROOT_PASSWORD             Container root password (console access only)
   NEW_DB_PASS               (optional) Password for --new-db-user. Required
                             when --new-db-user is set.
+  PROXMOX_API_HOST          Proxmox API endpoint (host or host:8006)
+  PROXMOX_API_USER          e.g. root@pam
+  PROXMOX_API_TOKEN_ID      API token id (the part after !)
+  PROXMOX_API_TOKEN_SECRET  API token secret (UUID)
+  PROXMOX_VALIDATE_CERTS    "true" to enforce TLS cert validation (default: false)
 EOF
 }
 
@@ -90,9 +95,6 @@ SSH_KEY=""
 INSTANCE_NAME=""
 RESTORE_SPEC=""
 NEW_DB_USER=""
-PVE_HOST=""
-PVE_USER="root"
-PVE_SSH_KEY=""
 
 VMID=""; NODE=""; HOSTNAME=""; DOMAIN=""; EMAIL=""
 DHIS2_VERSION=""; DB_NAME=""; DB_USER=""
@@ -122,6 +124,9 @@ while [[ $# -gt 0 ]]; do
         --keep-vars-file) KEEP_VARS_FILE=1; shift;;
         --restore-spec) RESTORE_SPEC="$2"; shift 2;;
         --new-db-user) NEW_DB_USER="$2"; shift 2;;
+        # Back-compat: accept and ignore the old PVE-SSH flags so callers
+        # that still pass them don't break. The API-based flow doesn't
+        # need them (configure-host-proxy.sh has its own --pve-host).
         --pve-host) PVE_HOST="$2"; shift 2;;
         --pve-user) PVE_USER="$2"; shift 2;;
         --pve-ssh-key) PVE_SSH_KEY="$2"; shift 2;;
@@ -140,24 +145,17 @@ for var in VMID NODE HOSTNAME DOMAIN EMAIL DHIS2_VERSION DB_NAME DB_USER; do
 done
 [[ -z "${INSTANCE_NAME}" ]] && INSTANCE_NAME="${HOSTNAME}"
 
+# Default PVE_HOST/USER for configure-host-proxy.sh (nginx + certbot still
+# need to run ON the Proxmox node over SSH). When PROXMOX_API_HOST is set
+# we reuse its hostname; the operator can override via env var.
+PVE_HOST="${PVE_HOST:-${PROXMOX_API_HOST%%:*}}"
+PVE_USER="${PVE_USER:-root}"
+PVE_SSH_KEY="${PVE_SSH_KEY:-${SSH_KEY:-}}"
+
 # Locate paths.
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 PLUGIN_DIR="$(cd -- "${SCRIPT_DIR}/.." &>/dev/null && pwd)"
 ANSIBLE_DIR="${PLUGIN_DIR}/ansible"
-
-# Source PVE helper functions (pct / pvesh / pvesm become SSH-aware shims when
-# --pve-host is set). Must come BEFORE any pct/pvesh/pvesm calls below.
-# shellcheck source=./_pve_helpers.sh
-source "${SCRIPT_DIR}/_pve_helpers.sh"
-
-# Flags forwarded to sub-scripts (create-container.sh, configure-host-proxy.sh).
-# Initialised here so the EXIT trap can safely expand it even if we fail
-# before Phase 1 sets it.
-PVE_FORWARD_FLAGS=()
-if [[ -n "${PVE_HOST}" ]]; then
-    PVE_FORWARD_FLAGS+=(--pve-host "${PVE_HOST}" --pve-user "${PVE_USER}")
-    [[ -n "${PVE_SSH_KEY}" ]] && PVE_FORWARD_FLAGS+=(--pve-ssh-key "${PVE_SSH_KEY}")
-fi
 
 # Choose SSH key — default to a dhis2-specific key, fall back to id_ed25519.
 if [[ -z "${SSH_KEY}" ]]; then
@@ -172,15 +170,18 @@ if [[ -z "${SSH_KEY}" ]]; then
 fi
 SSH_PUBKEY="${SSH_KEY}.pub"
 [[ -r "${SSH_PUBKEY}" ]] || { echo "ssh pubkey missing: ${SSH_PUBKEY}" >&2; exit 2; }
+SSH_PUBKEY_CONTENT="$(< "${SSH_PUBKEY}")"
 
-# Secrets: prefer env vars; fall back to --vars-file (sourced lines like KEY=val).
+# Secrets: prefer env vars; fall back to --vars-file.
 if [[ -n "${VARS_FILE}" && -r "${VARS_FILE}" ]]; then
     # shellcheck disable=SC1090
     source "${VARS_FILE}"
 fi
-for var in DHIS2_DB_PASS DHIS2_ADMIN_PASS ROOT_PASSWORD; do
+for var in DHIS2_DB_PASS DHIS2_ADMIN_PASS ROOT_PASSWORD \
+           PROXMOX_API_HOST PROXMOX_API_USER \
+           PROXMOX_API_TOKEN_ID PROXMOX_API_TOKEN_SECRET; do
     if [[ -z "${!var:-}" ]]; then
-        echo "missing secret env var: ${var} (set it or pass --vars-file)" >&2
+        echo "missing required env var: ${var} (set it or pass --vars-file)" >&2
         exit 2
     fi
 done
@@ -189,8 +190,8 @@ if [[ -n "${NEW_DB_USER}" && -z "${NEW_DB_PASS:-}" ]]; then
     exit 2
 fi
 
-# Sanity-check the in-tree role layout.
-for role in common postgres dhis2; do
+# Sanity-check role layout (including the new ones).
+for role in common postgres dhis2 pve_lxc lxc_bootstrap stage_restore; do
     if [[ ! -d "${ANSIBLE_DIR}/roles/${role}" ]]; then
         echo "missing Ansible role: ansible/roles/${role}" >&2
         exit 1
@@ -203,7 +204,6 @@ log() { printf '[provision] %s\n' "$*" >&2; }
 WORK_DIR="$(mktemp -d -t "dhis2-provision-${VMID}-XXXXXX")"
 INVENTORY_FILE="${WORK_DIR}/hosts"
 EXTRA_VARS_FILE="${WORK_DIR}/vars.yml"
-IP_FILE="${WORK_DIR}/container-ip"
 
 cleanup() {
     local rc=$?
@@ -213,44 +213,35 @@ cleanup() {
         rm -rf "${WORK_DIR}"
     fi
     if [[ ${rc} -ne 0 && ${ROLLBACK_ON_FAILURE} -eq 1 ]]; then
-        log "FAILED (rc=${rc}) — rolling back"
-        pct stop "${VMID}" 2>/dev/null || true
-        pct destroy "${VMID}" --purge 2>/dev/null || true
+        log "FAILED (rc=${rc}) — attempting LXC + nginx rollback via API"
+        rollback_lxc || true
         "${SCRIPT_DIR}/configure-host-proxy.sh" \
             --remove --vmid "${VMID}" --domain "${DOMAIN}" \
-            "${PVE_FORWARD_FLAGS[@]}" 2>/dev/null || true
+            --pve-host "${PVE_HOST}" --pve-user "${PVE_USER}" \
+            --pve-ssh-key "${PVE_SSH_KEY}" 2>/dev/null || true
     fi
     return ${rc}
+}
+
+# Best-effort rollback using the Proxmox REST API (curl, no ansible).
+rollback_lxc() {
+    local api_url="https://${PROXMOX_API_HOST}/api2/json/nodes/${NODE}/lxc/${VMID}"
+    local auth="Authorization: PVEAPIToken=${PROXMOX_API_USER}!${PROXMOX_API_TOKEN_ID}=${PROXMOX_API_TOKEN_SECRET}"
+    local curl_opts=(-sk -H "${auth}")
+    [[ "${PROXMOX_VALIDATE_CERTS:-false}" == "true" ]] && curl_opts=(-s -H "${auth}")
+    curl "${curl_opts[@]}" -X POST "${api_url}/status/stop" >/dev/null 2>&1 || true
+    sleep 3
+    curl "${curl_opts[@]}" -X DELETE "${api_url}?purge=1" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
 # ----------------------------------------------------------------------------
-# Phase 1: Proxmox LXC + SSH bootstrap
-# ----------------------------------------------------------------------------
-log "Phase 1 — creating LXC container"
-ROLLBACK_FLAG=()
-[[ ${ROLLBACK_ON_FAILURE} -eq 1 ]] && ROLLBACK_FLAG=(--rollback-on-failure)
-
-ROOT_PASSWORD="${ROOT_PASSWORD}" "${SCRIPT_DIR}/create-container.sh" \
-    --vmid "${VMID}" \
-    --node "${NODE}" \
-    --hostname "${HOSTNAME}" \
-    --ssh-pubkey "${SSH_PUBKEY}" \
-    --cpu "${CPU}" \
-    --memory "${MEMORY}" \
-    --storage "${STORAGE}" \
-    --ansible-user "${ANSIBLE_USER}" \
-    --ip-out-file "${IP_FILE}" \
-    "${PVE_FORWARD_FLAGS[@]}" \
-    "${ROLLBACK_FLAG[@]}"
-
-CONTAINER_IP="$(cat "${IP_FILE}")"
-log "container IP: ${CONTAINER_IP}"
-
-# ----------------------------------------------------------------------------
-# Phase 1b: Stage restore dump into the container (if --restore-spec given)
+# Restore spec validation (controller-side; staging happens in Ansible)
 # ----------------------------------------------------------------------------
 RESTORE_YAML_BLOCK=""
+RESTORE_CONTROLLER_PATH=""
+RESTORE_STAGED_IN_CT=""
+
 if [[ -n "${RESTORE_SPEC}" ]]; then
     if ! command -v jq >/dev/null; then
         echo "jq is required when --restore-spec is used" >&2
@@ -259,114 +250,60 @@ if [[ -n "${RESTORE_SPEC}" ]]; then
     [[ -r "${RESTORE_SPEC}" ]] || { echo "cannot read restore spec: ${RESTORE_SPEC}" >&2; exit 2; }
 
     RESTORE_KIND="$(jq -r '.kind' "${RESTORE_SPEC}")"
-    log "Phase 1b — staging restore (kind=${RESTORE_KIND})"
-
-    STAGED_IN_CT="/var/lib/dhis2-restore/dump.bin"
+    log "Restore kind=${RESTORE_KIND}"
 
     case "${RESTORE_KIND}" in
-        upload|local)
-            # 'upload' = orchestrator host already has the file at .staged_path
-            # 'local'  = file is on the Proxmox host at .path; we copy it into
-            #            the container too (treat both the same way here).
-            SRC_PATH="$(jq -r '.staged_path // .path' "${RESTORE_SPEC}")"
-            [[ -r "${SRC_PATH}" ]] || { echo "restore source not readable: ${SRC_PATH}" >&2; exit 2; }
-            # Preserve extension so .yml/restore.yml can decompress.
-            EXT=""
-            case "${SRC_PATH}" in
-                *.sql.gz)  EXT=".sql.gz" ;;
-                *.dump.gz) EXT=".dump.gz" ;;
-                *.gz)      EXT=".gz" ;;
-                *.zst)     EXT=".zst" ;;
-                *.sql)     EXT=".sql" ;;
-                *.dump|*.backup|*.pgdump) EXT=".dump" ;;
+        upload)
+            RESTORE_CONTROLLER_PATH="$(jq -r '.staged_path' "${RESTORE_SPEC}")"
+            [[ -r "${RESTORE_CONTROLLER_PATH}" ]] || {
+                echo "restore source not readable: ${RESTORE_CONTROLLER_PATH}" >&2; exit 2; }
+            ext="${RESTORE_CONTROLLER_PATH##*.}"
+            case "${RESTORE_CONTROLLER_PATH}" in
+                *.sql.gz)  RESTORE_STAGED_IN_CT="/var/lib/dhis2-restore/dump.sql.gz" ;;
+                *.dump.gz) RESTORE_STAGED_IN_CT="/var/lib/dhis2-restore/dump.dump.gz" ;;
+                *.gz)      RESTORE_STAGED_IN_CT="/var/lib/dhis2-restore/dump.gz" ;;
+                *.zst)     RESTORE_STAGED_IN_CT="/var/lib/dhis2-restore/dump.zst" ;;
+                *.sql)     RESTORE_STAGED_IN_CT="/var/lib/dhis2-restore/dump.sql" ;;
+                *.dump|*.backup|*.pgdump) RESTORE_STAGED_IN_CT="/var/lib/dhis2-restore/dump.dump" ;;
+                *)         RESTORE_STAGED_IN_CT="/var/lib/dhis2-restore/dump.${ext}" ;;
             esac
-            STAGED_IN_CT="/var/lib/dhis2-restore/dump${EXT}"
-            pct exec "${VMID}" -- mkdir -p /var/lib/dhis2-restore
-            pct_push_local "${VMID}" "${SRC_PATH}" "${STAGED_IN_CT}"
-            pct exec "${VMID}" -- chown postgres:postgres "${STAGED_IN_CT}"
-            ;;
-        vzdump)
-            # .node + .storage + .volid (e.g. local:backup/vzdump-lxc-...tar.zst).
-            # Extract the inner postgres dump on the Proxmox host, then push.
-            if ! _pve_is_local; then
-                echo "--restore-spec kind=vzdump is not yet supported when --pve-host is set" >&2
-                echo "(extraction must happen on the PVE node; not implemented for remote mode)" >&2
-                exit 2
-            fi
-            VOLID="$(jq -r '.volid' "${RESTORE_SPEC}")"
-            INNER_PATH="$(jq -r '.inner_path // empty' "${RESTORE_SPEC}")"
-            ARCHIVE_PATH="$(pvesm path "${VOLID}" 2>/dev/null || true)"
-            [[ -n "${ARCHIVE_PATH}" && -r "${ARCHIVE_PATH}" ]] || {
-                echo "cannot resolve vzdump archive for ${VOLID}" >&2; exit 2; }
-
-            WORK_EXTRACT="${WORK_DIR}/vzdump-extract"
-            mkdir -p "${WORK_EXTRACT}"
-            log "extracting ${ARCHIVE_PATH}"
-            case "${ARCHIVE_PATH}" in
-                *.tar.zst|*.tzst) zstd -d --stdout "${ARCHIVE_PATH}" | tar -C "${WORK_EXTRACT}" -xf - ;;
-                *.tar.gz|*.tgz)   tar -C "${WORK_EXTRACT}" -xzf "${ARCHIVE_PATH}" ;;
-                *.tar.lzo)        tar -C "${WORK_EXTRACT}" --lzop -xf "${ARCHIVE_PATH}" ;;
-                *.tar)            tar -C "${WORK_EXTRACT}" -xf "${ARCHIVE_PATH}" ;;
-                *) echo "unsupported vzdump archive type: ${ARCHIVE_PATH}" >&2; exit 2 ;;
-            esac
-
-            if [[ -n "${INNER_PATH}" ]]; then
-                CANDIDATE="${WORK_EXTRACT}/${INNER_PATH}"
-            else
-                # Heuristic: find the largest *.sql/*.dump/*.gz/*.zst file.
-                CANDIDATE="$(find "${WORK_EXTRACT}" -type f \
-                    \( -name '*.sql' -o -name '*.sql.gz' -o -name '*.dump' \
-                       -o -name '*.dump.gz' -o -name '*.backup' -o -name '*.zst' \) \
-                    -printf '%s\t%p\n' | sort -rn | head -1 | cut -f2-)"
-            fi
-            [[ -n "${CANDIDATE}" && -r "${CANDIDATE}" ]] || {
-                echo "no database dump found inside vzdump archive" >&2; exit 2; }
-
-            case "${CANDIDATE}" in
-                *.sql.gz)  STAGED_IN_CT="/var/lib/dhis2-restore/dump.sql.gz" ;;
-                *.dump.gz) STAGED_IN_CT="/var/lib/dhis2-restore/dump.dump.gz" ;;
-                *.gz)      STAGED_IN_CT="/var/lib/dhis2-restore/dump.gz" ;;
-                *.zst)     STAGED_IN_CT="/var/lib/dhis2-restore/dump.zst" ;;
-                *.sql)     STAGED_IN_CT="/var/lib/dhis2-restore/dump.sql" ;;
-                *)         STAGED_IN_CT="/var/lib/dhis2-restore/dump.dump" ;;
-            esac
-            pct exec "${VMID}" -- mkdir -p /var/lib/dhis2-restore
-            pct_push_local "${VMID}" "${CANDIDATE}" "${STAGED_IN_CT}"
-            pct exec "${VMID}" -- chown postgres:postgres "${STAGED_IN_CT}"
             ;;
         instance)
-            # .source_host (resolvable) + .source_db + .source_user + .source_password
             SRC_HOST="$(jq -r '.source_host' "${RESTORE_SPEC}")"
             SRC_DB="$(jq -r '.source_db' "${RESTORE_SPEC}")"
             SRC_USER="$(jq -r '.source_user' "${RESTORE_SPEC}")"
             SRC_PASS="$(jq -r '.source_password // empty' "${RESTORE_SPEC}")"
             SRC_PORT="$(jq -r '.source_port // 5432' "${RESTORE_SPEC}")"
-            DUMP_TMP="${WORK_DIR}/instance-dump.dump"
+            RESTORE_CONTROLLER_PATH="${WORK_DIR}/instance-dump.dump"
             log "pg_dump ${SRC_USER}@${SRC_HOST}:${SRC_PORT}/${SRC_DB}"
             PGPASSWORD="${SRC_PASS}" pg_dump \
                 -h "${SRC_HOST}" -p "${SRC_PORT}" \
                 -U "${SRC_USER}" -d "${SRC_DB}" \
                 -Fc --no-owner --no-privileges \
-                -f "${DUMP_TMP}"
-            STAGED_IN_CT="/var/lib/dhis2-restore/dump.dump"
-            pct exec "${VMID}" -- mkdir -p /var/lib/dhis2-restore
-            pct_push_local "${VMID}" "${DUMP_TMP}" "${STAGED_IN_CT}"
-            pct exec "${VMID}" -- chown postgres:postgres "${STAGED_IN_CT}"
-            rm -f "${DUMP_TMP}"
+                -f "${RESTORE_CONTROLLER_PATH}"
+            RESTORE_STAGED_IN_CT="/var/lib/dhis2-restore/dump.dump"
             ;;
         url|s3)
             : # No staging needed; Ansible fetches inside the container.
+            ;;
+        local|vzdump)
+            echo "--restore-spec kind=${RESTORE_KIND} is not supported in the API-only flow yet." >&2
+            echo "(SSH-to-PVE delegation needed; not implemented in this version.)" >&2
+            exit 2
             ;;
         *)
             echo "unsupported restore kind: ${RESTORE_KIND}" >&2; exit 2 ;;
     esac
 
-    # Build the dhis2_restore YAML block, injecting `local_staging_path`
-    # for the staged kinds so restore.yml can find the file.
+    # Render the dhis2_restore YAML block. For staged kinds we inject both
+    # controller_path (consumed by the stage_restore role) and
+    # local_staging_path (consumed by the dhis2 role's restore tasks).
     RESTORE_YAML_BLOCK="$(
-        jq -r --arg staged "${STAGED_IN_CT}" '
-          . + (if (.kind == "upload" or .kind == "vzdump" or .kind == "instance")
-               then { local_staging_path: $staged } else {} end)
+        jq -r --arg staged "${RESTORE_STAGED_IN_CT}" \
+              --arg ctrl "${RESTORE_CONTROLLER_PATH}" '
+          . + (if (.kind == "upload" or .kind == "instance")
+               then { local_staging_path: $staged, controller_path: $ctrl }
+               else {} end)
           | "dhis2_restore:\n" + (
               to_entries
               | map("  " + .key + ": " + (.value | @json))
@@ -377,35 +314,22 @@ if [[ -n "${RESTORE_SPEC}" ]]; then
 fi
 
 # ----------------------------------------------------------------------------
-# Phase 2: Ansible — render inventory + extra-vars and run site.yml
+# Phase 1: render inventory + extra-vars
 # ----------------------------------------------------------------------------
-log "Phase 2 — rendering inventory and extra-vars"
+log "rendering inventory and extra-vars"
 
-# When PVE is remote, Ansible (running on this host) reaches the container
-# via a ProxyCommand jump through the PVE node. When PVE is local, no jump
-# is needed and PROXY_JUMP_ARGS stays empty.
-if _pve_is_local; then
-    PROXY_JUMP_ARGS=""
-else
-    _pj_key=""
-    [[ -n "${PVE_SSH_KEY}" ]] && _pj_key="-i ${PVE_SSH_KEY} "
-    PROXY_JUMP_ARGS="-o ProxyCommand=\"ssh ${_pj_key}-o StrictHostKeyChecking=accept-new -o BatchMode=yes -W %h:%p ${PVE_USER}@${PVE_HOST}\""
-fi
-
-export CONTAINER_IP INSTANCE_NAME DHIS2_VERSION DOMAIN \
+export INSTANCE_NAME DHIS2_VERSION DOMAIN \
        EMAIL TIMEZONE POSTGRES_VERSION JAVA_VERSION \
-       ANSIBLE_USER ANSIBLE_SSH_KEY="${SSH_KEY}" \
+       ANSIBLE_SSH_KEY="${SSH_KEY}" \
        LETSENCRYPT_EMAIL="${EMAIL}" \
-       PROXY_JUMP_ARGS
+       POSTGRESQL_VERSION="${POSTGRES_VERSION}"
 
 envsubst \
     < "${ANSIBLE_DIR}/inventory/hosts.tmpl" \
     > "${INVENTORY_FILE}"
 
-# Render vars.yml. Use single-quotes inside YAML to keep specials safe; the
-# values themselves come from env, so embed via printf %q-ish quoting by
-# rejecting any single quote in secrets (DHIS2 doesn't allow ' in passwords
-# anyway via this path).
+# Render vars.yml. Reject single quotes in secrets (DHIS2 doesn't allow
+# them anyway via this path).
 yaml_escape() {
     local val="$1"
     if [[ "${val}" == *"'"* ]]; then
@@ -415,10 +339,8 @@ yaml_escape() {
     printf "'%s'" "${val}"
 }
 
-# Decide which credentials DHIS2 itself uses (written into dhis.conf) and
-# which are treated as the provisioning admin role. When --new-db-user is
-# given the new role becomes the DHIS2 app role; otherwise the --db-user
-# credentials serve both purposes (and are idempotently created/refreshed).
+# Decide which credentials DHIS2 uses (written into dhis.conf) and which
+# are the provisioning admin role.
 if [[ -n "${NEW_DB_USER}" ]]; then
     APP_DB_USER="${NEW_DB_USER}"
     APP_DB_PASS="${NEW_DB_PASS}"
@@ -430,6 +352,31 @@ fi
 cat > "${EXTRA_VARS_FILE}" <<EOF
 ---
 # Rendered by provision-instance.sh — do not edit by hand.
+
+# ---- Proxmox API credentials (consumed by the pve_lxc role) ----
+pve_api_host: $(yaml_escape "${PROXMOX_API_HOST}")
+pve_api_user: $(yaml_escape "${PROXMOX_API_USER}")
+pve_api_token_id: $(yaml_escape "${PROXMOX_API_TOKEN_ID}")
+pve_api_token_secret: $(yaml_escape "${PROXMOX_API_TOKEN_SECRET}")
+pve_validate_certs: ${PROXMOX_VALIDATE_CERTS:-false}
+
+# ---- Container spec ----
+pve_node: $(yaml_escape "${NODE}")
+pve_vmid: ${VMID}
+pve_hostname: $(yaml_escape "${HOSTNAME}")
+pve_cpu: ${CPU}
+pve_memory: ${MEMORY}
+pve_storage: ${STORAGE}
+pve_root_password: $(yaml_escape "${ROOT_PASSWORD}")
+pve_ssh_pubkey: $(yaml_escape "${SSH_PUBKEY_CONTENT}")
+ansible_ssh_private_key_file_orchestrator: $(yaml_escape "${SSH_KEY}")
+
+# ---- Bootstrap inside the new container ----
+ansible_user_target: $(yaml_escape "${ANSIBLE_USER}")
+ansible_user_pubkey: $(yaml_escape "${SSH_PUBKEY_CONTENT}")
+
+# ---- Logical naming + DHIS2 spec ----
+instance_name: $(yaml_escape "${INSTANCE_NAME}")
 dhis2_version: $(yaml_escape "${DHIS2_VERSION}")
 fqdn: $(yaml_escape "${DOMAIN}")
 email: $(yaml_escape "${EMAIL}")
@@ -437,10 +384,7 @@ timezone: $(yaml_escape "${TIMEZONE}")
 postgresql_version: ${POSTGRES_VERSION}
 java_version: ${JAVA_VERSION}
 
-# DB credentials consumed by the postgres + dhis2 roles.
-# dhis2_db_user/password is what DHIS2 uses to connect (rendered into
-# dhis.conf). dhis2_db_admin_user/password is the privileged provisioning
-# role; when no --new-db-user is given they are the same.
+# ---- Database credentials (consumed by postgres + dhis2 roles) ----
 dhis2_db_name: $(yaml_escape "${DB_NAME}")
 dhis2_db_user: $(yaml_escape "${APP_DB_USER}")
 dhis2_db_password: $(yaml_escape "${APP_DB_PASS}")
@@ -453,7 +397,10 @@ if [[ -n "${RESTORE_YAML_BLOCK}" ]]; then
 fi
 chmod 0600 "${EXTRA_VARS_FILE}"
 
-log "running ansible-playbook (this can take a while)"
+# ----------------------------------------------------------------------------
+# Phase 2: ansible-playbook site.yml (LXC create + bootstrap + DHIS2)
+# ----------------------------------------------------------------------------
+log "Phase 2 — running ansible-playbook site.yml (this can take a while)"
 (
     cd "${ANSIBLE_DIR}"
     ANSIBLE_CONFIG="${ANSIBLE_DIR}/ansible.cfg" \
@@ -462,6 +409,20 @@ log "running ansible-playbook (this can take a while)"
             --extra-vars "@${EXTRA_VARS_FILE}" \
             site.yml
 )
+
+# The pve_lxc role discovered the container's IP via the API and wrote it
+# into the inventory at runtime. To get it back into this shell (for the
+# configure-host-proxy step) we re-query the API directly.
+log "querying container IP via Proxmox API"
+CONTAINER_IP="$(
+    curl -sk \
+        -H "Authorization: PVEAPIToken=${PROXMOX_API_USER}!${PROXMOX_API_TOKEN_ID}=${PROXMOX_API_TOKEN_SECRET}" \
+        "https://${PROXMOX_API_HOST}/api2/json/nodes/${NODE}/lxc/${VMID}/interfaces" \
+    | jq -r '.data[] | select(.name!="lo") | .inet // empty' \
+    | grep -v '^127\.' | head -1 | cut -d/ -f1
+)"
+[[ -n "${CONTAINER_IP}" ]] || { echo "could not resolve container IP via API" >&2; exit 1; }
+log "container IP: ${CONTAINER_IP}"
 
 # ----------------------------------------------------------------------------
 # Phase 3: central Nginx + certbot on the Proxmox host
@@ -475,7 +436,9 @@ CERTBOT_FLAG=()
     --container-ip "${CONTAINER_IP}" \
     --domain "${DOMAIN}" \
     --email "${EMAIL}" \
-    "${PVE_FORWARD_FLAGS[@]}" \
+    --pve-host "${PVE_HOST}" \
+    --pve-user "${PVE_USER}" \
+    --pve-ssh-key "${PVE_SSH_KEY}" \
     "${CERTBOT_FLAG[@]}"
 
 log "================================================================"
@@ -484,4 +447,3 @@ log "  Container: VMID=${VMID} IP=${CONTAINER_IP}"
 log "  URL:       https://${DOMAIN}/dhis"
 log "  Admin:     username=admin (initial password set via DHIS2_ADMIN_PASS)"
 log "================================================================"
-log "Monitor startup: pct exec ${VMID} -- tail -f /var/lib/tomcat9/logs/catalina.out"

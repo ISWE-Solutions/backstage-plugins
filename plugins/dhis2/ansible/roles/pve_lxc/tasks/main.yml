@@ -1,0 +1,147 @@
+---
+# pve_lxc — create + start a Proxmox LXC container via the REST API.
+#
+# Runs on `localhost` (the Backstage / orchestrator host); never needs
+# SSH access to a Proxmox node. All operations go through the API using
+# the community.general.proxmox module with an API token.
+#
+# Required vars (passed via --extra-vars or vars.yml):
+#   pve_api_host         — Proxmox API endpoint (host or host:8006)
+#   pve_api_user         — e.g. root@pam
+#   pve_api_token_id     — token id (the part after !)
+#   pve_api_token_secret — token secret (UUID)
+#   pve_node             — target Proxmox node name
+#   pve_vmid             — VMID for the new container
+#   pve_hostname         — container hostname
+#   pve_root_password    — root password (emergency console use)
+#   pve_ssh_pubkey       — public key string (single line) injected at create
+#
+# Optional vars (with defaults):
+#   pve_cpu              — default 4
+#   pve_memory           — default 8192 (MB)
+#   pve_storage          — default 100 (GB)
+#   pve_storage_pool     — default "local-lvm"
+#   pve_bridge           — default "vmbr0"
+#   pve_ostemplate       — default Ubuntu 22.04
+#   pve_validate_certs   — default false (self-signed PVE certs are common)
+#
+# Sets the following facts for subsequent plays:
+#   pve_container_ip     — IPv4 address of the new container
+#   (and add_host registers `container` in groups [instances,databases])
+
+- name: Validate required vars
+  ansible.builtin.assert:
+    that:
+      - pve_api_host is defined and pve_api_host | length > 0
+      - pve_api_user is defined and pve_api_user | length > 0
+      - pve_api_token_id is defined and pve_api_token_id | length > 0
+      - pve_api_token_secret is defined and pve_api_token_secret | length > 0
+      - pve_node is defined and pve_node | length > 0
+      - pve_vmid is defined
+      - pve_hostname is defined and pve_hostname | length > 0
+      - pve_root_password is defined and pve_root_password | length > 0
+      - pve_ssh_pubkey is defined and pve_ssh_pubkey | length > 0
+    fail_msg: >-
+      pve_lxc role is missing required variables. Check that the orchestrator
+      is passing PVE API credentials (PROXMOX_API_*) and container specs.
+
+- name: Create LXC container (idempotent)
+  community.general.proxmox:
+    api_host: "{{ pve_api_host }}"
+    api_user: "{{ pve_api_user }}"
+    api_token_id: "{{ pve_api_token_id }}"
+    api_token_secret: "{{ pve_api_token_secret }}"
+    validate_certs: "{{ pve_validate_certs | default(false) }}"
+    node: "{{ pve_node }}"
+    vmid: "{{ pve_vmid | int }}"
+    hostname: "{{ pve_hostname }}"
+    ostemplate: "{{ pve_ostemplate | default('local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst') }}"
+    cores: "{{ pve_cpu | default(4) | int }}"
+    memory: "{{ pve_memory | default(8192) | int }}"
+    disk: "{{ pve_storage_pool | default('local-lvm') }}:{{ pve_storage | default(100) | int }}"
+    netif:
+      net0: "name=eth0,bridge={{ pve_bridge | default('vmbr0') }},ip=dhcp"
+    nameserver: "{{ pve_nameserver | default('8.8.8.8') }}"
+    features:
+      - nesting=1
+    unprivileged: true
+    password: "{{ pve_root_password }}"
+    pubkey: "{{ pve_ssh_pubkey }}"
+    state: present
+    timeout: 300
+  register: pve_create_result
+  no_log: true
+
+- name: Start LXC container
+  community.general.proxmox:
+    api_host: "{{ pve_api_host }}"
+    api_user: "{{ pve_api_user }}"
+    api_token_id: "{{ pve_api_token_id }}"
+    api_token_secret: "{{ pve_api_token_secret }}"
+    validate_certs: "{{ pve_validate_certs | default(false) }}"
+    node: "{{ pve_node }}"
+    vmid: "{{ pve_vmid | int }}"
+    hostname: "{{ pve_hostname }}"
+    state: started
+    timeout: 120
+  no_log: true
+
+- name: Wait for container interfaces to report an IPv4 address
+  ansible.builtin.uri:
+    url: "https://{{ pve_api_host }}/api2/json/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/interfaces"
+    method: GET
+    headers:
+      Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+    validate_certs: "{{ pve_validate_certs | default(false) }}"
+    return_content: true
+  register: pve_iface_resp
+  until: >-
+    pve_iface_resp.status == 200
+    and (pve_iface_resp.json.data | default([])
+         | selectattr('name', 'ne', 'lo')
+         | selectattr('inet', 'defined')
+         | map(attribute='inet')
+         | reject('match', '^127\\.')
+         | list | length > 0)
+  retries: 60
+  delay: 5
+  no_log: true
+
+- name: Extract container IPv4 address
+  ansible.builtin.set_fact:
+    pve_container_ip: >-
+      {{
+        (pve_iface_resp.json.data
+         | selectattr('name', 'ne', 'lo')
+         | selectattr('inet', 'defined')
+         | map(attribute='inet')
+         | reject('match', '^127\\.')
+         | first
+        ).split('/')[0]
+      }}
+
+- name: Show container IP
+  ansible.builtin.debug:
+    msg: "Container {{ pve_vmid }} is up at {{ pve_container_ip }}"
+
+- name: Wait for SSH on the new container
+  ansible.builtin.wait_for:
+    host: "{{ pve_container_ip }}"
+    port: 22
+    timeout: 180
+    state: started
+
+- name: Register container in runtime inventory
+  ansible.builtin.add_host:
+    name: "{{ instance_name | default(pve_hostname) }}"
+    ansible_host: "{{ pve_container_ip }}"
+    ansible_user: root
+    ansible_ssh_private_key_file: "{{ ansible_ssh_private_key_file_orchestrator | default(lookup('env', 'ANSIBLE_SSH_KEY')) }}"
+    groups:
+      - new_containers
+    # Role + DHIS2 vars below let downstream plays target this host by name.
+    database_host: "{{ instance_name | default(pve_hostname) }}"
+    dhis2_version: "{{ dhis2_version | default('2.40') }}"
+    fqdn: "{{ fqdn | default('') }}"
+    proxy_rewrite: true
+  changed_when: false
