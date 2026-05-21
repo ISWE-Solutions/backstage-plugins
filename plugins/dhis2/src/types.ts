@@ -329,7 +329,7 @@ export interface ProxmoxClusterSettings {
   rootfsStorage: string;
   /** Storage location for templates (e.g. local) */
   templateStorage: string;
-  /** OS template volume id, e.g. local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst */
+  /** OS template volume id, e.g. local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst */
   osTemplate: string;
   /** Network bridge for LXC containers (e.g. vmbr0) */
   networkBridge: string;
@@ -470,7 +470,7 @@ export const DEFAULT_SETTINGS: DHIS2PluginSettings = {
     defaultNode: 'pve1',
     rootfsStorage: 'local-lvm',
     templateStorage: 'local',
-    osTemplate: 'local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst',
+    osTemplate: 'local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst',
     networkBridge: 'vmbr0',
     nameserver: '1.1.1.1 8.8.8.8',
     searchDomain: 'example.com',

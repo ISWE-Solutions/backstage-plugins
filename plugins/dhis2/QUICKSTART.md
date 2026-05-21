@@ -107,7 +107,7 @@ pveum user token add root@pam backstage --privsep=0
 
 # 2. Download Ubuntu template
 pveam update
-pveam download local ubuntu-22.04-standard_22.04-1_amd64.tar.zst
+pveam download local ubuntu-24.04-standard_24.04-2_amd64.tar.zst
 
 # 3. Verify storage
 pvesm status

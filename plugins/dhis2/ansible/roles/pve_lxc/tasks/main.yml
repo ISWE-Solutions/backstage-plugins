@@ -55,7 +55,7 @@
     node: "{{ pve_node }}"
     vmid: "{{ pve_vmid | int }}"
     hostname: "{{ pve_hostname }}"
-    ostemplate: "{{ pve_ostemplate | default('local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst') }}"
+    ostemplate: "{{ pve_ostemplate | default('local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst') }}"
     cores: "{{ pve_cpu | default(4) | int }}"
     memory: "{{ pve_memory | default(8192) | int }}"
     disk: "{{ pve_storage_pool | default('local-lvm') }}:{{ pve_storage | default(100) | int }}"

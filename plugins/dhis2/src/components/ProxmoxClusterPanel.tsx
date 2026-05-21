@@ -418,7 +418,7 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
                 label="OS Template"
                 value={proxmox.osTemplate}
                 onChange={e => updateProxmox({ osTemplate: e.target.value })}
-                helperText="Full volid, e.g. local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst"
+                helperText="Full volid, e.g. local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst"
                 className={classes.field}
               />
             </Grid>
