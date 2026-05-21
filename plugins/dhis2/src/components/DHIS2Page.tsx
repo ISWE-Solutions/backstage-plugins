@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Grid,
@@ -37,6 +37,11 @@ import CheckCircleIcon from '@material-ui/icons/CheckCircle';
 import ErrorOutlineIcon from '@material-ui/icons/ErrorOutline';
 import RadioButtonUncheckedIcon from '@material-ui/icons/RadioButtonUnchecked';
 import FileCopyIcon from '@material-ui/icons/FileCopy';
+import PauseIcon from '@material-ui/icons/Pause';
+import StopIcon from '@material-ui/icons/Stop';
+import ReplayIcon from '@material-ui/icons/Replay';
+import VerticalAlignBottomIcon from '@material-ui/icons/VerticalAlignBottom';
+import SpeedIcon from '@material-ui/icons/Speed';
 import {
   DHIS2Instance,
   ProxmoxNode,
@@ -278,6 +283,60 @@ export const DHIS2Page = () => {
   const [provisionLog, setProvisionLog] = useState<string[]>([]);
   const [logCopied, setLogCopied] = useState(false);
 
+  // --- Activity log: live tail + replay controls -------------------------
+  // The activity log Paper auto-scrolls to the newest line by default. When
+  // the user scrolls up to inspect earlier output, auto-scroll pauses until
+  // they scroll back to the bottom (or hit the "jump to bottom" button).
+  // After a run finishes (success or failure), the operator can replay the
+  // run line-by-line at 1x/2x/4x speed for a quick walkthrough/demo.
+  const logScrollRef = useRef<HTMLDivElement | null>(null);
+  const [autoScroll, setAutoScroll] = useState(true);
+  const [lastRunLog, setLastRunLog] = useState<string[]>([]);
+  const [replayActive, setReplayActive] = useState(false);
+  const [replayPlaying, setReplayPlaying] = useState(false);
+  const [replayIndex, setReplayIndex] = useState(0);
+  // ms per line; lower = faster. Cycles 1x (50) -> 2x (25) -> 4x (10).
+  const [replaySpeed, setReplaySpeed] = useState(50);
+
+  // Snapshot the log on completion so it can be replayed even if the live
+  // buffer is later cleared by another provisioning run.
+  useEffect(() => {
+    if ((provisionDone || provisionError) && provisionLog.length > 0) {
+      setLastRunLog(provisionLog);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [provisionDone, provisionError]);
+
+  // Auto-scroll to the bottom when new lines arrive (live mode only).
+  useEffect(() => {
+    if (replayActive) return;
+    if (!autoScroll) return;
+    const el = logScrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [provisionLog, replayActive, autoScroll]);
+
+  // Auto-scroll while replaying too.
+  useEffect(() => {
+    if (!replayActive) return;
+    const el = logScrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [replayIndex, replayActive]);
+
+  // Replay tick: reveal one more line every `replaySpeed` ms while playing.
+  useEffect(() => {
+    if (!replayPlaying) return undefined;
+    const id = window.setInterval(() => {
+      setReplayIndex(prev => {
+        if (prev >= lastRunLog.length) {
+          setReplayPlaying(false);
+          return prev;
+        }
+        return prev + 1;
+      });
+    }, replaySpeed);
+    return () => window.clearInterval(id);
+  }, [replayPlaying, replaySpeed, lastRunLog.length]);
+
   useEffect(() => {
     loadInstances();
     loadNodes();
@@ -398,6 +457,11 @@ export const DHIS2Page = () => {
     setProvisionError(null);
     setProvisionDone(false);
     setProvisionOpen(true);
+    // Drop any active replay from a previous run.
+    setReplayActive(false);
+    setReplayPlaying(false);
+    setReplayIndex(0);
+    setAutoScroll(true);
     appendProvisionLog(`Starting provisioning for "${request.name}".`);
 
     // VMID and email come from saved settings — the script requires both.
@@ -940,7 +1004,49 @@ export const DHIS2Page = () => {
                 );
               })}
             </Box>
-            {provisionLog.length > 0 && (
+            {provisionLog.length > 0 && (() => {
+              // What the operator currently sees in the Paper.
+              const displayedLog = replayActive
+                ? lastRunLog.slice(0, replayIndex)
+                : provisionLog;
+              const replaySource = lastRunLog.length > 0 ? lastRunLog : provisionLog;
+              const runFinished = provisionDone || provisionError !== null;
+              const canReplay = runFinished && replaySource.length > 0;
+              const cycleSpeed = () => {
+                setReplaySpeed(prev =>
+                  prev === 50 ? 25 : prev === 25 ? 10 : 50,
+                );
+              };
+              const speedLabel =
+                replaySpeed === 50 ? '1x' : replaySpeed === 25 ? '2x' : '4x';
+              const startReplay = () => {
+                setReplayActive(true);
+                setReplayIndex(0);
+                setReplayPlaying(true);
+                setAutoScroll(true);
+              };
+              const resumeReplay = () => setReplayPlaying(true);
+              const pauseReplay = () => setReplayPlaying(false);
+              const stopReplay = () => {
+                setReplayPlaying(false);
+                setReplayActive(false);
+                setReplayIndex(0);
+                setAutoScroll(true);
+              };
+              const handleScroll = () => {
+                const el = logScrollRef.current;
+                if (!el) return;
+                const nearBottom =
+                  el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+                setAutoScroll(nearBottom);
+              };
+              const jumpToBottom = () => {
+                setAutoScroll(true);
+                const el = logScrollRef.current;
+                if (el) el.scrollTop = el.scrollHeight;
+              };
+              const copyText = displayedLog.join('\n');
+              return (
               <Box mt={2}>
                 <Box
                   display="flex"
@@ -948,56 +1054,137 @@ export const DHIS2Page = () => {
                   justifyContent="space-between"
                   mb={0.5}
                 >
-                  <Typography variant="caption" color="textSecondary">
-                    Activity log
-                  </Typography>
-                  <Tooltip title={logCopied ? 'Copied!' : 'Copy logs'}>
-                    <IconButton
-                      size="small"
-                      onClick={() => {
-                        const text = provisionLog.join('\n');
-                        const fallback = () => {
-                          try {
-                            const ta = document.createElement('textarea');
-                            ta.value = text;
-                            ta.style.position = 'fixed';
-                            ta.style.opacity = '0';
-                            document.body.appendChild(ta);
-                            ta.select();
-                            document.execCommand('copy');
-                            document.body.removeChild(ta);
-                          } catch {
-                            /* ignore */
+                  <Box display="flex" alignItems="center" style={{ gap: 8 }}>
+                    <Typography variant="caption" color="textSecondary">
+                      Activity log
+                    </Typography>
+                    {replayActive && (
+                      <Typography
+                        variant="caption"
+                        style={{
+                          color: '#c084fc',
+                          fontWeight: 600,
+                          letterSpacing: 0.5,
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        Replay {replayIndex}/{replaySource.length}
+                      </Typography>
+                    )}
+                    {!replayActive && !autoScroll && (
+                      <Typography
+                        variant="caption"
+                        style={{ color: '#fbbf24' }}
+                      >
+                        Auto-scroll paused
+                      </Typography>
+                    )}
+                  </Box>
+                  <Box display="flex" alignItems="center">
+                    {!replayActive && !autoScroll && (
+                      <Tooltip title="Jump to latest">
+                        <IconButton size="small" onClick={jumpToBottom} aria-label="Jump to latest log line">
+                          <VerticalAlignBottomIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {canReplay && !replayActive && (
+                      <Tooltip title="Replay this run">
+                        <IconButton size="small" onClick={startReplay} aria-label="Replay activity log">
+                          <PlayArrowIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {replayActive && !replayPlaying && replayIndex < replaySource.length && (
+                      <Tooltip title="Resume">
+                        <IconButton size="small" onClick={resumeReplay} aria-label="Resume replay">
+                          <PlayArrowIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {replayActive && replayPlaying && (
+                      <Tooltip title="Pause">
+                        <IconButton size="small" onClick={pauseReplay} aria-label="Pause replay">
+                          <PauseIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {replayActive && replayIndex >= replaySource.length && (
+                      <Tooltip title="Restart replay">
+                        <IconButton size="small" onClick={startReplay} aria-label="Restart replay">
+                          <ReplayIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {replayActive && (
+                      <Tooltip title="Exit replay (back to live)">
+                        <IconButton size="small" onClick={stopReplay} aria-label="Exit replay">
+                          <StopIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {replayActive && (
+                      <Tooltip title={`Playback speed: ${speedLabel} (click to cycle)`}>
+                        <IconButton size="small" onClick={cycleSpeed} aria-label="Cycle replay speed">
+                          <Box display="flex" alignItems="center" style={{ gap: 2 }}>
+                            <SpeedIcon fontSize="small" />
+                            <Typography variant="caption" style={{ fontWeight: 600 }}>
+                              {speedLabel}
+                            </Typography>
+                          </Box>
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    <Tooltip title={logCopied ? 'Copied!' : 'Copy logs'}>
+                      <IconButton
+                        size="small"
+                        onClick={() => {
+                          const text = copyText;
+                          const fallback = () => {
+                            try {
+                              const ta = document.createElement('textarea');
+                              ta.value = text;
+                              ta.style.position = 'fixed';
+                              ta.style.opacity = '0';
+                              document.body.appendChild(ta);
+                              ta.select();
+                              document.execCommand('copy');
+                              document.body.removeChild(ta);
+                            } catch {
+                              /* ignore */
+                            }
+                          };
+                          const done = () => {
+                            setLogCopied(true);
+                            window.setTimeout(() => setLogCopied(false), 1500);
+                          };
+                          if (
+                            navigator.clipboard &&
+                            typeof navigator.clipboard.writeText === 'function'
+                          ) {
+                            navigator.clipboard
+                              .writeText(text)
+                              .then(done)
+                              .catch(() => {
+                                fallback();
+                                done();
+                              });
+                          } else {
+                            fallback();
+                            done();
                           }
-                        };
-                        const done = () => {
-                          setLogCopied(true);
-                          window.setTimeout(() => setLogCopied(false), 1500);
-                        };
-                        if (
-                          navigator.clipboard &&
-                          typeof navigator.clipboard.writeText === 'function'
-                        ) {
-                          navigator.clipboard
-                            .writeText(text)
-                            .then(done)
-                            .catch(() => {
-                              fallback();
-                              done();
-                            });
-                        } else {
-                          fallback();
-                          done();
-                        }
-                      }}
-                      aria-label="Copy activity log"
-                    >
-                      <FileCopyIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
+                        }}
+                        aria-label="Copy activity log"
+                      >
+                        <FileCopyIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
                 </Box>
                 <Paper
                   variant="outlined"
+                  ref={logScrollRef as React.Ref<HTMLDivElement>}
+                  onScroll={handleScroll}
                   style={{
                     maxHeight: 280,
                     overflowY: 'auto',
@@ -1010,7 +1197,7 @@ export const DHIS2Page = () => {
                     fontSize: 12,
                   }}
                 >
-                  {groupLogByPhase(provisionLog).map((group, gIdx) => {
+                  {groupLogByPhase(displayedLog).map((group, gIdx) => {
                     const color = PHASE_COLORS[group.phase];
                     return (
                       <Box
@@ -1056,7 +1243,8 @@ export const DHIS2Page = () => {
                   })}
                 </Paper>
               </Box>
-            )}
+              );
+            })()}
           </DialogContent>
           <DialogActions>
             <Button
