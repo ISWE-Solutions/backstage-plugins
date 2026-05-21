@@ -1,4 +1,13 @@
 ---
+# Flush any handlers notified by earlier roles (notably the postgres role's
+# 'Restart PostgreSQL') BEFORE we install/start Tomcat. Otherwise that
+# postgres restart fires only at end-of-play, by which time Tomcat is busy
+# auto-deploying the 300 MB DHIS2 WAR — the resulting CPU/memory pressure in
+# the LXC stalls `systemctl restart postgresql` for ~10 minutes and
+# ansible-playbook bails with exit 2.
+- name: Flush pending handlers (e.g. Restart PostgreSQL) before touching Tomcat
+  ansible.builtin.meta: flush_handlers
+
 - name: Install Java
   ansible.builtin.apt:
     name: "openjdk-{{ java_version }}-jdk-headless"
@@ -90,9 +99,10 @@
     owner: root
     group: root
     mode: "0644"
-  notify:
-    - Reload systemd
-    - Restart Tomcat
+  # No 'notify: Restart Tomcat' here — the 'Ensure Tomcat is enabled and
+  # running' task later in this role explicitly starts Tomcat once, after
+  # the WAR is in place and the defaults file is written. A handler-driven
+  # restart at end of play would otherwise interrupt the WAR explosion.
 
 - name: Create DHIS2 directories
   ansible.builtin.file:
