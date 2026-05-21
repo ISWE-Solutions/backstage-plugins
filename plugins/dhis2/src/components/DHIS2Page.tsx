@@ -416,7 +416,11 @@ export const DHIS2Page = () => {
     { pattern: /Phase 2 — rendering inventory|running ansible-playbook/i, advanceTo: 'bootstrap' },
     { pattern: /TASK \[postgres\s*:/i, advanceTo: 'postgres' },
     { pattern: /TASK \[dhis2\s*:/i, advanceTo: 'dhis2' },
-    { pattern: /Phase 3 — configuring central Nginx|TASK \[nginx\s*:/i, advanceTo: 'proxy' },
+    // Phase 5 became an Ansible play (roles/proxy) instead of a shell-out
+    // to configure-host-proxy.sh. Match the new play/task headers so the
+    // UI advances to the 'proxy' step when Ansible reaches them; keep the
+    // legacy patterns as fallbacks in case an older script is in use.
+    { pattern: /PLAY \[Phase 5[ab]?\b|TASK \[proxy\s*:|Phase 3 — configuring central Nginx|TASK \[nginx\s*:/i, advanceTo: 'proxy' },
     { pattern: /DHIS2 provisioning complete/i, advanceTo: 'finalize' },
   ];
 
