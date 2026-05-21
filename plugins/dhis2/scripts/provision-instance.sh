@@ -55,6 +55,14 @@ Optional:
                             dhis.conf instead of --db-user. The --db-user
                             credentials are retained as the provisioning
                             (admin) role.
+  --pve-host <host>         Proxmox node to drive over SSH for pct/pvesh/pvesm
+                            operations. Leave empty (or set to localhost) when
+                            this script is running directly on the PVE node.
+                            When set, Ansible itself still runs from THIS host
+                            and reaches the container via a ProxyCommand jump
+                            through the PVE node.
+  --pve-user <user>         SSH user for --pve-host (default: root)
+  --pve-ssh-key <path>      SSH private key for --pve-host
   -h | --help               Show this help
 
 Required env vars (or via --vars-file):
@@ -82,6 +90,9 @@ SSH_KEY=""
 INSTANCE_NAME=""
 RESTORE_SPEC=""
 NEW_DB_USER=""
+PVE_HOST=""
+PVE_USER="root"
+PVE_SSH_KEY=""
 
 VMID=""; NODE=""; HOSTNAME=""; DOMAIN=""; EMAIL=""
 DHIS2_VERSION=""; DB_NAME=""; DB_USER=""
@@ -111,6 +122,9 @@ while [[ $# -gt 0 ]]; do
         --keep-vars-file) KEEP_VARS_FILE=1; shift;;
         --restore-spec) RESTORE_SPEC="$2"; shift 2;;
         --new-db-user) NEW_DB_USER="$2"; shift 2;;
+        --pve-host) PVE_HOST="$2"; shift 2;;
+        --pve-user) PVE_USER="$2"; shift 2;;
+        --pve-ssh-key) PVE_SSH_KEY="$2"; shift 2;;
         -h|--help) usage; exit 0;;
         *) echo "unknown option: $1" >&2; usage >&2; exit 2;;
     esac
@@ -130,6 +144,20 @@ done
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 PLUGIN_DIR="$(cd -- "${SCRIPT_DIR}/.." &>/dev/null && pwd)"
 ANSIBLE_DIR="${PLUGIN_DIR}/ansible"
+
+# Source PVE helper functions (pct / pvesh / pvesm become SSH-aware shims when
+# --pve-host is set). Must come BEFORE any pct/pvesh/pvesm calls below.
+# shellcheck source=./_pve_helpers.sh
+source "${SCRIPT_DIR}/_pve_helpers.sh"
+
+# Flags forwarded to sub-scripts (create-container.sh, configure-host-proxy.sh).
+# Initialised here so the EXIT trap can safely expand it even if we fail
+# before Phase 1 sets it.
+PVE_FORWARD_FLAGS=()
+if [[ -n "${PVE_HOST}" ]]; then
+    PVE_FORWARD_FLAGS+=(--pve-host "${PVE_HOST}" --pve-user "${PVE_USER}")
+    [[ -n "${PVE_SSH_KEY}" ]] && PVE_FORWARD_FLAGS+=(--pve-ssh-key "${PVE_SSH_KEY}")
+fi
 
 # Choose SSH key — default to a dhis2-specific key, fall back to id_ed25519.
 if [[ -z "${SSH_KEY}" ]]; then
@@ -189,7 +217,8 @@ cleanup() {
         pct stop "${VMID}" 2>/dev/null || true
         pct destroy "${VMID}" --purge 2>/dev/null || true
         "${SCRIPT_DIR}/configure-host-proxy.sh" \
-            --remove --vmid "${VMID}" --domain "${DOMAIN}" 2>/dev/null || true
+            --remove --vmid "${VMID}" --domain "${DOMAIN}" \
+            "${PVE_FORWARD_FLAGS[@]}" 2>/dev/null || true
     fi
     return ${rc}
 }
@@ -212,6 +241,7 @@ ROOT_PASSWORD="${ROOT_PASSWORD}" "${SCRIPT_DIR}/create-container.sh" \
     --storage "${STORAGE}" \
     --ansible-user "${ANSIBLE_USER}" \
     --ip-out-file "${IP_FILE}" \
+    "${PVE_FORWARD_FLAGS[@]}" \
     "${ROLLBACK_FLAG[@]}"
 
 CONTAINER_IP="$(cat "${IP_FILE}")"
@@ -252,12 +282,17 @@ if [[ -n "${RESTORE_SPEC}" ]]; then
             esac
             STAGED_IN_CT="/var/lib/dhis2-restore/dump${EXT}"
             pct exec "${VMID}" -- mkdir -p /var/lib/dhis2-restore
-            pct push "${VMID}" "${SRC_PATH}" "${STAGED_IN_CT}"
+            pct_push_local "${VMID}" "${SRC_PATH}" "${STAGED_IN_CT}"
             pct exec "${VMID}" -- chown postgres:postgres "${STAGED_IN_CT}"
             ;;
         vzdump)
             # .node + .storage + .volid (e.g. local:backup/vzdump-lxc-...tar.zst).
             # Extract the inner postgres dump on the Proxmox host, then push.
+            if ! _pve_is_local; then
+                echo "--restore-spec kind=vzdump is not yet supported when --pve-host is set" >&2
+                echo "(extraction must happen on the PVE node; not implemented for remote mode)" >&2
+                exit 2
+            fi
             VOLID="$(jq -r '.volid' "${RESTORE_SPEC}")"
             INNER_PATH="$(jq -r '.inner_path // empty' "${RESTORE_SPEC}")"
             ARCHIVE_PATH="$(pvesm path "${VOLID}" 2>/dev/null || true)"
@@ -296,7 +331,7 @@ if [[ -n "${RESTORE_SPEC}" ]]; then
                 *)         STAGED_IN_CT="/var/lib/dhis2-restore/dump.dump" ;;
             esac
             pct exec "${VMID}" -- mkdir -p /var/lib/dhis2-restore
-            pct push "${VMID}" "${CANDIDATE}" "${STAGED_IN_CT}"
+            pct_push_local "${VMID}" "${CANDIDATE}" "${STAGED_IN_CT}"
             pct exec "${VMID}" -- chown postgres:postgres "${STAGED_IN_CT}"
             ;;
         instance)
@@ -315,7 +350,7 @@ if [[ -n "${RESTORE_SPEC}" ]]; then
                 -f "${DUMP_TMP}"
             STAGED_IN_CT="/var/lib/dhis2-restore/dump.dump"
             pct exec "${VMID}" -- mkdir -p /var/lib/dhis2-restore
-            pct push "${VMID}" "${DUMP_TMP}" "${STAGED_IN_CT}"
+            pct_push_local "${VMID}" "${DUMP_TMP}" "${STAGED_IN_CT}"
             pct exec "${VMID}" -- chown postgres:postgres "${STAGED_IN_CT}"
             rm -f "${DUMP_TMP}"
             ;;
@@ -346,10 +381,22 @@ fi
 # ----------------------------------------------------------------------------
 log "Phase 2 — rendering inventory and extra-vars"
 
+# When PVE is remote, Ansible (running on this host) reaches the container
+# via a ProxyCommand jump through the PVE node. When PVE is local, no jump
+# is needed and PROXY_JUMP_ARGS stays empty.
+if _pve_is_local; then
+    PROXY_JUMP_ARGS=""
+else
+    _pj_key=""
+    [[ -n "${PVE_SSH_KEY}" ]] && _pj_key="-i ${PVE_SSH_KEY} "
+    PROXY_JUMP_ARGS="-o ProxyCommand=\"ssh ${_pj_key}-o StrictHostKeyChecking=accept-new -o BatchMode=yes -W %h:%p ${PVE_USER}@${PVE_HOST}\""
+fi
+
 export CONTAINER_IP INSTANCE_NAME DHIS2_VERSION DOMAIN \
        EMAIL TIMEZONE POSTGRES_VERSION JAVA_VERSION \
        ANSIBLE_USER ANSIBLE_SSH_KEY="${SSH_KEY}" \
-       LETSENCRYPT_EMAIL="${EMAIL}"
+       LETSENCRYPT_EMAIL="${EMAIL}" \
+       PROXY_JUMP_ARGS
 
 envsubst \
     < "${ANSIBLE_DIR}/inventory/hosts.tmpl" \
@@ -428,6 +475,7 @@ CERTBOT_FLAG=()
     --container-ip "${CONTAINER_IP}" \
     --domain "${DOMAIN}" \
     --email "${EMAIL}" \
+    "${PVE_FORWARD_FLAGS[@]}" \
     "${CERTBOT_FLAG[@]}"
 
 log "================================================================"

@@ -36,6 +36,11 @@ Optional:
   --ansible-user <name>     Username Ansible will SSH in as (default: ansible)
   --ip-out-file <path>      Write the container's IPv4 address to this file
   --rollback-on-failure     pct destroy the container if any step fails
+  --pve-host <host>         Run Proxmox CLI (pct/pvesh) on this host over
+                            SSH instead of locally. Default: localhost.
+  --pve-user <user>         SSH user for --pve-host (default: root)
+  --pve-ssh-key <path>      SSH private key for --pve-host (default: env
+                            $PVE_SSH_KEY or none)
   -h | --help               Show this help
 
 The container's root password is read from the ROOT_PASSWORD env var so it
@@ -72,10 +77,18 @@ while [[ $# -gt 0 ]]; do
         --ansible-user) ANSIBLE_USER="$2"; shift 2;;
         --ip-out-file) IP_OUT_FILE="$2"; shift 2;;
         --rollback-on-failure) ROLLBACK_ON_FAILURE=1; shift;;
+        --pve-host) PVE_HOST="$2"; shift 2;;
+        --pve-user) PVE_USER="$2"; shift 2;;
+        --pve-ssh-key) PVE_SSH_KEY="$2"; shift 2;;
         -h|--help) usage; exit 0;;
         *) echo "unknown option: $1" >&2; usage >&2; exit 2;;
     esac
 done
+
+# Source PVE helper functions (pct / pvesh become SSH-aware shims).
+SCRIPT_DIR_SELF="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+# shellcheck source=./_pve_helpers.sh
+source "${SCRIPT_DIR_SELF}/_pve_helpers.sh"
 
 for var in VMID NODE HOSTNAME SSH_PUBKEY; do
     if [[ -z "${!var}" ]]; then
@@ -160,7 +173,7 @@ systemctl restart ssh
 BOOTSTRAP
 
 log "injecting SSH public key for ${ANSIBLE_USER}"
-pct push "${VMID}" "${SSH_PUBKEY}" "/home/${ANSIBLE_USER}/.ssh/authorized_keys"
+pct_push_local "${VMID}" "${SSH_PUBKEY}" "/home/${ANSIBLE_USER}/.ssh/authorized_keys"
 pct exec "${VMID}" -- chown "${ANSIBLE_USER}:${ANSIBLE_USER}" "/home/${ANSIBLE_USER}/.ssh/authorized_keys"
 pct exec "${VMID}" -- chmod 0600 "/home/${ANSIBLE_USER}/.ssh/authorized_keys"
 

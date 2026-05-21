@@ -1,5 +1,4 @@
 import { LoggerService } from '@backstage/backend-plugin-api';
-import { Client as SshClient } from 'ssh2';
 import { spawn } from 'child_process';
 import { promises as fs } from 'fs';
 import * as path from 'path';
@@ -166,6 +165,16 @@ function buildCommand(
   if (cfg.privateKeyFile) {
     args.push('--ssh-key', cfg.privateKeyFile);
   }
+  // Option-2 plumbing: the orchestrator script always runs LOCALLY on the
+  // Backstage host (where Ansible lives). When cfg.host is something other
+  // than localhost it is treated as the remote PVE node — the script SSHes
+  // to it for each pct/pvesh/pvesm call and Ansible reaches the new LXC via
+  // a ProxyCommand jump through it.
+  if (!isLocalHost(cfg.host)) {
+    args.push('--pve-host', cfg.host);
+    if (cfg.user) args.push('--pve-user', cfg.user);
+    if (cfg.privateKeyFile) args.push('--pve-ssh-key', cfg.privateKeyFile);
+  }
   // Secrets are exported as env vars on the remote shell, NEVER on argv.
   const env: Record<string, string> = {
     DHIS2_DB_PASS: req.database.password,
@@ -181,10 +190,6 @@ function buildCommand(
   const quotedArgs = args.map(shellQuote).join(' ');
   // bash -lc so login env (PATH, ansible) is loaded.
   return `${envPrefix} bash -lc ${shellQuote(quotedArgs)}`;
-}
-
-async function readPrivateKey(keyPath: string): Promise<Buffer> {
-  return await fs.readFile(keyPath);
 }
 
 function isLocalHost(host: string): boolean {
@@ -218,57 +223,6 @@ async function runLocal(job: JobSnapshot, command: string): Promise<number> {
     streamLines(job, child.stderr, '[stderr] ');
     child.on('error', reject);
     child.on('close', code => resolve(typeof code === 'number' ? code : -1));
-  });
-}
-
-async function runOverSsh(
-  job: JobSnapshot,
-  cfg: OrchestratorConfig,
-  command: string,
-): Promise<number> {
-  const privateKey = await readPrivateKey(cfg.privateKeyFile);
-  return await new Promise<number>((resolve, reject) => {
-    const conn = new SshClient();
-    conn
-      .on('ready', () => {
-        conn.exec(command, (err, stream) => {
-          if (err) {
-            conn.end();
-            reject(err);
-            return;
-          }
-          let stdoutBuf = '';
-          let stderrBuf = '';
-          stream
-            .on('close', (code: number | null) => {
-              if (stdoutBuf) appendLine(job, stdoutBuf);
-              if (stderrBuf) appendLine(job, `[stderr] ${stderrBuf}`);
-              conn.end();
-              resolve(typeof code === 'number' ? code : -1);
-            })
-            .on('data', (data: Buffer) => {
-              stdoutBuf += data.toString('utf8');
-              const parts = stdoutBuf.split('\n');
-              stdoutBuf = parts.pop() ?? '';
-              for (const line of parts) appendLine(job, line);
-            })
-            .stderr.on('data', (data: Buffer) => {
-              stderrBuf += data.toString('utf8');
-              const parts = stderrBuf.split('\n');
-              stderrBuf = parts.pop() ?? '';
-              for (const line of parts) appendLine(job, `[stderr] ${line}`);
-            });
-        });
-      })
-      .on('error', reject)
-      .connect({
-        host: cfg.host,
-        port: cfg.port,
-        username: cfg.user,
-        privateKey,
-        passphrase: cfg.passphrase,
-        readyTimeout: 30_000,
-      });
   });
 }
 
@@ -389,18 +343,11 @@ export class ProvisionService {
     req: ProvisionRequest,
   ): Promise<void> {
     job.status = 'running';
-    const local = isLocalHost(cfg.host);
-    if (local) {
-      appendLine(
-        job,
-        `[backend] Running orchestrator script locally as user "${process.getuid?.() === 0 ? 'root' : process.env.USER ?? 'unknown'}" (host=${cfg.host}, SSH bypassed)`,
-      );
-    } else {
-      appendLine(
-        job,
-        `[backend] Connecting to orchestrator ${cfg.user}@${cfg.host}:${cfg.port}`,
-      );
-    }
+    const pveTarget = isLocalHost(cfg.host) ? 'localhost (no SSH)' : `${cfg.user}@${cfg.host}`;
+    appendLine(
+      job,
+      `[backend] Running provision-instance.sh locally on the Backstage host. PVE target: ${pveTarget}.`,
+    );
 
     const command = buildCommand(cfg, req);
     // Log the redacted form for traceability.
@@ -409,9 +356,7 @@ export class ProvisionService {
       `[backend] Executing: ${cfg.scriptPath} --vmid ${req.vmid} --node ${req.node} --hostname ${req.hostname} --domain ${req.domain} --dhis2-version ${req.version} --db-name ${req.database.name} --db-user ${req.database.user} (secrets via env)`,
     );
 
-    const exitCode = local
-      ? await runLocal(job, command)
-      : await runOverSsh(job, cfg, command);
+    const exitCode = await runLocal(job, command);
 
     job.exitCode = exitCode;
     job.finishedAt = new Date().toISOString();

@@ -27,6 +27,10 @@ Optional:
   --skip-certbot            Don't request a Let's Encrypt cert (useful for dev)
   --remove                  Tear down the upstream/site for this --vmid/--domain
                             instead of creating it
+  --pve-host <host>         Run this entire script on a remote PVE node over
+                            SSH instead of locally. Default: localhost.
+  --pve-user <user>         SSH user for --pve-host (default: root)
+  --pve-ssh-key <path>      SSH private key for --pve-host
   -h | --help               Show this help
 EOF
 }
@@ -36,8 +40,15 @@ SITES_AVAILABLE="/etc/nginx/sites-available"
 SITES_ENABLED="/etc/nginx/sites-enabled"
 SKIP_CERTBOT=0
 REMOVE=0
+PVE_HOST=""
+PVE_USER="root"
+PVE_SSH_KEY=""
 
 VMID=""; CONTAINER_IP=""; DOMAIN=""; EMAIL=""
+
+# Save argv BEFORE we destructively consume it, so the self-reexec block
+# below can forward exactly what we were called with (minus --pve-* flags).
+ORIGINAL_ARGS=("$@")
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -50,10 +61,36 @@ while [[ $# -gt 0 ]]; do
         --sites-enabled) SITES_ENABLED="$2"; shift 2;;
         --skip-certbot) SKIP_CERTBOT=1; shift;;
         --remove) REMOVE=1; shift;;
+        --pve-host) PVE_HOST="$2"; shift 2;;
+        --pve-user) PVE_USER="$2"; shift 2;;
+        --pve-ssh-key) PVE_SSH_KEY="$2"; shift 2;;
         -h|--help) usage; exit 0;;
         *) echo "unknown option: $1" >&2; usage >&2; exit 2;;
     esac
 done
+
+# Self-reexec on the PVE node when --pve-host points elsewhere. The script's
+# body is piped in as stdin so we don't need a local copy on PVE. All the
+# --pve-* flags are stripped (PVE_HOST=localhost in the child) to prevent an
+# infinite loop. The original args (minus --pve-*) are forwarded.
+if [[ -n "${PVE_HOST}" && "${PVE_HOST}" != "localhost" \
+      && "${PVE_HOST}" != "127.0.0.1" && "${PVE_HOST}" != "::1" ]]; then
+    FORWARD_ARGS=()
+    i=0
+    while [[ $i -lt ${#ORIGINAL_ARGS[@]} ]]; do
+        case "${ORIGINAL_ARGS[$i]}" in
+            --pve-host|--pve-user|--pve-ssh-key) i=$((i+2));;
+            *) FORWARD_ARGS+=("${ORIGINAL_ARGS[$i]}"); i=$((i+1));;
+        esac
+    done
+    KEY_ARG=()
+    [[ -n "${PVE_SSH_KEY}" ]] && KEY_ARG=(-i "${PVE_SSH_KEY}")
+    exec ssh "${KEY_ARG[@]}" \
+        -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+        "${PVE_USER}@${PVE_HOST}" \
+        "bash -s -- $(printf '%q ' "${FORWARD_ARGS[@]}")" \
+        < "${BASH_SOURCE[0]}"
+fi
 
 log() { printf '[host-proxy] %s\n' "$*" >&2; }
 
