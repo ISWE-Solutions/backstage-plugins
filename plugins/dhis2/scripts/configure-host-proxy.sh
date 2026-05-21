@@ -16,14 +16,27 @@ Usage: configure-host-proxy.sh [options]
 Required:
   --vmid <int>              Proxmox VMID (used in upstream name)
   --container-ip <ip>       IPv4 of the LXC container's Tomcat
-  --domain <fqdn>           Public domain (server_name + certbot)
+  --domain <value>          Either a bare FQDN (subdomain mode) or
+                            '<fqdn>/<instance>' (path-based mode). In
+                            path-based mode the script writes a base
+                            vhost for <fqdn> and a per-instance snippet
+                            for <instance> that is included from it.
   --email <addr>            Email for Let's Encrypt notifications
 
 Optional:
-  --upstream-dir <dir>      Nginx upstream snippets dir
-                            (default: /etc/nginx/conf.d/dhis2-upstreams)
-  --sites-available <dir>   Default: /etc/nginx/conf.d
-  --sites-enabled <dir>     Default: /etc/nginx/conf.d
+  --instance <name>         Override the instance/path segment in path-
+                            based mode (default: parsed from --domain).
+  --upstream-dir <dir>      Nginx per-instance snippet dir
+                            (default: /etc/nginx/upstream). Each
+                            instance gets a single <instance>.conf file
+                            directly inside this dir (no subfolders).
+                            Created if missing.
+  --sites-available <dir>   Defaults: /etc/nginx/sites-available in
+                            path-based mode, /etc/nginx/conf.d in
+                            subdomain mode.
+  --sites-enabled <dir>     Defaults: /etc/nginx/sites-enabled in
+                            path-based mode, /etc/nginx/conf.d in
+                            subdomain mode.
                             (when equal to --sites-available the script
                             skips the sites-enabled symlink because
                             /etc/nginx/conf.d/*.conf is auto-included)
@@ -38,16 +51,18 @@ Optional:
 EOF
 }
 
-UPSTREAM_DIR="/etc/nginx/conf.d/dhis2-upstreams"
-SITES_AVAILABLE="/etc/nginx/conf.d"
-SITES_ENABLED="/etc/nginx/conf.d"
+UPSTREAM_DIR="/etc/nginx/upstream"
+SITES_AVAILABLE=""
+SITES_ENABLED=""
+SITES_AVAILABLE_SET=0
+SITES_ENABLED_SET=0
 SKIP_CERTBOT=0
 REMOVE=0
 PVE_HOST=""
 PVE_USER="root"
 PVE_SSH_KEY=""
 
-VMID=""; CONTAINER_IP=""; DOMAIN=""; EMAIL=""
+VMID=""; CONTAINER_IP=""; DOMAIN=""; EMAIL=""; INSTANCE_OVERRIDE=""
 
 # Save argv BEFORE we destructively consume it, so the self-reexec block
 # below can forward exactly what we were called with (minus --pve-* flags).
@@ -59,9 +74,10 @@ while [[ $# -gt 0 ]]; do
         --container-ip) CONTAINER_IP="$2"; shift 2;;
         --domain) DOMAIN="$2"; shift 2;;
         --email) EMAIL="$2"; shift 2;;
+        --instance) INSTANCE_OVERRIDE="$2"; shift 2;;
         --upstream-dir) UPSTREAM_DIR="$2"; shift 2;;
-        --sites-available) SITES_AVAILABLE="$2"; shift 2;;
-        --sites-enabled) SITES_ENABLED="$2"; shift 2;;
+        --sites-available) SITES_AVAILABLE="$2"; SITES_AVAILABLE_SET=1; shift 2;;
+        --sites-enabled) SITES_ENABLED="$2"; SITES_ENABLED_SET=1; shift 2;;
         --skip-certbot) SKIP_CERTBOT=1; shift;;
         --remove) REMOVE=1; shift;;
         --pve-host) PVE_HOST="$2"; shift 2;;
@@ -97,16 +113,68 @@ fi
 
 log() { printf '[host-proxy] %s\n' "$*" >&2; }
 
-UPSTREAM_FILE="${UPSTREAM_DIR}/dhis2-${VMID}.conf"
-SITE_FILE="${SITES_AVAILABLE}/dhis2-${DOMAIN}.conf"
-SITE_LINK="${SITES_ENABLED}/dhis2-${DOMAIN}.conf"
+# ---------------------------------------------------------------------------
+# Routing mode detection
+# ---------------------------------------------------------------------------
+# --domain accepts either a bare FQDN ('dhis2.example.org' → subdomain mode,
+# one .conf per FQDN) or '<fqdn>/<instance>' ('dhis2.example.org/ento' →
+# path-based mode, one shared base vhost for <fqdn> plus per-instance
+# include snippets keyed by <instance>). The orchestrator (and the
+# Backstage UI's path-based routing mode) constructs the latter form.
+if [[ "${DOMAIN}" == */* ]]; then
+    ROUTING_MODE="path"
+    BASE_DOMAIN="${DOMAIN%%/*}"
+    PATH_FROM_DOMAIN="${DOMAIN#*/}"
+    # Strip any leading/trailing slashes from the path segment so we end up
+    # with a clean filename and location prefix.
+    PATH_FROM_DOMAIN="${PATH_FROM_DOMAIN#/}"
+    PATH_FROM_DOMAIN="${PATH_FROM_DOMAIN%/}"
+    INSTANCE_NAME="${INSTANCE_OVERRIDE:-${PATH_FROM_DOMAIN}}"
+    if [[ -z "${BASE_DOMAIN}" || -z "${INSTANCE_NAME}" ]]; then
+        echo "--domain '${DOMAIN}' is malformed for path-based mode (need <fqdn>/<instance>)" >&2
+        exit 2
+    fi
+    # Reject filename-hostile characters in <instance> early — otherwise
+    # we'd build a snippet path containing '/' or whitespace and the
+    # subsequent `cat > ${file}` would fail with 'No such file or directory'.
+    if [[ "${INSTANCE_NAME}" =~ [^A-Za-z0-9._-] ]]; then
+        echo "--instance / path segment '${INSTANCE_NAME}' contains characters that are not safe in a filename" >&2
+        exit 2
+    fi
+    [[ ${SITES_AVAILABLE_SET} -eq 1 ]] || SITES_AVAILABLE="/etc/nginx/sites-available"
+    [[ ${SITES_ENABLED_SET}   -eq 1 ]] || SITES_ENABLED="/etc/nginx/sites-enabled"
+else
+    ROUTING_MODE="subdomain"
+    BASE_DOMAIN="${DOMAIN}"
+    INSTANCE_NAME="${INSTANCE_OVERRIDE:-${VMID}}"
+    [[ ${SITES_AVAILABLE_SET} -eq 1 ]] || SITES_AVAILABLE="/etc/nginx/conf.d"
+    [[ ${SITES_ENABLED_SET}   -eq 1 ]] || SITES_ENABLED="/etc/nginx/conf.d"
+fi
+
+if [[ "${ROUTING_MODE}" == "path" ]]; then
+    UPSTREAM_FILE="${UPSTREAM_DIR}/${INSTANCE_NAME}.conf"
+    SITE_FILE="${SITES_AVAILABLE}/${BASE_DOMAIN}.conf"
+    SITE_LINK="${SITES_ENABLED}/${BASE_DOMAIN}.conf"
+else
+    UPSTREAM_FILE="${UPSTREAM_DIR}/dhis2-${VMID}.conf"
+    SITE_FILE="${SITES_AVAILABLE}/dhis2-${BASE_DOMAIN}.conf"
+    SITE_LINK="${SITES_ENABLED}/dhis2-${BASE_DOMAIN}.conf"
+fi
 
 if [[ ${REMOVE} -eq 1 ]]; then
     [[ -n "${VMID}" && -n "${DOMAIN}" ]] || { echo "--remove needs --vmid and --domain" >&2; exit 2; }
-    log "removing nginx config for VMID=${VMID} domain=${DOMAIN}"
-    # When SITES_AVAILABLE == SITES_ENABLED (the conf.d layout) SITE_LINK
-    # and SITE_FILE point at the same path; rm -f tolerates that.
-    rm -f "${UPSTREAM_FILE}" "${SITE_LINK}" "${SITE_FILE}"
+    log "removing nginx config for VMID=${VMID} domain=${DOMAIN} (mode=${ROUTING_MODE})"
+    if [[ "${ROUTING_MODE}" == "path" ]]; then
+        # In path-based mode the base vhost is shared between every
+        # instance under <BASE_DOMAIN>; only drop the per-instance
+        # snippet so we don't break sibling instances.
+        rm -f "${UPSTREAM_FILE}"
+    else
+        # When SITES_AVAILABLE == SITES_ENABLED (the conf.d layout)
+        # SITE_LINK and SITE_FILE point at the same path; rm -f
+        # tolerates that.
+        rm -f "${UPSTREAM_FILE}" "${SITE_LINK}" "${SITE_FILE}"
+    fi
     nginx -t && systemctl reload nginx
     exit 0
 fi
@@ -119,33 +187,70 @@ for var in VMID CONTAINER_IP DOMAIN EMAIL; do
     fi
 done
 
-mkdir -p "${UPSTREAM_DIR}" "${SITES_AVAILABLE}" "${SITES_ENABLED}"
+# Ensure every directory we're about to write into exists. mkdir -p is
+# a no-op when the dir already exists; we additionally log when we have
+# to create one so operators can see new layout decisions in the log.
+for d in "${UPSTREAM_DIR}" "${SITES_AVAILABLE}" "${SITES_ENABLED}"; do
+    if [[ ! -d "${d}" ]]; then
+        log "creating missing directory ${d}"
+        mkdir -p "${d}"
+    fi
+done
 
-log "writing upstream ${UPSTREAM_FILE}"
-cat > "${UPSTREAM_FILE}" <<EOF
-upstream dhis2_${VMID} {
-    server ${CONTAINER_IP}:8080 fail_timeout=0;
-    keepalive 32;
+if [[ "${ROUTING_MODE}" == "path" ]]; then
+    # ---- path-based: dhis2.example.org/<instance> ----
+    log "writing per-instance snippet ${UPSTREAM_FILE}"
+    cat > "${UPSTREAM_FILE}" <<EOF
+# Per-instance reverse-proxy snippet for ${BASE_DOMAIN}/${INSTANCE_NAME}
+# (VMID=${VMID}). Included from ${SITE_FILE} via:
+#     include ${UPSTREAM_DIR}/*.conf;
+# inside the TLS server{} block. Drop a new file in ${UPSTREAM_DIR}
+# to add another instance — no edits to the base vhost are needed.
+location /${INSTANCE_NAME}/ {
+    proxy_pass http://${CONTAINER_IP}:8080/;
+    proxy_http_version 1.1;
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_set_header X-Forwarded-Prefix /${INSTANCE_NAME};
+    proxy_set_header Connection "";
+    proxy_connect_timeout 300s;
+    proxy_send_timeout    300s;
+    proxy_read_timeout    300s;
+    proxy_buffering off;
+}
+
+location /${INSTANCE_NAME}/dhis-web-commons-stream {
+    proxy_pass http://${CONTAINER_IP}:8080/dhis-web-commons-stream;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_read_timeout 86400;
 }
 EOF
 
-log "writing site ${SITE_FILE}"
-cat > "${SITE_FILE}" <<EOF
-# HTTP → HTTPS redirect.
+    log "writing base vhost ${SITE_FILE}"
+    cat > "${SITE_FILE}" <<EOF
+# Shared base vhost for ${BASE_DOMAIN}. Per-instance location blocks
+# live in ${UPSTREAM_DIR}/<instance>.conf and are pulled in by the
+# include directive inside the TLS server{} below. This file is
+# regenerated by configure-host-proxy.sh and is safe to recreate.
 server {
     listen 80;
     listen [::]:80;
-    server_name ${DOMAIN};
+    server_name ${BASE_DOMAIN};
     return 301 https://\$server_name\$request_uri;
 }
 
 server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
-    server_name ${DOMAIN};
+    server_name ${BASE_DOMAIN};
 
-    ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+    ssl_certificate     /etc/letsencrypt/live/${BASE_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${BASE_DOMAIN}/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
     ssl_prefer_server_ciphers on;
@@ -156,8 +261,52 @@ server {
 
     client_max_body_size 100M;
 
-    access_log /var/log/nginx/${DOMAIN}_access.log;
-    error_log  /var/log/nginx/${DOMAIN}_error.log;
+    access_log /var/log/nginx/${BASE_DOMAIN}_access.log;
+    error_log  /var/log/nginx/${BASE_DOMAIN}_error.log;
+
+    # Per-instance location blocks (one file per DHIS2 instance).
+    include ${UPSTREAM_DIR}/*.conf;
+}
+EOF
+else
+    # ---- subdomain: <instance>.dhis2.example.org ----
+    log "writing upstream ${UPSTREAM_FILE}"
+    cat > "${UPSTREAM_FILE}" <<EOF
+upstream dhis2_${VMID} {
+    server ${CONTAINER_IP}:8080 fail_timeout=0;
+    keepalive 32;
+}
+EOF
+
+    log "writing site ${SITE_FILE}"
+    cat > "${SITE_FILE}" <<EOF
+# HTTP → HTTPS redirect.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${BASE_DOMAIN};
+    return 301 https://\$server_name\$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name ${BASE_DOMAIN};
+
+    ssl_certificate     /etc/letsencrypt/live/${BASE_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${BASE_DOMAIN}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+
+    client_max_body_size 100M;
+
+    access_log /var/log/nginx/${BASE_DOMAIN}_access.log;
+    error_log  /var/log/nginx/${BASE_DOMAIN}_error.log;
 
     location / {
         proxy_pass http://dhis2_${VMID};
@@ -183,6 +332,7 @@ server {
     }
 }
 EOF
+fi
 
 # Detect the conf.d layout: when sites-available and sites-enabled resolve
 # to the same directory, SITE_LINK == SITE_FILE and `ln -sf` would
@@ -194,12 +344,15 @@ if [[ "${SITES_AVAILABLE}" != "${SITES_ENABLED}" ]]; then
 fi
 
 if [[ ${SKIP_CERTBOT} -eq 0 ]]; then
-    log "requesting Let's Encrypt certificate for ${DOMAIN}"
+    log "requesting Let's Encrypt certificate for ${BASE_DOMAIN}"
     # certbot may legitimately fail (DNS, rate limit) — don't tear down the
     # config; the caller can re-run certbot later. We DO fail the script
-    # so the orchestrator knows TLS isn't ready.
+    # so the orchestrator knows TLS isn't ready. In path-based mode the
+    # cert is issued once for the base FQDN and shared by every instance
+    # under it; certbot certonly is idempotent so re-running per instance
+    # is harmless (it just renews / reports 'cert not yet due').
     certbot certonly --nginx \
-        -d "${DOMAIN}" \
+        -d "${BASE_DOMAIN}" \
         --non-interactive \
         --agree-tos \
         --email "${EMAIL}"
@@ -209,4 +362,8 @@ log "validating and reloading nginx"
 nginx -t
 systemctl reload nginx
 
-log "central-host Nginx ready for https://${DOMAIN} → ${CONTAINER_IP}:8080"
+if [[ "${ROUTING_MODE}" == "path" ]]; then
+    log "central-host Nginx ready for https://${BASE_DOMAIN}/${INSTANCE_NAME}/ → ${CONTAINER_IP}:8080"
+else
+    log "central-host Nginx ready for https://${BASE_DOMAIN} → ${CONTAINER_IP}:8080"
+fi

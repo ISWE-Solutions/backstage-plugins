@@ -513,7 +513,7 @@ export const DEFAULT_SETTINGS: DHIS2PluginSettings = {
     authMethod: 'ssh-key',
     sshKeyPath: '/root/.ssh/id_ed25519.pub',
     sshPassword: '',
-    nginxConfigPath: '/etc/nginx/conf.d',
+    nginxConfigPath: '/etc/nginx/upstream',
     nginxReloadCommand: 'sudo systemctl reload nginx',
     sslProvider: 'letsencrypt',
     letsencryptEmail: '',

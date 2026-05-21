@@ -1357,7 +1357,7 @@ export const CreateInstanceDialog = ({
                         nginxConfigPath: e.target.value,
                       })
                     }
-                    helperText="e.g. /etc/nginx/conf.d"
+                    helperText="e.g. /etc/nginx/upstream — directory for per-instance snippets (one <instance>.conf per instance, no subfolders). Created if missing."
                     className={classes.formField}
                   />
                 </Grid>

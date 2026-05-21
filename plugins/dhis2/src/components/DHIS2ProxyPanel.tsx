@@ -385,8 +385,8 @@ export const DHIS2ProxyPanel = ({
               fullWidth
               value={draft.nginxConfigPath}
               onChange={e => updateDraft('nginxConfigPath', e.target.value)}
-              helperText="e.g. /etc/nginx/conf.d"
-              placeholder="/etc/nginx/conf.d"
+              helperText="e.g. /etc/nginx/upstream — directory for per-instance snippets (one <instance>.conf per instance, no subfolders). Created if missing."
+              placeholder="/etc/nginx/upstream"
             />
           </Grid>
           <Grid item xs={12}>
