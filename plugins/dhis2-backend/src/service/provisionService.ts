@@ -160,6 +160,12 @@ function buildCommand(
   if (cfg.skipCertbot || req.skipCertbot) {
     args.push('--skip-certbot');
   }
+  // The provision script also needs an SSH key (used by Ansible to talk to
+  // the freshly-created LXC). Reuse the orchestrator key when configured so
+  // operators don't have to wire the same path in two places.
+  if (cfg.privateKeyFile) {
+    args.push('--ssh-key', cfg.privateKeyFile);
+  }
   // Secrets are exported as env vars on the remote shell, NEVER on argv.
   const env: Record<string, string> = {
     DHIS2_DB_PASS: req.database.password,

@@ -34,6 +34,15 @@ function fileExists(p: string): boolean {
 
 function defaultPrivateKey(): string | undefined {
   const home = os.homedir();
+  // Prefer keys that have a sibling `.pub`, because the orchestrator script
+  // copies the public half into the new LXC's authorized_keys.
+  for (const name of ['id_ed25519', 'id_rsa', 'id_ecdsa']) {
+    const candidate = path.join(home, '.ssh', name);
+    if (fileExists(candidate) && fileExists(`${candidate}.pub`)) {
+      return candidate;
+    }
+  }
+  // Fall back to a key without a .pub (still useful for SSH auth itself).
   for (const name of ['id_ed25519', 'id_rsa', 'id_ecdsa']) {
     const candidate = path.join(home, '.ssh', name);
     if (fileExists(candidate)) return candidate;
