@@ -152,21 +152,24 @@
   register: tomcat_stop_result
   failed_when: false
 
-- name: Remove default Tomcat webapps
-  ansible.builtin.file:
-    path: "{{ tomcat_webapps_dir }}/{{ item }}"
-    state: absent
-  loop:
-    - ROOT
-    - docs
-    - examples
-    - host-manager
-    - manager
-
-- name: Remove previously-exploded ROOT/ to force a clean redeploy
-  ansible.builtin.file:
-    path: "{{ tomcat_webapps_dir }}/ROOT"
-    state: absent
+- name: Remove default Tomcat webapps and any previously-exploded ROOT
+  # `ansible.builtin.file: state=absent` walks the entire directory tree and
+  # serialises every path into the JSON diff payload (path_content.files +
+  # path_content.directories). For a freshly-extracted Tomcat under -vvv that
+  # produces several MB of stdout per loop item and inside a memory-constrained
+  # LXC has been observed to silently stall the SSH/python worker for ~10
+  # minutes before ansible-playbook bails with exit 2. A plain `rm -rf` is
+  # constant-memory and finishes in <1 s for these directories.
+  ansible.builtin.command:
+    cmd: rm -rf
+          "{{ tomcat_webapps_dir }}/ROOT"
+          "{{ tomcat_webapps_dir }}/ROOT.war"
+          "{{ tomcat_webapps_dir }}/docs"
+          "{{ tomcat_webapps_dir }}/examples"
+          "{{ tomcat_webapps_dir }}/host-manager"
+          "{{ tomcat_webapps_dir }}/manager"
+  changed_when: true
+  no_log: true
 
 - name: Deploy DHIS2 WAR as ROOT
   # `ansible.builtin.copy` with remote_src=true reads the entire file into
