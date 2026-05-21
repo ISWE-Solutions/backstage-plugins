@@ -203,6 +203,16 @@ function buildCommand(
   if (req.newDbAccount?.password) {
     env.NEW_DB_PASS = req.newDbAccount.password;
   }
+  // Pass through DHIS2_DEBUG from the backend process env. When the
+  // operator starts Backstage with DHIS2_DEBUG=1, provision-instance.sh
+  // runs ansible-playbook with -vvv and -e dhis2_debug=true, which
+  // disables the no_log gates in roles/pve_lxc/tasks/main.yml so that
+  // Proxmox API failures (auth, vmid clash, missing template, etc.) are
+  // surfaced verbatim instead of "censored ... no_log: true".
+  const debugFlag = process.env.DHIS2_DEBUG;
+  if (debugFlag && debugFlag !== '0' && debugFlag.toLowerCase() !== 'false') {
+    env.DHIS2_DEBUG = '1';
+  }
   const envPrefix = Object.entries(env)
     .map(([k, v]) => `${k}=${shellQuote(v)}`)
     .join(' ');
