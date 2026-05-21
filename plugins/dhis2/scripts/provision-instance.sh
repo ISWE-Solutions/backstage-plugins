@@ -95,6 +95,9 @@ SSH_KEY=""
 INSTANCE_NAME=""
 RESTORE_SPEC=""
 NEW_DB_USER=""
+DB_HOST=""
+DB_PORT=""
+EXISTING_DB=0
 
 VMID=""; NODE=""; HOSTNAME=""; DOMAIN=""; EMAIL=""
 DHIS2_VERSION=""; DB_NAME=""; DB_USER=""
@@ -124,6 +127,9 @@ while [[ $# -gt 0 ]]; do
         --keep-vars-file) KEEP_VARS_FILE=1; shift;;
         --restore-spec) RESTORE_SPEC="$2"; shift 2;;
         --new-db-user) NEW_DB_USER="$2"; shift 2;;
+        --db-host) DB_HOST="$2"; shift 2;;
+        --db-port) DB_PORT="$2"; shift 2;;
+        --existing-db) EXISTING_DB=1; shift;;
         # Back-compat: accept and ignore the old PVE-SSH flags so callers
         # that still pass them don't break. The API-based flow doesn't
         # need them (configure-host-proxy.sh has its own --pve-host).
@@ -434,8 +440,14 @@ java_version: ${JAVA_VERSION}
 dhis2_db_name: $(yaml_escape "${DB_NAME}")
 dhis2_db_user: $(yaml_escape "${APP_DB_USER}")
 dhis2_db_password: $(yaml_escape "${APP_DB_PASS}")
-dhis2_db_admin_user: $(yaml_escape "${DB_USER}")
-dhis2_db_admin_password: $(yaml_escape "${DHIS2_DB_PASS}")
+dhis2_db_admin_user: $(yaml_escape "${DHIS2_DB_ADMIN_USER:-${DB_USER}}")
+dhis2_db_admin_password: $(yaml_escape "${DHIS2_DB_ADMIN_PASS:-${DHIS2_DB_PASS}}")
+dhis2_db_host: $(yaml_escape "${DB_HOST:-localhost}")
+dhis2_db_port: ${DB_PORT:-5432}
+# When dhis2_db_remote is true, the postgres role connects to the host above
+# from the orchestrator instead of installing PostgreSQL inside the LXC.
+dhis2_db_remote: $(if [[ -n "${DB_HOST}" && "${DB_HOST}" != "localhost" && "${DB_HOST}" != "127.0.0.1" && "${DB_HOST}" != "postgres" ]]; then echo true; else echo false; fi)
+dhis2_db_existing: $(if [[ "${EXISTING_DB}" == "1" ]]; then echo true; else echo false; fi)
 dhis2_admin_password: $(yaml_escape "${DHIS2_ADMIN_PASS}")
 EOF
 if [[ -n "${RESTORE_YAML_BLOCK}" ]]; then

@@ -107,7 +107,32 @@ export interface ProvisionRequest {
   hostname: string;
   email: string;
   resources: { cpu: number; memory: number; storage: number };
-  database: { name: string; user: string; password: string };
+  database: {
+    name: string;
+    user: string;
+    password: string;
+    /**
+     * Optional hostname of a shared/external PostgreSQL server. When set,
+     * the postgres Ansible role runs from the controller against this host
+     * (using the admin credentials below) instead of installing PostgreSQL
+     * inside the LXC.
+     */
+    host?: string;
+    /** PostgreSQL port. Defaults to 5432 when `host` is set. */
+    port?: number;
+    /**
+     * When true, the postgres role attaches DHIS2 to an existing database
+     * instead of (re)creating it. Combined with `host`, this is the
+     * “use-existing” flow from the Create Instance dialog.
+     */
+    existing?: boolean;
+  };
+  /**
+   * Admin role on the shared PostgreSQL host used to CREATE the per-
+   * instance database/user. Only meaningful when `database.host` is set.
+   * Defaults to user=“postgres” when host is set but adminUser is empty.
+   */
+  databaseAdmin?: { user: string; password: string };
   /**
    * Initial DHIS2 admin password. Optional — when omitted or blank, the
    * backend generates a strong random password and emits it once into the
@@ -180,6 +205,17 @@ function buildCommand(
   if (req.newDbAccount?.user) {
     args.push('--new-db-user', req.newDbAccount.user);
   }
+  // Shared/external PostgreSQL target. When omitted the script defaults
+  // to installing PostgreSQL inside the new LXC.
+  if (req.database.host && req.database.host.trim() !== '') {
+    args.push('--db-host', req.database.host.trim());
+    if (req.database.port && Number.isInteger(req.database.port)) {
+      args.push('--db-port', String(req.database.port));
+    }
+  }
+  if (req.database.existing) {
+    args.push('--existing-db');
+  }
   if (cfg.skipCertbot || req.skipCertbot) {
     args.push('--skip-certbot');
   }
@@ -202,6 +238,12 @@ function buildCommand(
   };
   if (req.newDbAccount?.password) {
     env.NEW_DB_PASS = req.newDbAccount.password;
+  }
+  // Admin credentials for the shared PostgreSQL host. Only sent when the
+  // operator has configured one in Database Configurations.
+  if (req.database.host && req.database.host.trim() !== '') {
+    env.DHIS2_DB_ADMIN_USER = req.databaseAdmin?.user || 'postgres';
+    env.DHIS2_DB_ADMIN_PASS = req.databaseAdmin?.password || '';
   }
   // Pass through DHIS2_DEBUG from the backend process env. When the
   // operator starts Backstage with DHIS2_DEBUG=1, provision-instance.sh

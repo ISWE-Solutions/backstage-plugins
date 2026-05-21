@@ -405,6 +405,14 @@ export const DHIS2Page = () => {
     const vmid = settings.proxmox.vmidStart || 200;
     const email = proxySettings.letsencryptEmail || settings.proxy.letsencryptEmail || 'admin@example.com';
 
+    // If the operator has configured a shared/external PostgreSQL host in
+    // Database Configurations, route the new instance's database there. The
+    // postgres role on the orchestrator will connect to it as the admin
+    // user and create (or just attach to, when existing=true) the DHIS2
+    // database. When postgresHost is blank we fall back to today's
+    // behaviour: install PostgreSQL inside the LXC container itself.
+    const dhis2Cfg = request.dhis2Settings ?? settings.dhis2;
+    const remotePg = (dhis2Cfg.postgresHost ?? '').trim();
     const provisionPayload = {
       name: request.name,
       domain: derivedDomain,
@@ -418,7 +426,21 @@ export const DHIS2Page = () => {
         name: request.database.name,
         user: request.database.user,
         password: request.database.password,
+        existing: request.database.existing,
+        host: request.database.host ?? (remotePg ? remotePg : undefined),
+        port:
+          request.database.port ??
+          (remotePg ? dhis2Cfg.postgresPort : undefined),
       },
+      // Admin role used by the postgres Ansible tasks to CREATE the per-
+      // instance database/user on the shared host. Only sent when a remote
+      // host is actually configured.
+      databaseAdmin: remotePg
+        ? {
+            user: dhis2Cfg.postgresAdminUser || 'postgres',
+            password: dhis2Cfg.postgresAdminPassword || '',
+          }
+        : undefined,
       adminPassword: request.adminPassword,
       newDbAccount: request.newDbAccount,
     };

@@ -1,4 +1,24 @@
 ---
+# Provision the DHIS2 PostgreSQL database.
+#
+# Two modes, switched by the `dhis2_db_remote` boolean rendered by
+# provision-instance.sh:
+#
+#   * dhis2_db_remote: false  (default)
+#       PostgreSQL is installed inside the LXC and all DB-management tasks
+#       run there as the local `postgres` unix user (legacy behaviour).
+#
+#   * dhis2_db_remote: true
+#       PostgreSQL already runs on `dhis2_db_host`. The role skips the
+#       install/systemd/tuning tasks and delegates the DB-management tasks
+#       to the orchestrator (127.0.0.1), which connects to the remote host
+#       as `dhis2_db_admin_user` over the network. Used when the operator
+#       has filled in "Shared Postgres host" in Database Configurations.
+
+# ---------------------------------------------------------------------------
+# Local-install tasks (only when the DB lives inside this LXC).
+# ---------------------------------------------------------------------------
+
 - name: Install PostgreSQL packages
   ansible.builtin.apt:
     name:
@@ -8,31 +28,69 @@
       - python3-psycopg2
     state: present
     update_cache: true
+  when: not (dhis2_db_remote | default(false) | bool)
 
 - name: Ensure PostgreSQL service is running
   ansible.builtin.systemd:
     name: postgresql
     state: started
     enabled: true
+  when: not (dhis2_db_remote | default(false) | bool)
+
+# ---------------------------------------------------------------------------
+# Remote-mode preflight: confirm the orchestrator can reach the remote DB
+# before we try to create roles/databases there.
+# ---------------------------------------------------------------------------
+
+- name: Verify orchestrator can reach the configured PostgreSQL host
+  community.postgresql.postgresql_ping:
+    login_host: "{{ dhis2_db_host }}"
+    login_port: "{{ dhis2_db_port }}"
+    login_user: "{{ dhis2_db_admin_user }}"
+    login_password: "{{ dhis2_db_admin_password }}"
+    db: postgres
+  delegate_to: 127.0.0.1
+  become: false
+  when: dhis2_db_remote | default(false) | bool
+  no_log: "{{ not (dhis2_debug | default(false) | bool) }}"
+
+# ---------------------------------------------------------------------------
+# DB-management tasks (apply in both modes; conditional become / delegate).
+# ---------------------------------------------------------------------------
 
 - name: Create DHIS2 database user
   community.postgresql.postgresql_user:
     name: "{{ dhis2_db_user }}"
     password: "{{ dhis2_db_password }}"
     state: present
-  become: true
-  become_user: postgres
-  no_log: true
+    login_host: "{{ dhis2_db_host if (dhis2_db_remote | default(false) | bool) else omit }}"
+    login_port: "{{ dhis2_db_port if (dhis2_db_remote | default(false) | bool) else omit }}"
+    login_user: "{{ dhis2_db_admin_user if (dhis2_db_remote | default(false) | bool) else omit }}"
+    login_password: "{{ dhis2_db_admin_password if (dhis2_db_remote | default(false) | bool) else omit }}"
+  delegate_to: "{{ '127.0.0.1' if (dhis2_db_remote | default(false) | bool) else inventory_hostname }}"
+  become: "{{ not (dhis2_db_remote | default(false) | bool) }}"
+  become_user: "{{ omit if (dhis2_db_remote | default(false) | bool) else 'postgres' }}"
+  no_log: "{{ not (dhis2_debug | default(false) | bool) }}"
 
 - name: Ensure provisioning admin role exists
   community.postgresql.postgresql_user:
     name: "{{ dhis2_db_admin_user }}"
     password: "{{ dhis2_db_admin_password }}"
     state: present
-  become: true
-  become_user: postgres
-  no_log: true
+    login_host: "{{ dhis2_db_host if (dhis2_db_remote | default(false) | bool) else omit }}"
+    login_port: "{{ dhis2_db_port if (dhis2_db_remote | default(false) | bool) else omit }}"
+    login_user: "{{ dhis2_db_admin_user if (dhis2_db_remote | default(false) | bool) else omit }}"
+    login_password: "{{ dhis2_db_admin_password if (dhis2_db_remote | default(false) | bool) else omit }}"
+  delegate_to: "{{ '127.0.0.1' if (dhis2_db_remote | default(false) | bool) else inventory_hostname }}"
+  become: "{{ not (dhis2_db_remote | default(false) | bool) }}"
+  become_user: "{{ omit if (dhis2_db_remote | default(false) | bool) else 'postgres' }}"
+  no_log: "{{ not (dhis2_debug | default(false) | bool) }}"
   when:
+    # In remote mode the admin role is assumed to already exist on the
+    # shared host (and we are authenticating as it). Only auto-provision
+    # the admin role in the local-install path, and only when it differs
+    # from the app user.
+    - not (dhis2_db_remote | default(false) | bool)
     - dhis2_db_admin_user is defined
     - dhis2_db_admin_user != dhis2_db_user
 
@@ -45,17 +103,28 @@
     lc_ctype: en_US.UTF-8
     template: template0
     state: present
-  become: true
-  become_user: postgres
+    login_host: "{{ dhis2_db_host if (dhis2_db_remote | default(false) | bool) else omit }}"
+    login_port: "{{ dhis2_db_port if (dhis2_db_remote | default(false) | bool) else omit }}"
+    login_user: "{{ dhis2_db_admin_user if (dhis2_db_remote | default(false) | bool) else omit }}"
+    login_password: "{{ dhis2_db_admin_password if (dhis2_db_remote | default(false) | bool) else omit }}"
+  delegate_to: "{{ '127.0.0.1' if (dhis2_db_remote | default(false) | bool) else inventory_hostname }}"
+  become: "{{ not (dhis2_db_remote | default(false) | bool) }}"
+  become_user: "{{ omit if (dhis2_db_remote | default(false) | bool) else 'postgres' }}"
+  when: not (dhis2_db_existing | default(false) | bool)
 
 - name: Install required PostgreSQL extensions
   community.postgresql.postgresql_ext:
     name: "{{ item }}"
     db: "{{ dhis2_db_name }}"
     state: present
+    login_host: "{{ dhis2_db_host if (dhis2_db_remote | default(false) | bool) else omit }}"
+    login_port: "{{ dhis2_db_port if (dhis2_db_remote | default(false) | bool) else omit }}"
+    login_user: "{{ dhis2_db_admin_user if (dhis2_db_remote | default(false) | bool) else omit }}"
+    login_password: "{{ dhis2_db_admin_password if (dhis2_db_remote | default(false) | bool) else omit }}"
   loop: "{{ postgresql_extensions }}"
-  become: true
-  become_user: postgres
+  delegate_to: "{{ '127.0.0.1' if (dhis2_db_remote | default(false) | bool) else inventory_hostname }}"
+  become: "{{ not (dhis2_db_remote | default(false) | bool) }}"
+  become_user: "{{ omit if (dhis2_db_remote | default(false) | bool) else 'postgres' }}"
 
 - name: Grant database privileges to DHIS2 user
   community.postgresql.postgresql_privs:
@@ -64,12 +133,34 @@
     type: database
     privs: ALL
     state: present
-  become: true
-  become_user: postgres
+    login_host: "{{ dhis2_db_host if (dhis2_db_remote | default(false) | bool) else omit }}"
+    login_port: "{{ dhis2_db_port if (dhis2_db_remote | default(false) | bool) else omit }}"
+    login_user: "{{ dhis2_db_admin_user if (dhis2_db_remote | default(false) | bool) else omit }}"
+    login_password: "{{ dhis2_db_admin_password if (dhis2_db_remote | default(false) | bool) else omit }}"
+  delegate_to: "{{ '127.0.0.1' if (dhis2_db_remote | default(false) | bool) else inventory_hostname }}"
+  become: "{{ not (dhis2_db_remote | default(false) | bool) }}"
+  become_user: "{{ omit if (dhis2_db_remote | default(false) | bool) else 'postgres' }}"
 
-- name: Restore database backup if requested
+- name: Restore database backup if requested (local-install mode only)
   ansible.builtin.include_tasks: restore.yml
-  when: dhis2_restore is defined and dhis2_restore
+  when:
+    - dhis2_restore is defined and dhis2_restore
+    - not (dhis2_db_remote | default(false) | bool)
+
+- name: Warn that restore against a remote PostgreSQL host is not yet supported
+  ansible.builtin.debug:
+    msg: >-
+      dhis2_restore was provided but dhis2_db_remote=true. Restoring a dump
+      into a remote PostgreSQL host from the orchestrator is not implemented
+      yet; the database has been created empty. Restore the dump manually
+      against {{ dhis2_db_host }}:{{ dhis2_db_port }}/{{ dhis2_db_name }}.
+  when:
+    - dhis2_restore is defined and dhis2_restore
+    - dhis2_db_remote | default(false) | bool
+
+# ---------------------------------------------------------------------------
+# Local-install tuning (only relevant when PostgreSQL runs inside the LXC).
+# ---------------------------------------------------------------------------
 
 - name: Apply PostgreSQL tuning parameters
   ansible.builtin.lineinfile:
@@ -81,3 +172,4 @@
     - { key: "max_connections", value: "{{ postgresql_max_connections }}" }
     - { key: "shared_buffers", value: "{{ postgresql_shared_buffers }}" }
   notify: Restart PostgreSQL
+  when: not (dhis2_db_remote | default(false) | bool)

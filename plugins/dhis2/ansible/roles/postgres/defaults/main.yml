@@ -6,3 +6,16 @@ postgresql_extensions:
   - postgis
   - pg_trgm
   - btree_gin
+
+# Database target. When dhis2_db_remote is false (default), PostgreSQL is
+# installed inside the LXC and all DB-management tasks run there as the
+# postgres unix user. When dhis2_db_remote is true, the role skips the
+# install/systemd/tuning tasks and instead delegates DB-management tasks
+# to the orchestrator (127.0.0.1), which connects to dhis2_db_host:
+# dhis2_db_port over the network using dhis2_db_admin_user/password.
+dhis2_db_remote: false
+dhis2_db_host: localhost
+dhis2_db_port: 5432
+dhis2_db_admin_user: postgres
+dhis2_db_admin_password: ""
+dhis2_db_existing: false
