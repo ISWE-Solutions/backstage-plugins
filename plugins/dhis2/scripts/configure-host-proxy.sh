@@ -22,8 +22,11 @@ Required:
 Optional:
   --upstream-dir <dir>      Nginx upstream snippets dir
                             (default: /etc/nginx/conf.d/dhis2-upstreams)
-  --sites-available <dir>   Default: /etc/nginx/sites-available
-  --sites-enabled <dir>     Default: /etc/nginx/sites-enabled
+  --sites-available <dir>   Default: /etc/nginx/conf.d
+  --sites-enabled <dir>     Default: /etc/nginx/conf.d
+                            (when equal to --sites-available the script
+                            skips the sites-enabled symlink because
+                            /etc/nginx/conf.d/*.conf is auto-included)
   --skip-certbot            Don't request a Let's Encrypt cert (useful for dev)
   --remove                  Tear down the upstream/site for this --vmid/--domain
                             instead of creating it
@@ -36,8 +39,8 @@ EOF
 }
 
 UPSTREAM_DIR="/etc/nginx/conf.d/dhis2-upstreams"
-SITES_AVAILABLE="/etc/nginx/sites-available"
-SITES_ENABLED="/etc/nginx/sites-enabled"
+SITES_AVAILABLE="/etc/nginx/conf.d"
+SITES_ENABLED="/etc/nginx/conf.d"
 SKIP_CERTBOT=0
 REMOVE=0
 PVE_HOST=""
@@ -101,6 +104,8 @@ SITE_LINK="${SITES_ENABLED}/dhis2-${DOMAIN}.conf"
 if [[ ${REMOVE} -eq 1 ]]; then
     [[ -n "${VMID}" && -n "${DOMAIN}" ]] || { echo "--remove needs --vmid and --domain" >&2; exit 2; }
     log "removing nginx config for VMID=${VMID} domain=${DOMAIN}"
+    # When SITES_AVAILABLE == SITES_ENABLED (the conf.d layout) SITE_LINK
+    # and SITE_FILE point at the same path; rm -f tolerates that.
     rm -f "${UPSTREAM_FILE}" "${SITE_LINK}" "${SITE_FILE}"
     nginx -t && systemctl reload nginx
     exit 0
@@ -179,7 +184,14 @@ server {
 }
 EOF
 
-ln -sf "${SITE_FILE}" "${SITE_LINK}"
+# Detect the conf.d layout: when sites-available and sites-enabled resolve
+# to the same directory, SITE_LINK == SITE_FILE and `ln -sf` would
+# replace the freshly-written config with a broken self-symlink. Guard
+# against that by only creating the symlink when the two dirs differ
+# (the classic Debian sites-available + sites-enabled split).
+if [[ "${SITES_AVAILABLE}" != "${SITES_ENABLED}" ]]; then
+    ln -sf "${SITE_FILE}" "${SITE_LINK}"
+fi
 
 if [[ ${SKIP_CERTBOT} -eq 0 ]]; then
     log "requesting Let's Encrypt certificate for ${DOMAIN}"
