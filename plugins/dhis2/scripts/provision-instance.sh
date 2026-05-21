@@ -215,6 +215,19 @@ for var in DHIS2_DB_PASS DHIS2_ADMIN_PASS ROOT_PASSWORD \
         exit 2
     fi
 done
+
+# Normalize PROXMOX_TOKEN_ID: community.general.proxmox + the curl auth
+# header below both expect just the token *name* (e.g. "backstage"), not
+# the full "user@realm!tokenname" form Proxmox shows in the UI. If the
+# operator pasted the full form, strip the "<user>!" prefix so we don't
+# end up with a doubled user component like "root@pam!root@pam!backstage",
+# which the API rejects with '401 Unauthorized: no such user'.
+if [[ "${PROXMOX_TOKEN_ID}" == *"!"* ]]; then
+    _orig_token_id="${PROXMOX_TOKEN_ID}"
+    PROXMOX_TOKEN_ID="${PROXMOX_TOKEN_ID##*!}"
+    log "stripped user prefix from PROXMOX_TOKEN_ID: ${_orig_token_id} -> ${PROXMOX_TOKEN_ID}"
+    unset _orig_token_id
+fi
 if [[ -n "${NEW_DB_USER}" && -z "${NEW_DB_PASS:-}" ]]; then
     echo "--new-db-user requires NEW_DB_PASS env var (set it or pass --vars-file)" >&2
     exit 2
