@@ -130,6 +130,7 @@ const buildInitialInstance = (
   name: '',
   domain: '',
   version: '',
+  tomcatVersion: '9',
   node: '',
   resources: {
     cpu: 4,
@@ -386,7 +387,7 @@ export const CreateInstanceDialog = ({
           required
         />
         <Grid container spacing={2}>
-          <Grid item xs={6}>
+          <Grid item xs={4}>
             <TextField
               fullWidth
               select
@@ -405,7 +406,27 @@ export const CreateInstanceDialog = ({
               ))}
             </TextField>
           </Grid>
-          <Grid item xs={6}>
+          <Grid item xs={4}>
+            <TextField
+              fullWidth
+              select
+              label="Tomcat Version"
+              value={newInstance.tomcatVersion ?? '9'}
+              onChange={e =>
+                setNewInstance({
+                  ...newInstance,
+                  tomcatVersion: e.target.value as '9' | '10',
+                })
+              }
+              className={classes.formField}
+              helperText="DHIS2 2.40/2.41 need 9 (javax); v42+ needs 10 (jakarta)."
+              required
+            >
+              <MenuItem value="9">9</MenuItem>
+              <MenuItem value="10">10</MenuItem>
+            </TextField>
+          </Grid>
+          <Grid item xs={4}>
             <TextField
               fullWidth
               select

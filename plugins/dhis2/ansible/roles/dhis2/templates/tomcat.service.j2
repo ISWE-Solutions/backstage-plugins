@@ -1,0 +1,24 @@
+# Managed by the dhis2 Ansible role — edits will be overwritten.
+[Unit]
+Description=Apache Tomcat {{ tomcat_release }} (DHIS2)
+After=network.target
+
+[Service]
+Type=forking
+User={{ tomcat_user }}
+Group={{ tomcat_group }}
+
+Environment="JAVA_HOME=/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64"
+Environment="CATALINA_PID={{ tomcat_install_dir }}/temp/tomcat.pid"
+Environment="CATALINA_HOME={{ tomcat_install_dir }}"
+Environment="CATALINA_BASE={{ tomcat_install_dir }}"
+EnvironmentFile=-{{ tomcat_defaults_file }}
+
+ExecStart={{ tomcat_install_dir }}/bin/startup.sh
+ExecStop={{ tomcat_install_dir }}/bin/shutdown.sh
+
+Restart=on-failure
+UMask=0007
+
+[Install]
+WantedBy=multi-user.target

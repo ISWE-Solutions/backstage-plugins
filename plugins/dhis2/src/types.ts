@@ -181,6 +181,13 @@ export interface CreateInstanceRequest {
    */
   deleteIfExists?: boolean;
   /**
+   * Major Apache Tomcat version to install inside the new LXC. The
+   * Ansible `dhis2` role downloads the matching upstream archive from
+   * `archive.apache.org`. DHIS2 2.40/2.41 need `'9'` (javax namespace);
+   * DHIS2 v42+ needs `'10'` (jakarta). Defaults to `'9'`.
+   */
+  tomcatVersion?: '9' | '10';
+  /**
    * Per-instance reverse-proxy configuration. Captured by the Create
    * dialog (pre-filled from the saved plugin defaults) and forwarded to
    * the orchestrator so each instance can be exposed with its own

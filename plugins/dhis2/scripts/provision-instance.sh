@@ -42,6 +42,9 @@ Optional:
   --timezone <tz>           Default: Africa/Nairobi
   --postgres-version <int>  Default: 16
   --java-version <int>      Default: 17
+  --tomcat-version <9|10>   Apache Tomcat major version installed from
+                            upstream archive. Default: 9. DHIS2 2.40/2.41
+                            need 9 (javax); v42+ needs 10 (jakarta).
   --ssh-key <path>          Orchestrator SSH private key
                             (default: \$HOME/.ssh/id_ed25519_dhis2 or id_ed25519)
   --ansible-user <name>     In-container user the playbook will SSH as
@@ -89,6 +92,7 @@ STORAGE=100
 TIMEZONE="Africa/Nairobi"
 POSTGRES_VERSION=16
 JAVA_VERSION=17
+TOMCAT_VERSION=9
 ANSIBLE_USER="ansible"
 SKIP_CERTBOT=0
 ROLLBACK_ON_FAILURE=0
@@ -123,6 +127,7 @@ while [[ $# -gt 0 ]]; do
         --timezone) TIMEZONE="$2"; shift 2;;
         --postgres-version) POSTGRES_VERSION="$2"; shift 2;;
         --java-version) JAVA_VERSION="$2"; shift 2;;
+        --tomcat-version) TOMCAT_VERSION="$2"; shift 2;;
         --ssh-key) SSH_KEY="$2"; shift 2;;
         --ansible-user) ANSIBLE_USER="$2"; shift 2;;
         --vars-file) VARS_FILE="$2"; shift 2;;
@@ -155,6 +160,16 @@ for var in VMID NODE HOSTNAME DOMAIN EMAIL DHIS2_VERSION DB_NAME DB_USER; do
     fi
 done
 [[ -z "${INSTANCE_NAME}" ]] && INSTANCE_NAME="${HOSTNAME}"
+
+# Validate Tomcat major version. The Ansible dhis2 role looks up the
+# archive URL in a small map keyed on this value.
+case "${TOMCAT_VERSION}" in
+    9|10) ;;
+    *)
+        echo "invalid --tomcat-version '${TOMCAT_VERSION}' (expected 9 or 10)" >&2
+        exit 2
+        ;;
+esac
 
 # Default PVE_HOST/USER for configure-host-proxy.sh (nginx + certbot still
 # need to run ON the Proxmox node over SSH). When PROXMOX_API_URL is set
@@ -385,7 +400,7 @@ fi
 log "rendering inventory and extra-vars"
 
 export INSTANCE_NAME DHIS2_VERSION DOMAIN \
-       EMAIL TIMEZONE POSTGRES_VERSION JAVA_VERSION \
+       EMAIL TIMEZONE POSTGRES_VERSION JAVA_VERSION TOMCAT_VERSION \
        ANSIBLE_SSH_KEY="${SSH_KEY}" \
        LETSENCRYPT_EMAIL="${EMAIL}" \
        POSTGRESQL_VERSION="${POSTGRES_VERSION}" \
@@ -452,6 +467,7 @@ email: $(yaml_escape "${EMAIL}")
 timezone: $(yaml_escape "${TIMEZONE}")
 postgresql_version: ${POSTGRES_VERSION}
 java_version: ${JAVA_VERSION}
+tomcat_version: ${TOMCAT_VERSION}
 
 # ---- Database credentials (consumed by postgres + dhis2 roles) ----
 dhis2_db_name: $(yaml_escape "${DB_NAME}")

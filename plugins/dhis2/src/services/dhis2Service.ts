@@ -926,6 +926,12 @@ export interface ProvisionInstancePayload {
    */
   deleteIfExists?: boolean;
   /**
+   * Major Apache Tomcat version (`'9'` or `'10'`) the orchestrator should
+   * install inside the new LXC. Forwarded to `provision-instance.sh
+   * --tomcat-version` and consumed by the Ansible `dhis2` role.
+   */
+  tomcatVersion?: '9' | '10';
+  /**
    * Optional Proxmox API credentials from the ProxmoxClusterPanel saved
    * settings. When provided, individual fields override the server-side
    * `dhis2.orchestrator.*` / `PROXMOX_*` env-var config for this job. The

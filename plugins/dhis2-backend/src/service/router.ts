@@ -263,6 +263,10 @@ export async function createRouter(
           : undefined,
       skipCertbot: b.skipCertbot === true,
       deleteIfExists: b.deleteIfExists === true,
+      tomcatVersion:
+        typeof b.tomcatVersion === 'string' && b.tomcatVersion !== ''
+          ? b.tomcatVersion
+          : undefined,
       // Optional per-request Proxmox API credentials forwarded from the
       // ProxmoxClusterPanel saved settings. Each field is independently
       // optional \u2014 anything left blank falls back to the orchestrator

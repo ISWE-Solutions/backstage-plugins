@@ -150,6 +150,13 @@ export interface ProvisionRequest {
    */
   deleteIfExists?: boolean;
   /**
+   * Major Apache Tomcat version to install inside the LXC (`'9'` or
+   * `'10'`). Forwarded to `provision-instance.sh --tomcat-version` and
+   * then to the Ansible `dhis2` role as `tomcat_version`. When omitted
+   * the script defaults to `9` (matches DHIS2 2.40/2.41).
+   */
+  tomcatVersion?: string;
+  /**
    * Optional Proxmox API credentials sent by the frontend (e.g. from the
    * ProxmoxClusterPanel settings). When provided, individual fields
    * override the server-side `dhis2.orchestrator.*` / `PROXMOX_*` config
@@ -277,6 +284,9 @@ function buildCommand(
   }
   if (req.deleteIfExists) {
     args.push('--delete-if-exists');
+  }
+  if (req.tomcatVersion && req.tomcatVersion.trim() !== '') {
+    args.push('--tomcat-version', req.tomcatVersion.trim());
   }
   // The provision script also needs an SSH key (used by Ansible to talk to
   // the freshly-created LXC). Reuse the orchestrator key when configured so
