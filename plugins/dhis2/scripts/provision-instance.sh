@@ -71,10 +71,10 @@ Required env vars (or via --vars-file):
   ROOT_PASSWORD             Container root password (console access only)
   NEW_DB_PASS               (optional) Password for --new-db-user. Required
                             when --new-db-user is set.
-  PROXMOX_API_HOST          Proxmox API endpoint (host or host:8006)
-  PROXMOX_API_USER          e.g. root@pam
-  PROXMOX_API_TOKEN_ID      API token id (the part after !)
-  PROXMOX_API_TOKEN_SECRET  API token secret (UUID)
+  PROXMOX_API_URL           Proxmox API base URL, e.g. https://pve01:8006
+  PROXMOX_USER              e.g. root@pam
+  PROXMOX_TOKEN_ID          API token id (the part after !)
+  PROXMOX_TOKEN_SECRET      API token secret (UUID)
   PROXMOX_VALIDATE_CERTS    "true" to enforce TLS cert validation (default: false)
 EOF
 }
@@ -146,9 +146,13 @@ done
 [[ -z "${INSTANCE_NAME}" ]] && INSTANCE_NAME="${HOSTNAME}"
 
 # Default PVE_HOST/USER for configure-host-proxy.sh (nginx + certbot still
-# need to run ON the Proxmox node over SSH). When PROXMOX_API_HOST is set
-# we reuse its hostname; the operator can override via env var.
-PVE_HOST="${PVE_HOST:-${PROXMOX_API_HOST%%:*}}"
+# need to run ON the Proxmox node over SSH). When PROXMOX_API_URL is set
+# we reuse its hostname (stripping scheme and port); the operator can
+# override via env var.
+_api_no_scheme="${PROXMOX_API_URL#*://}"   # strip https:// or http://
+_api_host_port="${_api_no_scheme%%/*}"     # strip any trailing path
+_api_host_only="${_api_host_port%%:*}"     # strip :port
+PVE_HOST="${PVE_HOST:-${_api_host_only}}"
 PVE_USER="${PVE_USER:-root}"
 PVE_SSH_KEY="${PVE_SSH_KEY:-${SSH_KEY:-}}"
 
@@ -178,8 +182,8 @@ if [[ -n "${VARS_FILE}" && -r "${VARS_FILE}" ]]; then
     source "${VARS_FILE}"
 fi
 for var in DHIS2_DB_PASS DHIS2_ADMIN_PASS ROOT_PASSWORD \
-           PROXMOX_API_HOST PROXMOX_API_USER \
-           PROXMOX_API_TOKEN_ID PROXMOX_API_TOKEN_SECRET; do
+           PROXMOX_API_URL PROXMOX_USER \
+           PROXMOX_TOKEN_ID PROXMOX_TOKEN_SECRET; do
     if [[ -z "${!var:-}" ]]; then
         echo "missing required env var: ${var} (set it or pass --vars-file)" >&2
         exit 2
@@ -225,8 +229,8 @@ cleanup() {
 
 # Best-effort rollback using the Proxmox REST API (curl, no ansible).
 rollback_lxc() {
-    local api_url="https://${PROXMOX_API_HOST}/api2/json/nodes/${NODE}/lxc/${VMID}"
-    local auth="Authorization: PVEAPIToken=${PROXMOX_API_USER}!${PROXMOX_API_TOKEN_ID}=${PROXMOX_API_TOKEN_SECRET}"
+    local api_url="${PROXMOX_API_URL%/}/api2/json/nodes/${NODE}/lxc/${VMID}"
+    local auth="Authorization: PVEAPIToken=${PROXMOX_USER}!${PROXMOX_TOKEN_ID}=${PROXMOX_TOKEN_SECRET}"
     local curl_opts=(-sk -H "${auth}")
     [[ "${PROXMOX_VALIDATE_CERTS:-false}" == "true" ]] && curl_opts=(-s -H "${auth}")
     curl "${curl_opts[@]}" -X POST "${api_url}/status/stop" >/dev/null 2>&1 || true
@@ -354,10 +358,12 @@ cat > "${EXTRA_VARS_FILE}" <<EOF
 # Rendered by provision-instance.sh — do not edit by hand.
 
 # ---- Proxmox API credentials (consumed by the pve_lxc role) ----
-pve_api_host: $(yaml_escape "${PROXMOX_API_HOST}")
-pve_api_user: $(yaml_escape "${PROXMOX_API_USER}")
-pve_api_token_id: $(yaml_escape "${PROXMOX_API_TOKEN_ID}")
-pve_api_token_secret: $(yaml_escape "${PROXMOX_API_TOKEN_SECRET}")
+# community.general.proxmox's api_host accepts host[:port] (no scheme),
+# so we feed it the URL with the scheme stripped.
+pve_api_host: $(yaml_escape "${_api_host_port}")
+pve_api_user: $(yaml_escape "${PROXMOX_USER}")
+pve_api_token_id: $(yaml_escape "${PROXMOX_TOKEN_ID}")
+pve_api_token_secret: $(yaml_escape "${PROXMOX_TOKEN_SECRET}")
 pve_validate_certs: ${PROXMOX_VALIDATE_CERTS:-false}
 
 # ---- Container spec ----
@@ -416,8 +422,8 @@ log "Phase 2 — running ansible-playbook site.yml (this can take a while)"
 log "querying container IP via Proxmox API"
 CONTAINER_IP="$(
     curl -sk \
-        -H "Authorization: PVEAPIToken=${PROXMOX_API_USER}!${PROXMOX_API_TOKEN_ID}=${PROXMOX_API_TOKEN_SECRET}" \
-        "https://${PROXMOX_API_HOST}/api2/json/nodes/${NODE}/lxc/${VMID}/interfaces" \
+        -H "Authorization: PVEAPIToken=${PROXMOX_USER}!${PROXMOX_TOKEN_ID}=${PROXMOX_TOKEN_SECRET}" \
+        "${PROXMOX_API_URL%/}/api2/json/nodes/${NODE}/lxc/${VMID}/interfaces" \
     | jq -r '.data[] | select(.name!="lo") | .inet // empty' \
     | grep -v '^127\.' | head -1 | cut -d/ -f1
 )"

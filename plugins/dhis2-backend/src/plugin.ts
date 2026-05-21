@@ -125,7 +125,7 @@ export const dhis2Plugin = createBackendPlugin({
 
           // Proxmox REST API credentials (required — the pve_lxc Ansible
           // role drives the API to create the LXC).
-          const apiHost = (sub?.getOptionalString('apiHost') ?? '').trim();
+          const apiUrl = (sub?.getOptionalString('apiUrl') ?? '').trim();
           const apiUser = (sub?.getOptionalString('apiUser') ?? '').trim();
           const apiTokenId = (
             sub?.getOptionalString('apiTokenId') ?? ''
@@ -135,7 +135,7 @@ export const dhis2Plugin = createBackendPlugin({
           ).trim();
           const validateApiCerts =
             sub?.getOptionalBoolean('validateApiCerts') ?? false;
-          if (!apiHost) missing.push('apiHost');
+          if (!apiUrl) missing.push('apiUrl');
           if (!apiUser) missing.push('apiUser');
           if (!apiTokenId) missing.push('apiTokenId');
           if (!apiTokenSecret) missing.push('apiTokenSecret');
@@ -160,7 +160,7 @@ export const dhis2Plugin = createBackendPlugin({
               pveHost: sub?.getOptionalString('pveHost'),
               stateFile: sub?.getOptionalString('stateFile'),
               skipCertbot: sub?.getOptionalBoolean('skipCertbot') ?? false,
-              apiHost,
+              apiUrl,
               apiUser,
               apiTokenId,
               apiTokenSecret,

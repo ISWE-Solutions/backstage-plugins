@@ -45,8 +45,8 @@ export interface OrchestratorConfig {
   skipCertbot?: boolean;
 
   // ---- Proxmox REST API (consumed by the pve_lxc Ansible role) ----
-  /** Proxmox API endpoint, e.g. "pve01.example.com" or "pve01:8006". */
-  apiHost: string;
+  /** Proxmox API base URL, e.g. "https://pve01:8006". */
+  apiUrl: string;
   /** Proxmox API user, e.g. "root@pam". */
   apiUser: string;
   /** Proxmox API token id (the part after `!`). */
@@ -194,10 +194,10 @@ function buildCommand(
     DHIS2_DB_PASS: req.database.password,
     DHIS2_ADMIN_PASS: req.adminPassword ?? '',
     ROOT_PASSWORD: req.rootPassword ?? req.adminPassword ?? '',
-    PROXMOX_API_HOST: cfg.apiHost,
-    PROXMOX_API_USER: cfg.apiUser,
-    PROXMOX_API_TOKEN_ID: cfg.apiTokenId,
-    PROXMOX_API_TOKEN_SECRET: cfg.apiTokenSecret,
+    PROXMOX_API_URL: cfg.apiUrl,
+    PROXMOX_USER: cfg.apiUser,
+    PROXMOX_TOKEN_ID: cfg.apiTokenId,
+    PROXMOX_TOKEN_SECRET: cfg.apiTokenSecret,
     PROXMOX_VALIDATE_CERTS: cfg.validateApiCerts ? 'true' : 'false',
   };
   if (req.newDbAccount?.password) {
@@ -376,7 +376,7 @@ export class ProvisionService {
     job.status = 'running';
     appendLine(
       job,
-      `[backend] Running provision-instance.sh locally on the Backstage host. Proxmox API: ${cfg.apiUser}@${cfg.apiHost} (LXC lifecycle via REST; nginx via SSH to ${resolvePveHost(cfg, req) || 'localhost'}).`,
+      `[backend] Running provision-instance.sh locally on the Backstage host. Proxmox API: ${cfg.apiUser}@${cfg.apiUrl} (LXC lifecycle via REST; nginx via SSH to ${resolvePveHost(cfg, req) || 'localhost'}).`,
     );
 
     const command = buildCommand(cfg, req);
