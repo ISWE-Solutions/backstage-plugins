@@ -75,13 +75,80 @@
     - role: dhis2
 
   post_tasks:
-    - name: Wait for DHIS2 web endpoint to respond
-      ansible.builtin.uri:
-        url: "http://127.0.0.1:8080/dhis-web-commons/security/login.action"
-        status_code: [200, 302]
-        validate_certs: false
-      register: dhis2_health
-      retries: 60
-      delay: 10
-      until: dhis2_health.status in [200, 302]
-      changed_when: false
+    # DHIS2 v40+ first-boot is slow: Tomcat unpacks the ~300 MB ROOT.war,
+    # then DHIS2 runs all Flyway migrations and bootstraps the Hibernate
+    # schema against the freshly-initialised database. On a cold LXC that
+    # routinely takes 5–10 minutes, and on slower storage 10–15 minutes.
+    # 90 × 10s = 15 minutes is a safer ceiling than the previous 10 min.
+    #
+    # The retry path is wrapped in a block/rescue so that if the endpoint
+    # never comes up we capture the actual cause (Tomcat status, webapps
+    # directory contents, last lines of catalina.out / dhis2 logs) in the
+    # provision log before failing the play. Otherwise all we see is
+    # "Status code was 404" with no context to diagnose.
+    - name: Verify DHIS2 deployment
+      block:
+        - name: Wait for DHIS2 web endpoint to respond
+          ansible.builtin.uri:
+            url: "http://127.0.0.1:8080/dhis-web-commons/security/login.action"
+            status_code: [200, 302]
+            validate_certs: false
+          register: dhis2_health
+          retries: 90
+          delay: 10
+          until: dhis2_health.status in [200, 302]
+          changed_when: false
+      rescue:
+        - name: Diagnose — Tomcat service status
+          ansible.builtin.command: systemctl status tomcat --no-pager -l
+          register: _tomcat_status
+          changed_when: false
+          failed_when: false
+
+        - name: Diagnose — webapps directory listing
+          ansible.builtin.command: ls -la /opt/tomcat/webapps
+          register: _webapps_ls
+          changed_when: false
+          failed_when: false
+
+        - name: Diagnose — last 200 lines of catalina.out
+          ansible.builtin.shell: |
+            tail -n 200 /opt/tomcat/logs/catalina.out 2>/dev/null || true
+            echo '--- catalina date-stamped logs ---'
+            ls -1t /opt/tomcat/logs/catalina.*.log 2>/dev/null | head -1 \
+              | xargs -r tail -n 200 2>/dev/null || true
+          register: _catalina_tail
+          changed_when: false
+          failed_when: false
+
+        - name: Diagnose — last 100 lines of localhost log
+          ansible.builtin.shell: |
+            ls -1t /opt/tomcat/logs/localhost.*.log 2>/dev/null | head -1 \
+              | xargs -r tail -n 100 2>/dev/null || true
+          register: _localhost_tail
+          changed_when: false
+          failed_when: false
+
+        - name: Show Tomcat status
+          ansible.builtin.debug:
+            var: _tomcat_status.stdout_lines
+
+        - name: Show webapps directory
+          ansible.builtin.debug:
+            var: _webapps_ls.stdout_lines
+
+        - name: Show catalina.out tail
+          ansible.builtin.debug:
+            var: _catalina_tail.stdout_lines
+
+        - name: Show localhost log tail
+          ansible.builtin.debug:
+            var: _localhost_tail.stdout_lines
+
+        - name: Fail the play with the original DHIS2 endpoint error
+          ansible.builtin.fail:
+            msg: >-
+              DHIS2 web endpoint did not become healthy within 15 minutes.
+              See the diagnostic output above (Tomcat status, webapps
+              listing, catalina.out tail, localhost log tail) for the
+              underlying cause.
