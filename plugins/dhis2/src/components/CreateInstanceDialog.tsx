@@ -282,6 +282,19 @@ export const CreateInstanceDialog = ({
       (restoreSource ? null : 'Pick a backup source.')
     : null;
 
+  // Block submission early for fields the backend strictly requires, so the
+  // user gets a precise inline message instead of a generic round-trip error
+  // like '"adminPassword" is required'.
+  const formValidationError: string | null = (() => {
+    if (!newInstance.name.trim()) return 'Instance name is required.';
+    if (!newInstance.version) return 'DHIS2 version is required.';
+    if (!newInstance.node) return 'Proxmox node is required.';
+    if (!restoreEnabled && !newInstance.adminPassword) {
+      return 'DHIS2 admin password is required.';
+    }
+    return null;
+  })();
+
   const handleCancel = () => {
     onClose();
   };
@@ -1359,12 +1372,22 @@ export const CreateInstanceDialog = ({
         })()}
       </DialogContent>
       <DialogActions>
+        {formValidationError && (
+          <Alert
+            severity="warning"
+            style={{ marginRight: 'auto', padding: '0 12px' }}
+          >
+            {formValidationError}
+          </Alert>
+        )}
         <Button onClick={handleCancel}>Cancel</Button>
         <Button
           onClick={handleSubmit}
           color="primary"
           variant="contained"
-          disabled={Boolean(restoreValidationError)}
+          disabled={
+            Boolean(restoreValidationError) || Boolean(formValidationError)
+          }
         >
           Create Instance
         </Button>
