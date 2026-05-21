@@ -19,6 +19,27 @@
 # Local-install tasks (only when the DB lives inside this LXC).
 # ---------------------------------------------------------------------------
 
+# DHIS2 requires the database to be created with lc_collate/lc_ctype =
+# en_US.UTF-8 (see "Create DHIS2 database" below). On a stock Ubuntu LXC
+# only the C locale is generated, so postgresql-16's post-install initdb
+# step creates the default cluster with locale=C — which then makes the
+# CREATE DATABASE ... LC_COLLATE 'en_US.UTF-8' call fail with
+# 'invalid LC_COLLATE locale name'. Generate the locale FIRST so the
+# cluster init picks it up, and recreate the default cluster as a
+# safety net if it was already initialised with the wrong locale.
+- name: Ensure 'locales' package is installed
+  ansible.builtin.apt:
+    name: locales
+    state: present
+    update_cache: true
+  when: not (dhis2_db_remote | default(false) | bool)
+
+- name: Generate en_US.UTF-8 locale
+  community.general.locale_gen:
+    name: en_US.UTF-8
+    state: present
+  when: not (dhis2_db_remote | default(false) | bool)
+
 - name: Install PostgreSQL packages
   ansible.builtin.apt:
     name:
@@ -36,6 +57,57 @@
     state: started
     enabled: true
   when: not (dhis2_db_remote | default(false) | bool)
+
+# Safety net: if the cluster was initialised before en_US.UTF-8 existed
+# (e.g. on a partially-provisioned LXC from a previous run), drop the
+# default cluster and recreate it with the correct locale. Only runs
+# when no user databases have been created yet, so we never destroy data.
+- name: Detect existing PostgreSQL cluster lc_collate
+  ansible.builtin.command:
+    cmd: psql -tAX -c "SHOW lc_collate;"
+  become: true
+  become_user: postgres
+  register: pg_existing_lc_collate
+  changed_when: false
+  failed_when: false
+  when: not (dhis2_db_remote | default(false) | bool)
+
+- name: Count user databases in the existing cluster
+  ansible.builtin.command:
+    cmd: >-
+      psql -tAX -c "SELECT count(*) FROM pg_database
+      WHERE datname NOT IN ('postgres','template0','template1');"
+  become: true
+  become_user: postgres
+  register: pg_user_db_count
+  changed_when: false
+  failed_when: false
+  when:
+    - not (dhis2_db_remote | default(false) | bool)
+    - pg_existing_lc_collate.rc | default(1) == 0
+    - (pg_existing_lc_collate.stdout | default('') | trim | lower) not in ['en_us.utf-8', 'en_us.utf8']
+
+- name: Recreate PostgreSQL cluster with en_US.UTF-8 (locale mismatch on fresh install)
+  when:
+    - not (dhis2_db_remote | default(false) | bool)
+    - pg_existing_lc_collate.rc | default(1) == 0
+    - (pg_existing_lc_collate.stdout | default('') | trim | lower) not in ['en_us.utf-8', 'en_us.utf8']
+    - (pg_user_db_count.stdout | default('999') | trim) == '0'
+  block:
+    - name: Stop PostgreSQL before dropping the default cluster
+      ansible.builtin.systemd:
+        name: postgresql
+        state: stopped
+    - name: Drop the default cluster
+      ansible.builtin.command:
+        cmd: "pg_dropcluster --stop {{ postgresql_version }} main"
+    - name: Recreate the default cluster with en_US.UTF-8
+      ansible.builtin.command:
+        cmd: "pg_createcluster --locale en_US.UTF-8 {{ postgresql_version }} main"
+    - name: Start PostgreSQL after recreating the cluster
+      ansible.builtin.systemd:
+        name: postgresql
+        state: started
 
 # ---------------------------------------------------------------------------
 # Remote-mode preflight: confirm the orchestrator can reach the remote DB
