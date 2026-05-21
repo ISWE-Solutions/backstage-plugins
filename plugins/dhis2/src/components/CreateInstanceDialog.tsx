@@ -186,6 +186,12 @@ export const CreateInstanceDialog = ({
 
   // "Connect to an existing database" option.
   const [useExistingDb, setUseExistingDb] = useState(false);
+  // "Use a remote PostgreSQL server" master toggle. Default is OFF, in
+  // which case the orchestrator installs PostgreSQL inside the new LXC
+  // and the remote-host / shared-credentials / existing-database fields
+  // are hidden. The backend auto-generates a strong password for the
+  // freshly created local role.
+  const [useRemoteDb, setUseRemoteDb] = useState(false);
   const [availableDatabases, setAvailableDatabases] = useState<string[]>([]);
   const [loadingDatabases, setLoadingDatabases] = useState(false);
   const [databasesError, setDatabasesError] = useState<string | null>(null);
@@ -330,19 +336,29 @@ export const CreateInstanceDialog = ({
       newInstance.database.name && newInstance.database.name.trim() !== ''
         ? newInstance.database.name
         : newInstance.name;
+    // When the operator has not enabled the "remote PostgreSQL server"
+    // toggle, the orchestrator installs PostgreSQL inside the new LXC.
+    // Clear any inherited shared-host defaults so the backend doesn't
+    // accidentally route the new instance at a previously-configured
+    // external host.
+    const effectiveDhis2Settings = useRemoteDb
+      ? dhis2Settings
+      : { ...dhis2Settings, postgresHost: '' };
     const request: CreateInstanceRequest = {
       ...newInstance,
       domain: derivedDomain,
       database: {
         ...newInstance.database,
         name: dbName,
-        existing: useExistingDb || undefined,
-        host: useExistingDb ? dhis2Settings.postgresHost : undefined,
-        port: useExistingDb ? dhis2Settings.postgresPort : undefined,
+        existing: useRemoteDb && useExistingDb ? true : undefined,
+        host:
+          useRemoteDb && useExistingDb ? dhis2Settings.postgresHost : undefined,
+        port:
+          useRemoteDb && useExistingDb ? dhis2Settings.postgresPort : undefined,
       },
       restore: restoreEnabled ? restoreSource : undefined,
       newDbAccount:
-        createDbAccount && !useExistingDb
+        createDbAccount && !(useRemoteDb && useExistingDb)
           ? { user: newDbUser, password: newDbPassword }
           : undefined,
       dhisConfTemplate:
@@ -351,13 +367,18 @@ export const CreateInstanceDialog = ({
           : undefined,
       deleteIfExists: deleteIfExists || undefined,
       proxySettings,
-      dhis2Settings,
+      dhis2Settings: effectiveDhis2Settings,
     };
     // Intentionally do NOT close/reset the dialog here. The parent stacks
     // the provisioning-progress dialog on top of this one so the form
     // values stay intact — if the job fails, the user can adjust a field
     // and click "Create Instance" again without re-entering everything.
-    onSubmit({ request, derivedDomain, proxySettings, dhis2Settings });
+    onSubmit({
+      request,
+      derivedDomain,
+      proxySettings,
+      dhis2Settings: effectiveDhis2Settings,
+    });
   };
 
   return (
@@ -662,6 +683,40 @@ export const CreateInstanceDialog = ({
         <Typography variant="h6" gutterBottom style={{ marginTop: 16 }}>
           Database Configurations
         </Typography>
+        <FormControlLabel
+          control={
+            <Checkbox
+              checked={useRemoteDb}
+              onChange={e => {
+                const next = e.target.checked;
+                setUseRemoteDb(next);
+                if (!next) {
+                  // Collapse all remote-only sub-state so re-opening the
+                  // toggle later starts from a clean slate.
+                  setUseExistingDb(false);
+                  setAvailableDatabases([]);
+                  setDatabasesError(null);
+                  setDbTestResult(null);
+                }
+              }}
+              color="primary"
+            />
+          }
+          label={
+            <Box>
+              <Typography variant="body2">
+                Use a remote PostgreSQL server
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                {useRemoteDb
+                  ? 'DHIS2 will connect to the external PostgreSQL host configured below.'
+                  : 'Off — PostgreSQL is installed inside the new LXC container and a strong database password is auto-generated.'}
+              </Typography>
+            </Box>
+          }
+        />
+        {useRemoteDb && (
+          <>
         <Typography
           variant="body2"
           color="textSecondary"
@@ -816,7 +871,9 @@ export const CreateInstanceDialog = ({
             {dbTestResult.message}
           </Alert>
         )}
-        {useExistingDb ? (
+          </>
+        )}
+        {useRemoteDb && useExistingDb ? (
           <FormControl
             fullWidth
             className={classes.formField}

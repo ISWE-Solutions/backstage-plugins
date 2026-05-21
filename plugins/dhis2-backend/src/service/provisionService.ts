@@ -474,6 +474,16 @@ export class ProvisionService {
       req.adminPassword = generateSecurePassword();
       adminPasswordWasGenerated = true;
     }
+    // Same treatment for the per-instance PostgreSQL role password. The
+    // Create Instance dialog hides the Database Password field by default
+    // (PostgreSQL is installed inside the LXC and there's no reason to
+    // burden the operator with picking a password for a brand-new local
+    // role). The provisioning log surfaces the generated value once.
+    let dbPasswordWasGenerated = false;
+    if (!req.database.password || req.database.password.trim() === '') {
+      req.database.password = generateSecurePassword();
+      dbPasswordWasGenerated = true;
+    }
     const job: JobSnapshot = {
       id,
       status: 'queued',
@@ -493,6 +503,12 @@ export class ProvisionService {
       appendLine(
         job,
         `[backend] Generated DHIS2 admin password: ${req.adminPassword} -- copy this now, it will not be shown again`,
+      );
+    }
+    if (dbPasswordWasGenerated) {
+      appendLine(
+        job,
+        `[backend] Generated PostgreSQL password for role '${req.database.user}': ${req.database.password} -- copy this now, it will not be shown again`,
       );
     }
 
