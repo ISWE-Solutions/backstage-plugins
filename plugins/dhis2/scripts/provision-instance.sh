@@ -39,7 +39,7 @@ Optional:
   --cpu <int>               CPU cores            (default: 4)
   --memory <mb>             RAM in MB            (default: 8192)
   --storage <gb>            Root disk GB         (default: 100)
-  --timezone <tz>           Default: Africa/Nairobi
+  --timezone <tz>           Default: Africa/Lusaka
   --postgres-version <int>  Default: 16
   --java-version <int>      Default: 17
   --tomcat-version <9|10>   Apache Tomcat major version installed from
@@ -89,7 +89,7 @@ EOF
 CPU=4
 MEMORY=8192
 STORAGE=100
-TIMEZONE="Africa/Nairobi"
+TIMEZONE="Africa/Lusaka"
 POSTGRES_VERSION=16
 JAVA_VERSION=17
 TOMCAT_VERSION=9
