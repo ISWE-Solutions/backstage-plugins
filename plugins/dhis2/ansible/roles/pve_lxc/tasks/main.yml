@@ -140,6 +140,12 @@
     ansible_host: "{{ pve_container_ip }}"
     ansible_user: root
     ansible_ssh_private_key_file: "{{ ansible_ssh_private_key_file_orchestrator | default(lookup('env', 'ANSIBLE_SSH_KEY')) }}"
+    # The orchestrator's venv interpreter (set on 127.0.0.1 in the
+    # inventory + via the orchestrator env file) must NOT leak into
+    # plays that target this freshly-created container — that path
+    # doesn't exist inside the LXC. Pin the container interpreter to
+    # its own /usr/bin/python3 here so subsequent plays use it.
+    ansible_python_interpreter: /usr/bin/python3
     groups:
       - new_containers
     # Role + DHIS2 vars below let downstream plays target this host by name.

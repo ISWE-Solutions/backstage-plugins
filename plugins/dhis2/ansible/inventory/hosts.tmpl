@@ -7,7 +7,12 @@
 # via the Proxmox REST API.
 
 # Loopback so plays that target the controller can run without SSH.
-127.0.0.1 ansible_connection=local
+# The Python interpreter here MUST be the orchestrator venv that has
+# proxmoxer + requests installed (see /etc/backstage/orchestrator.env
+# written by scripts/install.sh). We pin it inline so the value can NOT
+# leak to container plays via the ANSIBLE_PYTHON_INTERPRETER env var
+# (the venv path does not exist inside fresh LXCs).
+127.0.0.1 ansible_connection=local ansible_python_interpreter=${ANSIBLE_VENV_PYTHON}
 
 [databases]
 
@@ -33,6 +38,11 @@ ansible_connection=ssh
 ansible_ssh_private_key_file=${ANSIBLE_SSH_KEY}
 ansible_become=True
 ansible_become_method=sudo
+# Container hosts have their own Python at /usr/bin/python3 (Ubuntu LXC
+# templates ship python3 by default). Pinning this here also blocks the
+# orchestrator-side ANSIBLE_PYTHON_INTERPRETER env var (= the venv on
+# the Backstage host) from leaking into these plays.
+ansible_python_interpreter=/usr/bin/python3
 # The Backstage host reaches the new container directly. The Proxmox node
 # is no longer used as an SSH jump host — LXC lifecycle is via REST API.
 
