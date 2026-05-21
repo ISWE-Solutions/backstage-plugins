@@ -309,10 +309,19 @@ function buildCommand(
   const effectiveApiTokenSecret =
     (reqPm.apiTokenSecret && reqPm.apiTokenSecret.trim()) ||
     cfg.apiTokenSecret;
-  const effectiveValidateCerts =
+  // TLS validation policy: app-config is the SECURITY CEILING. A
+  // per-request override (e.g. from a stored ProxmoxClusterPanel
+  // setting in the browser) can only LOWER the policy, never raise it.
+  // This prevents a stale `verifyTls: true` in localStorage from
+  // overriding an operator who has intentionally set
+  // `dhis2.orchestrator.validateApiCerts: false` in app-config because
+  // their PVE node uses the stock self-signed cert.
+  const cfgValidate = Boolean(cfg.validateApiCerts);
+  const reqValidate =
     typeof reqPm.validateApiCerts === 'boolean'
       ? reqPm.validateApiCerts
-      : cfg.validateApiCerts;
+      : cfgValidate;
+  const effectiveValidateCerts = cfgValidate && reqValidate;
 
   const env: Record<string, string> = {
     DHIS2_DB_PASS: req.database.password,
@@ -536,6 +545,16 @@ export class ProvisionService {
     );
 
     const command = buildCommand(cfg, req);
+    // Surface the effective TLS validation policy so operators can see
+    // when a stale browser setting was clamped by the app-config ceiling.
+    const cfgValidate = Boolean(cfg.validateApiCerts);
+    const reqValidate = req.proxmox?.validateApiCerts;
+    if (reqValidate === true && cfgValidate === false) {
+      appendLine(
+        job,
+        `[backend] Per-job validateApiCerts=true ignored because dhis2.orchestrator.validateApiCerts=false in app-config (PVE self-signed cert). Set both to true to enforce TLS validation.`,
+      );
+    }
     // Log the redacted form for traceability.
     appendLine(
       job,

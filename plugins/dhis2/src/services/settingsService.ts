@@ -30,6 +30,9 @@ export class SettingsService {
         baseDomain: ['dhis2.example.com'],
         host: ['proxy.example.com'],
         sshKeyPath: ['/var/lib/backstage/.ssh/id_ed25519'],
+        // Old Debian/Ubuntu sites-available layout — superseded by the
+        // single conf.d directory (which nginx auto-includes).
+        nginxConfigPath: ['/etc/nginx/sites-available'],
       } as any;
       (Object.keys(stalePlaceholders) as Array<keyof typeof merged.proxy>).forEach(
         key => {
@@ -39,6 +42,25 @@ export class SettingsService {
           }
         },
       );
+      // Older builds defaulted proxmox.verifyTls to true, which then
+      // forwards as validateApiCerts=true into every provision request
+      // and causes CERTIFICATE_VERIFY_FAILED against PVE's stock
+      // self-signed certificate. Migrate the stale `true` to the new
+      // `false` default whenever the stored proxmox settings still
+      // carry the previous-generation marker (apiUrl untouched from
+      // the placeholder, or tokenSecret blank — i.e. the operator has
+      // never finished filling the panel in).
+      if (
+        parsed.proxmox &&
+        parsed.proxmox.verifyTls === true &&
+        // Only auto-flip when the operator hasn't explicitly opted in
+        // by providing a non-default API URL AND a token secret. Once
+        // they've configured a real PVE node we trust their toggle.
+        (!parsed.proxmox.tokenSecret ||
+          parsed.proxmox.apiUrl === DEFAULT_SETTINGS.proxmox.apiUrl)
+      ) {
+        merged.proxmox.verifyTls = DEFAULT_SETTINGS.proxmox.verifyTls;
+      }
       return merged;
     } catch (e) {
       // eslint-disable-next-line no-console
