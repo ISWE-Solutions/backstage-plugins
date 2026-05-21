@@ -182,15 +182,24 @@
   no_log: true
 
 - name: Deploy DHIS2 WAR as ROOT
-  # `ansible.builtin.copy` with remote_src=true reads the entire file into
-  # Python on the target to compute a checksum. For a 300+ MB DHIS2 WAR
-  # inside a memory-constrained LXC that can stall for many minutes (or
-  # OOM the worker) before the task reports back. A plain `cp` is O(1)
-  # in memory and finishes in seconds.
+  # We previously used `ansible.builtin.copy` with remote_src=true (reads
+  # the full 300 MB into Python on the target to checksum), then tried
+  # `cp -f` (still reads + writes 300 MB of data). Both have been observed
+  # to silently stall the playbook for tens of minutes inside an LXC, with
+  # no visible progress, before ansible-playbook bails with exit code 2.
+  #
+  # `{{ dhis2_install_dir }}` and `{{ tomcat_webapps_dir }}` are both
+  # under /opt on the LXC rootfs, so a rename via `mv` is a single
+  # filesystem metadata op — instantaneous and constant-memory regardless
+  # of WAR size. The next task re-asserts owner/group/mode on the
+  # destination, so we don't care about preservation. On re-runs the
+  # `Download DHIS2 WAR` task above will re-fetch into
+  # `{{ dhis2_install_dir }}/dhis.war` because we just moved it away.
   ansible.builtin.command:
-    cmd: cp -f "{{ dhis2_install_dir }}/dhis.war" "{{ tomcat_webapps_dir }}/ROOT.war"
+    cmd: mv -f "{{ dhis2_install_dir }}/dhis.war" "{{ tomcat_webapps_dir }}/ROOT.war"
+    removes: "{{ dhis2_install_dir }}/dhis.war"
   register: dhis2_root_war_copy
-  changed_when: true
+  changed_when: dhis2_root_war_copy.changed | default(true)
 
 - name: Set ownership on deployed ROOT.war
   ansible.builtin.file:
