@@ -1,0 +1,117 @@
+---
+# host_proxy/create.yml — write per-instance + base nginx config, request
+# a Let's Encrypt certificate, validate and reload nginx.
+
+- name: Ensure nginx config directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ host_proxy_upstream_dir }}"
+    - "{{ host_proxy_sites_available }}"
+    - "{{ host_proxy_sites_enabled }}"
+
+# Path-based mode: per-instance file contains only a 'location /<inst>/'
+# block; the base vhost terminates TLS and includes
+# {{ host_proxy_upstream_dir }}/*.conf inside its 443 server{}.
+- name: Write per-instance location snippet (path-based)
+  ansible.builtin.template:
+    src: per_instance_path.conf.j2
+    dest: "{{ host_proxy_upstream_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: host_proxy_routing_mode == 'path'
+  notify: reload nginx
+
+- name: Write shared base vhost (path-based)
+  ansible.builtin.template:
+    src: base_path_vhost.conf.j2
+    dest: "{{ host_proxy_site_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: host_proxy_routing_mode == 'path'
+  notify: reload nginx
+
+# Subdomain mode: one upstream + one vhost per instance, both already
+# bundled into a single .conf under /etc/nginx/conf.d (back-compat).
+- name: Write upstream file (subdomain)
+  ansible.builtin.template:
+    src: subdomain_upstream.conf.j2
+    dest: "{{ host_proxy_upstream_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: host_proxy_routing_mode == 'subdomain'
+  notify: reload nginx
+
+- name: Write site file (subdomain)
+  ansible.builtin.template:
+    src: subdomain_vhost.conf.j2
+    dest: "{{ host_proxy_site_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: host_proxy_routing_mode == 'subdomain'
+  notify: reload nginx
+
+# Only create the sites-enabled symlink when the two directories differ
+# (classic Debian split). Path-based mode always hits this branch
+# because the default switches to /etc/nginx/sites-{available,enabled};
+# subdomain mode keeps both pointing at /etc/nginx/conf.d so we'd be
+# symlinking a file onto itself.
+- name: Enable site via sites-enabled symlink
+  ansible.builtin.file:
+    src: "{{ host_proxy_site_file }}"
+    dest: "{{ host_proxy_site_link }}"
+    state: link
+    force: true
+  when: host_proxy_sites_available != host_proxy_sites_enabled
+  notify: reload nginx
+
+# Request a TLS cert for the base FQDN. certbot certonly is idempotent
+# (re-runs report 'cert not yet due') so we don't need a creates: guard
+# at this layer; in path-based mode every sibling instance shares the
+# same cert.
+- name: Request Let's Encrypt certificate
+  ansible.builtin.command:
+    cmd: >-
+      {{ host_proxy_certbot_bin }} certonly --nginx
+      -d {{ host_proxy_base_domain | quote }}
+      --non-interactive --agree-tos
+      --email {{ host_proxy_email | quote }}
+  register: host_proxy_certbot
+  changed_when: "'Successfully received certificate' in host_proxy_certbot.stdout
+                  or 'Renewing' in host_proxy_certbot.stdout"
+  failed_when:
+    - host_proxy_certbot.rc != 0
+    - "'not yet due for renewal' not in host_proxy_certbot.stdout"
+  when: not host_proxy_skip_certbot | bool
+  notify: reload nginx
+
+# Validate the rendered config BEFORE the handler tries to reload nginx
+# — a syntax error here is much easier to diagnose with the failing
+# server_name / file path in the output than buried in journalctl after
+# a failed reload.
+- name: Validate nginx configuration
+  ansible.builtin.command: "{{ host_proxy_nginx_validate_cmd }}"
+  register: host_proxy_nginx_t
+  changed_when: false
+
+- name: Flush handlers so nginx reloads before this play exits
+  ansible.builtin.meta: flush_handlers
+
+- name: Report success
+  ansible.builtin.debug:
+    msg: >-
+      central-host Nginx ready for
+      {% if host_proxy_routing_mode == 'path' -%}
+      https://{{ host_proxy_base_domain }}/{{ host_proxy_path_segment }}/
+      {%- else -%}
+      https://{{ host_proxy_base_domain }}
+      {%- endif %}
+       → {{ host_proxy_container_ip }}:8080

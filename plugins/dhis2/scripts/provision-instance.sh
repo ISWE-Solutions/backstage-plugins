@@ -260,7 +260,7 @@ if [[ -n "${NEW_DB_USER}" && -z "${NEW_DB_PASS:-}" ]]; then
 fi
 
 # Sanity-check role layout (including the new ones).
-for role in common postgres dhis2 pve_lxc lxc_bootstrap stage_restore; do
+for role in common postgres dhis2 pve_lxc lxc_bootstrap stage_restore host_proxy; do
     if [[ ! -d "${ANSIBLE_DIR}/roles/${role}" ]]; then
         echo "missing Ansible role: ansible/roles/${role}" >&2
         exit 1
@@ -459,6 +459,14 @@ ansible_ssh_private_key_file_orchestrator: $(yaml_escape "${SSH_KEY}")
 ansible_user_target: $(yaml_escape "${ANSIBLE_USER}")
 ansible_user_pubkey: $(yaml_escape "${SSH_PUBKEY_CONTENT}")
 
+# ---- Central Nginx (host_proxy role, Phase 5) ----
+# SSH details for the Proxmox node where the central nginx terminates
+# TLS. Defaults to the PVE API host (same machine in single-node setups).
+pve_ssh_host: $(yaml_escape "${PVE_HOST}")
+pve_ssh_user: $(yaml_escape "${PVE_USER}")
+pve_ssh_key: $(yaml_escape "${PVE_SSH_KEY}")
+host_proxy_skip_certbot: $(if [[ ${SKIP_CERTBOT} -eq 1 ]]; then echo true; else echo false; fi)
+
 # ---- Logical naming + DHIS2 spec ----
 instance_name: $(yaml_escape "${INSTANCE_NAME}")
 dhis2_version: $(yaml_escape "${DHIS2_VERSION}")
@@ -540,7 +548,10 @@ fi
 
 # The pve_lxc role discovered the container's IP via the API and wrote it
 # into the inventory at runtime. To get it back into this shell (for the
-# configure-host-proxy step) we re-query the API directly.
+# success banner below) we re-query the API directly. Phase 5 of site.yml
+# (the host_proxy role) owns the central-nginx config now; it pulls the
+# IP straight out of the Ansible inventory so this re-query is purely
+# informational for the operator-facing log line.
 log "querying container IP via Proxmox API"
 CONTAINER_IP="$(
     curl -sk \
@@ -553,21 +564,12 @@ CONTAINER_IP="$(
 log "container IP: ${CONTAINER_IP}"
 
 # ----------------------------------------------------------------------------
-# Phase 3: central Nginx + certbot on the Proxmox host
+# Phase 3 (legacy): central Nginx + certbot on the Proxmox host
 # ----------------------------------------------------------------------------
-log "Phase 3 — configuring central Nginx for ${DOMAIN}"
-CERTBOT_FLAG=()
-[[ ${SKIP_CERTBOT} -eq 1 ]] && CERTBOT_FLAG=(--skip-certbot)
-
-"${SCRIPT_DIR}/configure-host-proxy.sh" \
-    --vmid "${VMID}" \
-    --container-ip "${CONTAINER_IP}" \
-    --domain "${DOMAIN}" \
-    --email "${EMAIL}" \
-    --pve-host "${PVE_HOST}" \
-    --pve-user "${PVE_USER}" \
-    --pve-ssh-key "${PVE_SSH_KEY}" \
-    "${CERTBOT_FLAG[@]}"
+# NOTE: this phase has been moved into the Ansible playbook (site.yml
+# Phase 5, roles/host_proxy). The legacy configure-host-proxy.sh script
+# is still used for the rollback / --delete-if-exists tear-down path
+# above; the create path is now driven by Ansible end-to-end.
 
 log "================================================================"
 log "DHIS2 provisioning complete"

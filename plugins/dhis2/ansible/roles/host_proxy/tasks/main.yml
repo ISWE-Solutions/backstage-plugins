@@ -1,0 +1,95 @@
+---
+# host_proxy — central Nginx reverse proxy on the Proxmox host.
+#
+# Mirrors plugins/dhis2/scripts/configure-host-proxy.sh but as native
+# Ansible tasks so the orchestration runs inside the same site.yml play
+# instead of via a shelled-out script. The legacy script is kept for the
+# rollback / --delete-if-exists path because that runs before Ansible.
+
+- name: Validate required host_proxy inputs
+  ansible.builtin.assert:
+    that:
+      - host_proxy_vmid | string | length > 0
+      - host_proxy_domain | length > 0
+      - host_proxy_state in ['present', 'absent']
+      - host_proxy_state == 'absent' or host_proxy_container_ip | length > 0
+      - host_proxy_state == 'absent' or host_proxy_skip_certbot or host_proxy_email | length > 0
+    fail_msg: >-
+      host_proxy role is missing required variables. Need host_proxy_vmid,
+      host_proxy_domain, host_proxy_container_ip (when state=present), and
+      host_proxy_email (when state=present and certbot is not skipped).
+
+# Detect routing mode from the shape of host_proxy_domain. A '/' in the
+# value means path-based: split into base FQDN + instance path segment.
+# Otherwise it's a bare FQDN (subdomain mode).
+- name: Compute routing facts
+  ansible.builtin.set_fact:
+    host_proxy_routing_mode: "{{ 'path' if '/' in host_proxy_domain else 'subdomain' }}"
+    host_proxy_base_domain: "{{ host_proxy_domain.split('/')[0] }}"
+    host_proxy_path_segment: >-
+      {{
+        (host_proxy_instance_override
+          if host_proxy_instance_override | length > 0
+          else (host_proxy_domain.split('/', 1)[1] | default('', true) | trim('/')))
+        if '/' in host_proxy_domain
+        else (host_proxy_instance_override
+              if host_proxy_instance_override | length > 0
+              else host_proxy_vmid | string)
+      }}
+
+- name: Validate parsed routing values
+  ansible.builtin.assert:
+    that:
+      - host_proxy_base_domain | length > 0
+      - host_proxy_path_segment | length > 0
+      - host_proxy_path_segment is match('^[A-Za-z0-9._-]+$')
+    fail_msg: >-
+      Could not parse a clean base domain + instance from
+      host_proxy_domain='{{ host_proxy_domain }}'. The instance segment
+      must match [A-Za-z0-9._-]+ so it can be used as a filename.
+
+# Pick the sites-available / sites-enabled layout based on mode. Path-
+# based mode uses the classic Debian split (sites-available + symlink to
+# sites-enabled). Subdomain mode stays on /etc/nginx/conf.d for back
+# compat with existing deployments.
+- name: Resolve sites-available / sites-enabled for this mode
+  ansible.builtin.set_fact:
+    host_proxy_sites_available: >-
+      {{ host_proxy_sites_available_path if host_proxy_routing_mode == 'path'
+         else host_proxy_sites_available_subdomain }}
+    host_proxy_sites_enabled: >-
+      {{ host_proxy_sites_enabled_path if host_proxy_routing_mode == 'path'
+         else host_proxy_sites_enabled_subdomain }}
+
+- name: Resolve file paths
+  ansible.builtin.set_fact:
+    host_proxy_upstream_file: >-
+      {{ (host_proxy_upstream_dir ~ '/' ~ host_proxy_path_segment ~ '.conf')
+         if host_proxy_routing_mode == 'path'
+         else (host_proxy_upstream_dir ~ '/dhis2-' ~ host_proxy_vmid ~ '.conf') }}
+    host_proxy_site_file: >-
+      {{ (host_proxy_sites_available ~ '/' ~ host_proxy_base_domain ~ '.conf')
+         if host_proxy_routing_mode == 'path'
+         else (host_proxy_sites_available ~ '/dhis2-' ~ host_proxy_base_domain ~ '.conf') }}
+    host_proxy_site_link: >-
+      {{ (host_proxy_sites_enabled ~ '/' ~ host_proxy_base_domain ~ '.conf')
+         if host_proxy_routing_mode == 'path'
+         else (host_proxy_sites_enabled ~ '/dhis2-' ~ host_proxy_base_domain ~ '.conf') }}
+
+- name: Show resolved layout
+  ansible.builtin.debug:
+    msg:
+      - "mode:           {{ host_proxy_routing_mode }}"
+      - "base domain:    {{ host_proxy_base_domain }}"
+      - "instance:       {{ host_proxy_path_segment }}"
+      - "upstream file:  {{ host_proxy_upstream_file }}"
+      - "site file:      {{ host_proxy_site_file }}"
+      - "site link:      {{ host_proxy_site_link }}"
+
+- name: Apply nginx configuration
+  ansible.builtin.include_tasks: create.yml
+  when: host_proxy_state == 'present'
+
+- name: Remove nginx configuration
+  ansible.builtin.include_tasks: remove.yml
+  when: host_proxy_state == 'absent'

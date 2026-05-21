@@ -152,3 +152,47 @@
               See the diagnostic output above (Tomcat status, webapps
               listing, catalina.out tail, localhost log tail) for the
               underlying cause.
+
+# ---------------------------------------------------------------------------
+# Phase 5 — central Nginx reverse proxy on the Proxmox host
+# ---------------------------------------------------------------------------
+# Registers the PVE host dynamically (we already have SSH details from the
+# orchestrator's pve_ssh_* extra-vars) and runs the host_proxy role to
+# write the per-instance nginx config + base vhost + request a Let's
+# Encrypt cert. This replaces the legacy
+# plugins/dhis2/scripts/configure-host-proxy.sh call from
+# provision-instance.sh's Phase 3.
+
+- name: "Phase 5a — register Proxmox host for the central Nginx play"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Add PVE host to pve_hosts group
+      ansible.builtin.add_host:
+        name: "{{ pve_ssh_host }}"
+        groups:
+          - pve_hosts
+        ansible_host: "{{ pve_ssh_host }}"
+        ansible_user: "{{ pve_ssh_user | default('root') }}"
+        ansible_ssh_private_key_file: >-
+          {{ pve_ssh_key
+             | default(ansible_ssh_private_key_file_orchestrator, true) }}
+        ansible_python_interpreter: /usr/bin/python3
+        # Carry the values the host_proxy role needs through as host vars
+        # so the next play can target the group without referring back to
+        # the orchestrator-side variables explicitly.
+        host_proxy_vmid: "{{ pve_vmid }}"
+        host_proxy_container_ip: >-
+          {{ hostvars[instance_name | default(pve_hostname)].ansible_host }}
+        host_proxy_domain: "{{ fqdn }}"
+        host_proxy_email: "{{ email | default('') }}"
+        host_proxy_skip_certbot: "{{ host_proxy_skip_certbot | default(false) }}"
+      changed_when: false
+
+- name: "Phase 5b — write central Nginx config and request TLS cert"
+  hosts: pve_hosts
+  gather_facts: false
+  become: true
+  roles:
+    - role: host_proxy

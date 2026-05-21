@@ -1,0 +1,6 @@
+# Upstream for DHIS2 instance VMID={{ host_proxy_vmid }}
+# Managed by Ansible (roles/host_proxy).
+upstream dhis2_{{ host_proxy_vmid }} {
+    server {{ host_proxy_container_ip }}:8080 fail_timeout=0;
+    keepalive 32;
+}

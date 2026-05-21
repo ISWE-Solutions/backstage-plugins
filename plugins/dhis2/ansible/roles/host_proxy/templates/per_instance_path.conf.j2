@@ -1,0 +1,29 @@
+# Per-instance reverse-proxy snippet for {{ host_proxy_base_domain }}/{{ host_proxy_path_segment }}
+# (VMID={{ host_proxy_vmid }}). Included from {{ host_proxy_site_file }} via:
+#     include {{ host_proxy_upstream_dir }}/*.conf;
+# inside the TLS server{} block. Drop a new file in {{ host_proxy_upstream_dir }}
+# to add another instance — no edits to the base vhost are needed.
+# Managed by Ansible (roles/host_proxy). Do not edit by hand.
+location /{{ host_proxy_path_segment }}/ {
+    proxy_pass http://{{ host_proxy_container_ip }}:8080/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Prefix /{{ host_proxy_path_segment }};
+    proxy_set_header Connection "";
+    proxy_connect_timeout 300s;
+    proxy_send_timeout    300s;
+    proxy_read_timeout    300s;
+    proxy_buffering off;
+}
+
+location /{{ host_proxy_path_segment }}/dhis-web-commons-stream {
+    proxy_pass http://{{ host_proxy_container_ip }}:8080/dhis-web-commons-stream;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_read_timeout 86400;
+}

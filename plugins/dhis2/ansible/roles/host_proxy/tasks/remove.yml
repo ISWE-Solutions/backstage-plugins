@@ -1,0 +1,30 @@
+---
+# host_proxy/remove.yml — tear down the nginx config for one instance.
+#
+# In path-based mode the base vhost is shared between every instance
+# under <base_domain>, so we only delete the per-instance snippet.
+# In subdomain mode the whole vhost is dedicated to this instance, so
+# we delete both files and the sites-enabled symlink.
+
+- name: Remove per-instance snippet
+  ansible.builtin.file:
+    path: "{{ host_proxy_upstream_file }}"
+    state: absent
+  notify: reload nginx
+
+- name: Remove dedicated vhost (subdomain mode only)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ host_proxy_site_link }}"
+    - "{{ host_proxy_site_file }}"
+  when: host_proxy_routing_mode == 'subdomain'
+  notify: reload nginx
+
+- name: Validate nginx configuration
+  ansible.builtin.command: "{{ host_proxy_nginx_validate_cmd }}"
+  changed_when: false
+
+- name: Flush handlers so nginx reloads before this play exits
+  ansible.builtin.meta: flush_handlers
