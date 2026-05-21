@@ -433,12 +433,20 @@ chmod 0600 "${EXTRA_VARS_FILE}"
 # Phase 2: ansible-playbook site.yml (LXC create + bootstrap + DHIS2)
 # ----------------------------------------------------------------------------
 log "Phase 2 — running ansible-playbook site.yml (this can take a while)"
+# DHIS2_DEBUG=1 ⇒ pass -vvv and -e dhis2_debug=true so no_log gates in the
+# pve_lxc role open up and the real Proxmox API error is shown.
+ANSIBLE_EXTRA_ARGS=()
+if [[ "${DHIS2_DEBUG:-0}" == "1" || "${DHIS2_DEBUG:-}" == "true" ]]; then
+    log "DHIS2_DEBUG=1 — enabling -vvv and dhis2_debug=true"
+    ANSIBLE_EXTRA_ARGS+=(-vvv -e "dhis2_debug=true")
+fi
 (
     cd "${ANSIBLE_DIR}"
     ANSIBLE_CONFIG="${ANSIBLE_DIR}/ansible.cfg" \
         ansible-playbook \
             -i "${INVENTORY_FILE}" \
             --extra-vars "@${EXTRA_VARS_FILE}" \
+            "${ANSIBLE_EXTRA_ARGS[@]}" \
             site.yml
 )
 

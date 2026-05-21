@@ -70,7 +70,10 @@
     state: present
     timeout: 300
   register: pve_create_result
-  no_log: true
+  # Hide secrets (api_token_secret, root password, pubkey) by default.
+  # Re-run with `-e dhis2_debug=true` (or DHIS2_DEBUG=1 via the wrapper)
+  # to surface the real Proxmox API error on failure.
+  no_log: "{{ not (dhis2_debug | default(false) | bool) }}"
 
 - name: Start LXC container
   community.general.proxmox:
@@ -84,7 +87,7 @@
     hostname: "{{ pve_hostname }}"
     state: started
     timeout: 120
-  no_log: true
+  no_log: "{{ not (dhis2_debug | default(false) | bool) }}"
 
 - name: Wait for container interfaces to report an IPv4 address
   ansible.builtin.uri:
@@ -105,7 +108,7 @@
          | list | length > 0)
   retries: 60
   delay: 5
-  no_log: true
+  no_log: "{{ not (dhis2_debug | default(false) | bool) }}"
 
 - name: Extract container IPv4 address
   ansible.builtin.set_fact:
