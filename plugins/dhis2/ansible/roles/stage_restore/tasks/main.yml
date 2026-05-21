@@ -19,6 +19,14 @@
   ansible.builtin.meta: end_play
   when: dhis2_restore is not defined
 
+- name: Skip in-container staging when targeting a remote PostgreSQL host
+  ansible.builtin.meta: end_play
+  when: dhis2_db_remote | default(false) | bool
+  # In remote-DB mode the postgres role runs the restore from the
+  # orchestrator against the shared host, so the dump never needs to be
+  # copied into the LXC. local_staging_path is set to controller_path by
+  # provision-instance.sh in this mode.
+
 - name: Reject restore kinds that require pct on a Proxmox node
   ansible.builtin.fail:
     msg: >-

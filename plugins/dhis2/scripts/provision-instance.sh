@@ -346,9 +346,21 @@ if [[ -n "${RESTORE_SPEC}" ]]; then
 
     # Render the dhis2_restore YAML block. For staged kinds we inject both
     # controller_path (consumed by the stage_restore role) and
-    # local_staging_path (consumed by the dhis2 role's restore tasks).
+    # local_staging_path (consumed by the postgres role's restore tasks).
+    #
+    # When the operator has configured a shared PostgreSQL host (remote
+    # mode), the postgres role runs the restore from the orchestrator and
+    # therefore reads the dump in-place on the orchestrator filesystem —
+    # so we override local_staging_path to equal controller_path. The
+    # stage_restore role short-circuits in remote mode and never copies
+    # the file into the LXC.
+    if [[ -n "${DB_HOST}" && "${DB_HOST}" != "localhost" && "${DB_HOST}" != "127.0.0.1" && "${DB_HOST}" != "postgres" ]]; then
+        _staged_for_yaml="${RESTORE_CONTROLLER_PATH}"
+    else
+        _staged_for_yaml="${RESTORE_STAGED_IN_CT}"
+    fi
     RESTORE_YAML_BLOCK="$(
-        jq -r --arg staged "${RESTORE_STAGED_IN_CT}" \
+        jq -r --arg staged "${_staged_for_yaml}" \
               --arg ctrl "${RESTORE_CONTROLLER_PATH}" '
           . + (if (.kind == "upload" or .kind == "instance")
                then { local_staging_path: $staged, controller_path: $ctrl }

@@ -141,22 +141,9 @@
   become: "{{ not (dhis2_db_remote | default(false) | bool) }}"
   become_user: "{{ omit if (dhis2_db_remote | default(false) | bool) else 'postgres' }}"
 
-- name: Restore database backup if requested (local-install mode only)
+- name: Restore database backup if requested
   ansible.builtin.include_tasks: restore.yml
-  when:
-    - dhis2_restore is defined and dhis2_restore
-    - not (dhis2_db_remote | default(false) | bool)
-
-- name: Warn that restore against a remote PostgreSQL host is not yet supported
-  ansible.builtin.debug:
-    msg: >-
-      dhis2_restore was provided but dhis2_db_remote=true. Restoring a dump
-      into a remote PostgreSQL host from the orchestrator is not implemented
-      yet; the database has been created empty. Restore the dump manually
-      against {{ dhis2_db_host }}:{{ dhis2_db_port }}/{{ dhis2_db_name }}.
-  when:
-    - dhis2_restore is defined and dhis2_restore
-    - dhis2_db_remote | default(false) | bool
+  when: dhis2_restore is defined and dhis2_restore
 
 # ---------------------------------------------------------------------------
 # Local-install tuning (only relevant when PostgreSQL runs inside the LXC).
