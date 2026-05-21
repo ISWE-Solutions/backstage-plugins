@@ -16,8 +16,13 @@ connection.pool.min_size = 10
 server.base.url = {{ dhis2_server_base_url }}
 
 # File storage
+# DHIS2 uses Apache jclouds; for the filesystem provider 'container' MUST be
+# a plain name (no '/' or '\') and 'location' is the parent directory under
+# which the container is created. The full filestore path on disk is
+# therefore {{ dhis2_files_dir | dirname }}/{{ dhis2_files_dir | basename }}.
 filestore.provider = filesystem
-filestore.container = {{ dhis2_files_dir }}
+filestore.container = {{ dhis2_files_dir | basename }}
+filestore.location = {{ dhis2_files_dir | dirname }}
 
 # Analytics
 analytics.cache.expiration = 3600
