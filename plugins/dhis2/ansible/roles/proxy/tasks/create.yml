@@ -2,6 +2,18 @@
 # host_proxy/create.yml — write per-instance + base nginx config, request
 # a Let's Encrypt certificate, validate and reload nginx.
 
+# Make sure certbot (+ the nginx authenticator plugin) is installed on
+# the PVE host. The task is a no-op once the packages are present, so
+# it stays cheap on subsequent runs. We only install when certbot is
+# actually going to be invoked.
+- name: Ensure certbot and the nginx plugin are installed
+  ansible.builtin.package:
+    name:
+      - certbot
+      - python3-certbot-nginx
+    state: present
+  when: not host_proxy_skip_certbot | bool
+
 - name: Ensure nginx config directories exist
   ansible.builtin.file:
     path: "{{ item }}"
