@@ -347,14 +347,17 @@ export const DHIS2Page = () => {
 
   const wait = (ms: number) => new Promise(res => setTimeout(res, ms));
 
-  // Log-line markers from provision-instance.sh that we use to advance the
-  // visible step list. Order matters: later matches "complete" earlier steps.
+  // Log-line markers from provision-instance.sh / Ansible output that we use
+  // to advance the visible step list. Order matters: later matches "complete"
+  // earlier steps.
   const STEP_MARKERS: Array<{ pattern: RegExp; advanceTo: string }> = [
     { pattern: /Phase 1 — creating LXC container/i, advanceTo: 'container' },
-    { pattern: /container IP:/i, advanceTo: 'packages' },
-    { pattern: /Phase 2 — rendering inventory/i, advanceTo: 'packages' },
-    { pattern: /running ansible-playbook/i, advanceTo: 'packages' },
-    { pattern: /Phase 3 — configuring central Nginx/i, advanceTo: 'proxy' },
+    { pattern: /container IP:/i, advanceTo: 'bootstrap' },
+    { pattern: /PLAY \[Phase 2\b|TASK \[lxc_bootstrap\s*:/i, advanceTo: 'bootstrap' },
+    { pattern: /Phase 2 — rendering inventory|running ansible-playbook/i, advanceTo: 'bootstrap' },
+    { pattern: /TASK \[postgres\s*:/i, advanceTo: 'postgres' },
+    { pattern: /TASK \[dhis2\s*:/i, advanceTo: 'dhis2' },
+    { pattern: /Phase 3 — configuring central Nginx|TASK \[nginx\s*:/i, advanceTo: 'proxy' },
     { pattern: /DHIS2 provisioning complete/i, advanceTo: 'finalize' },
   ];
 
@@ -375,13 +378,17 @@ export const DHIS2Page = () => {
   const handleCreateInstance = async (payload: CreateInstanceSubmitPayload) => {
     const { request, derivedDomain, proxySettings } = payload;
 
-    // Steps modelled on provision-instance.sh phases.
+    // Steps modelled on provision-instance.sh / site.yml phases. Postgres
+    // runs before DHIS2 in the playbook (roles: [common, postgres, dhis2]),
+    // so the progress indicator lists them in execution order.
     const steps: ProvisionStep[] = [
       { key: 'submit', label: 'Submitting job to backend', status: 'pending' },
       { key: 'connect', label: 'Connecting to orchestrator host', status: 'pending' },
       { key: 'container', label: `Phase 1 — creating LXC container (vmid will be allocated by orchestrator)`, status: 'pending' },
-      { key: 'packages', label: `Phase 2 — running Ansible (DHIS2 ${request.version} + PostgreSQL)`, status: 'pending' },
-      { key: 'proxy', label: `Phase 3 — configuring Nginx for ${derivedDomain}`, status: 'pending' },
+      { key: 'bootstrap', label: `Phase 2 — bootstrapping container`, status: 'pending' },
+      { key: 'postgres', label: `Phase 3 — running Ansible (PostgreSQL)`, status: 'pending' },
+      { key: 'dhis2', label: `Phase 4 — running Ansible (DHIS2 ${request.version})`, status: 'pending' },
+      { key: 'proxy', label: `Phase 5 — configuring Nginx for ${derivedDomain}`, status: 'pending' },
       { key: 'finalize', label: 'Finalizing instance', status: 'pending' },
     ];
 
