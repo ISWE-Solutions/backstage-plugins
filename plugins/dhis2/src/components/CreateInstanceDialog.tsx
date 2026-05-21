@@ -321,11 +321,21 @@ export const CreateInstanceDialog = ({
       proxySettings.mode === 'subdomain'
         ? `${newInstance.name}.${proxySettings.baseDomain}`
         : `${proxySettings.baseDomain}/${newInstance.name}`;
+    // Default the database name to the instance name when the user has
+    // not provided one explicitly (the Name field's onChange keeps the
+    // two in sync while typing, but this guards against the field being
+    // cleared, or against an existing-database flow where the operator
+    // forgot to pick one).
+    const dbName =
+      newInstance.database.name && newInstance.database.name.trim() !== ''
+        ? newInstance.database.name
+        : newInstance.name;
     const request: CreateInstanceRequest = {
       ...newInstance,
       domain: derivedDomain,
       database: {
         ...newInstance.database,
+        name: dbName,
         existing: useExistingDb || undefined,
         host: useExistingDb ? dhis2Settings.postgresHost : undefined,
         port: useExistingDb ? dhis2Settings.postgresPort : undefined,
@@ -874,8 +884,16 @@ export const CreateInstanceDialog = ({
                 },
               })
             }
+            placeholder={newInstance.name || 'defaults to instance name'}
+            helperText={
+              newInstance.database.name
+                ? undefined
+                : `Defaults to the instance name${
+                    newInstance.name ? ` ("${newInstance.name}")` : ''
+                  }.`
+            }
             className={classes.formField}
-            required
+            InputLabelProps={{ shrink: true }}
           />
         )}
         <FormControlLabel
