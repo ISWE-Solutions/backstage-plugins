@@ -3,7 +3,29 @@ java_version: 17
 dhis2_home: /opt/dhis2/config
 dhis2_install_dir: /opt/dhis2
 dhis2_files_dir: /opt/dhis2/files
-dhis2_war_url: "https://releases.dhis2.org/{{ dhis2_version }}/dhis.war"
+
+# ---------------------------------------------------------------------------
+# DHIS2 WAR download URL.
+#
+# Starting with v40 the upstream layout at releases.dhis2.org dropped the
+# legacy "2.X/dhis.war" path and switched to:
+#
+#   https://releases.dhis2.org/{major}/dhis2-stable-{major}.{patch}.{hotfix}.war
+#
+# Example: dhis2_version=2.41.2 -> https://releases.dhis2.org/41/dhis2-stable-41.2.0.war
+# Example: dhis2_version=41.2.0 -> https://releases.dhis2.org/41/dhis2-stable-41.2.0.war
+# Example: dhis2_version=2.41.8.1 -> https://releases.dhis2.org/41/dhis2-stable-41.8.1.war
+#
+# Older releases (v38 and below) used "https://releases.dhis2.org/2.X/dhis.war"
+# — set `dhis2_war_url` explicitly in extra-vars if you need to provision one
+# of those.
+# ---------------------------------------------------------------------------
+_dhis2_version_clean: "{{ dhis2_version | regex_replace('^2\\.', '') }}"
+_dhis2_version_parts: "{{ _dhis2_version_clean.split('.') }}"
+_dhis2_major: "{{ _dhis2_version_parts[0] }}"
+_dhis2_patch: "{{ (_dhis2_version_parts[1] | default('0')) }}"
+_dhis2_hotfix: "{{ (_dhis2_version_parts[2] | default('0')) }}"
+dhis2_war_url: "https://releases.dhis2.org/{{ _dhis2_major }}/dhis2-stable-{{ _dhis2_major }}.{{ _dhis2_patch }}.{{ _dhis2_hotfix }}.war"
 # When set, this overrides dhis2_war_url and is fetched instead.
 dhis2_war_file: ""
 
