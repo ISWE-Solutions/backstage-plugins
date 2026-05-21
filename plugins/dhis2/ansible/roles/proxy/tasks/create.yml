@@ -6,6 +6,18 @@
 # the PVE host. The task is a no-op once the packages are present, so
 # it stays cheap on subsequent runs. We only install when certbot is
 # actually going to be invoked.
+#
+# Proxmox hosts frequently run /var/cache/apt/archives close to full
+# (we've seen 'You don't have enough free space in
+# /var/cache/apt/archives/' for installs as small as 2 MB). Clean the
+# apt cache first so the install has somewhere to download into. This
+# is cheap and idempotent.
+- name: Clean apt cache before installing certbot
+  ansible.builtin.apt:
+    autoclean: true
+    clean: true
+  when: not host_proxy_skip_certbot | bool
+
 - name: Ensure certbot and the nginx plugin are installed
   ansible.builtin.package:
     name:
