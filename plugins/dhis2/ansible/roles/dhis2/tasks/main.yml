@@ -133,7 +133,24 @@
     group: "{{ tomcat_group }}"
     mode: "0640"
   no_log: true
-  notify: Restart Tomcat
+
+# ---------------------------------------------------------------------------
+# Tomcat must be STOPPED before we touch /opt/tomcat/webapps. Otherwise the
+# moment we overwrite ROOT.war the running Tomcat (autoDeploy=true,
+# unpackWARs=true) starts exploding 300+ MB inside the LXC, thrashes the
+# limited memory, and stalls every subsequent SSH/python task for ~10 min
+# until ansible-playbook bails with a generic exit code 2.
+# ---------------------------------------------------------------------------
+- name: Reload systemd so the Tomcat unit is known
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Stop Tomcat before deploying the WAR
+  ansible.builtin.systemd:
+    name: "{{ tomcat_service_name }}"
+    state: stopped
+  register: tomcat_stop_result
+  failed_when: false
 
 - name: Remove default Tomcat webapps
   ansible.builtin.file:
@@ -146,6 +163,11 @@
     - host-manager
     - manager
 
+- name: Remove previously-exploded ROOT/ to force a clean redeploy
+  ansible.builtin.file:
+    path: "{{ tomcat_webapps_dir }}/ROOT"
+    state: absent
+
 - name: Deploy DHIS2 WAR as ROOT
   # `ansible.builtin.copy` with remote_src=true reads the entire file into
   # Python on the target to compute a checksum. For a 300+ MB DHIS2 WAR
@@ -156,7 +178,6 @@
     cmd: cp -f "{{ dhis2_install_dir }}/dhis.war" "{{ tomcat_webapps_dir }}/ROOT.war"
   register: dhis2_root_war_copy
   changed_when: true
-  notify: Restart Tomcat
 
 - name: Set ownership on deployed ROOT.war
   ansible.builtin.file:
@@ -175,7 +196,6 @@
       # Managed by the dhis2 Ansible role — edits will be overwritten.
       JAVA_OPTS="{{ tomcat_java_opts }}"
       DHIS2_HOME={{ dhis2_home }}
-  notify: Restart Tomcat
 
 - name: Ensure Tomcat is enabled and running
   ansible.builtin.systemd:
