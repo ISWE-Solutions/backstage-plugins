@@ -168,26 +168,39 @@
   connection: local
   gather_facts: false
   tasks:
-    - name: Add PVE host to pve_hosts group
+    - name: Add proxy host to pve_hosts group
       ansible.builtin.add_host:
-        name: "{{ pve_ssh_host }}"
+        name: "{{ proxy_ssh_host | default(pve_ssh_host, true) }}"
         groups:
           - pve_hosts
-        ansible_host: "{{ pve_ssh_host }}"
-        ansible_user: "{{ pve_ssh_user | default('root') }}"
+        ansible_host: "{{ proxy_ssh_host | default(pve_ssh_host, true) }}"
+        ansible_port: "{{ proxy_ssh_port | default(22) }}"
+        ansible_user: >-
+          {{ proxy_ssh_user
+             | default(pve_ssh_user | default('root', true), true) }}
         ansible_ssh_private_key_file: >-
-          {{ pve_ssh_key
-             | default(ansible_ssh_private_key_file_orchestrator, true) }}
+          {{ proxy_ssh_key
+             | default(pve_ssh_key
+                       | default(ansible_ssh_private_key_file_orchestrator,
+                                 true),
+                       true) }}
         ansible_python_interpreter: /usr/bin/python3
-        # Carry the values the host_proxy role needs through as host vars
+        # Carry the values the proxy role needs through as host vars
         # so the next play can target the group without referring back to
-        # the orchestrator-side variables explicitly.
+        # the orchestrator-side variables explicitly. host_proxy_upstream_dir
+        # / host_proxy_nginx_reload_cmd are forwarded only when the
+        # orchestrator actually rendered them (the role's defaults kick in
+        # otherwise).
         host_proxy_vmid: "{{ pve_vmid }}"
         host_proxy_container_ip: >-
           {{ hostvars[instance_name | default(pve_hostname)].ansible_host }}
         host_proxy_domain: "{{ fqdn }}"
         host_proxy_email: "{{ email | default('') }}"
         host_proxy_skip_certbot: "{{ host_proxy_skip_certbot | default(false) }}"
+        host_proxy_upstream_dir: >-
+          {{ host_proxy_upstream_dir | default(omit, true) }}
+        host_proxy_nginx_reload_cmd: >-
+          {{ host_proxy_nginx_reload_cmd | default(omit, true) }}
       changed_when: false
 
 - name: "Phase 5b — write central Nginx config and request TLS cert"

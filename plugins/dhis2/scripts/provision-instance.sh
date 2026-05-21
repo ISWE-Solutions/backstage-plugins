@@ -107,6 +107,17 @@ DB_PORT=""
 EXISTING_DB=0
 DELETE_IF_EXISTS=0
 
+# Reverse-proxy server overrides forwarded from the DHIS2 Reverse Proxy
+# panel (or per-instance overrides on the Create Instance dialog). When
+# unset we fall back to the PVE_* values below so single-node setups keep
+# working unchanged.
+PROXY_HOST=""
+PROXY_PORT=""
+PROXY_USER=""
+PROXY_SSH_KEY=""
+PROXY_NGINX_DIR=""
+PROXY_NGINX_RELOAD=""
+
 VMID=""; NODE=""; HOSTNAME=""; DOMAIN=""; EMAIL=""
 DHIS2_VERSION=""; DB_NAME=""; DB_USER=""
 
@@ -146,6 +157,15 @@ while [[ $# -gt 0 ]]; do
         --pve-host) PVE_HOST="$2"; shift 2;;
         --pve-user) PVE_USER="$2"; shift 2;;
         --pve-ssh-key) PVE_SSH_KEY="$2"; shift 2;;
+        # Reverse-proxy SSH + layout overrides (forwarded from the
+        # frontend's Reverse Proxy panel via the backend). All optional;
+        # see PROXY_* defaults below.
+        --proxy-host) PROXY_HOST="$2"; shift 2;;
+        --proxy-port) PROXY_PORT="$2"; shift 2;;
+        --proxy-user) PROXY_USER="$2"; shift 2;;
+        --proxy-ssh-key) PROXY_SSH_KEY="$2"; shift 2;;
+        --proxy-nginx-dir) PROXY_NGINX_DIR="$2"; shift 2;;
+        --proxy-nginx-reload) PROXY_NGINX_RELOAD="$2"; shift 2;;
         -h|--help) usage; exit 0;;
         *) echo "unknown option: $1" >&2; usage >&2; exit 2;;
     esac
@@ -181,6 +201,15 @@ _api_host_only="${_api_host_port%%:*}"     # strip :port
 PVE_HOST="${PVE_HOST:-${_api_host_only}}"
 PVE_USER="${PVE_USER:-root}"
 PVE_SSH_KEY="${PVE_SSH_KEY:-${SSH_KEY:-}}"
+
+# Reverse-proxy server defaults. When the frontend didn't supply an
+# explicit proxy host, fall back to the PVE host so legacy single-node
+# setups (where central nginx runs on the Proxmox node itself) keep
+# working unchanged.
+PROXY_HOST="${PROXY_HOST:-${PVE_HOST}}"
+PROXY_PORT="${PROXY_PORT:-22}"
+PROXY_USER="${PROXY_USER:-${PVE_USER}}"
+PROXY_SSH_KEY="${PROXY_SSH_KEY:-${PVE_SSH_KEY}}"
 
 # Locate paths.
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
@@ -459,13 +488,26 @@ ansible_ssh_private_key_file_orchestrator: $(yaml_escape "${SSH_KEY}")
 ansible_user_target: $(yaml_escape "${ANSIBLE_USER}")
 ansible_user_pubkey: $(yaml_escape "${SSH_PUBKEY_CONTENT}")
 
-# ---- Central Nginx (host_proxy role, Phase 5) ----
-# SSH details for the Proxmox node where the central nginx terminates
-# TLS. Defaults to the PVE API host (same machine in single-node setups).
+# ---- Central Nginx (proxy role, Phase 5) ----
+# SSH details for the dedicated reverse-proxy server. Defaults to the
+# PVE node so single-node setups (where central nginx runs on Proxmox)
+# keep working without any UI changes. The proxy_ssh_* extra-vars are
+# what Phase 5a passes to add_host; pve_ssh_host is retained for
+# back-compat (older inventory snippets still reference it).
 pve_ssh_host: $(yaml_escape "${PVE_HOST}")
 pve_ssh_user: $(yaml_escape "${PVE_USER}")
 pve_ssh_key: $(yaml_escape "${PVE_SSH_KEY}")
+proxy_ssh_host: $(yaml_escape "${PROXY_HOST}")
+proxy_ssh_port: ${PROXY_PORT}
+proxy_ssh_user: $(yaml_escape "${PROXY_USER}")
+proxy_ssh_key: $(yaml_escape "${PROXY_SSH_KEY}")
 host_proxy_skip_certbot: $(if [[ ${SKIP_CERTBOT} -eq 1 ]]; then echo true; else echo false; fi)
+$(if [[ -n "${PROXY_NGINX_DIR}" ]]; then
+    printf 'host_proxy_upstream_dir: %s\n' "$(yaml_escape "${PROXY_NGINX_DIR}")"
+fi)
+$(if [[ -n "${PROXY_NGINX_RELOAD}" ]]; then
+    printf 'host_proxy_nginx_reload_cmd: %s\n' "$(yaml_escape "${PROXY_NGINX_RELOAD}")"
+fi)
 
 # ---- Logical naming + DHIS2 spec ----
 instance_name: $(yaml_escape "${INSTANCE_NAME}")

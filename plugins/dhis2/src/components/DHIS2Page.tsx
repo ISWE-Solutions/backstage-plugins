@@ -544,6 +544,40 @@ export const DHIS2Page = () => {
         fields.validateApiCerts = Boolean(pm.verifyTls);
         return Object.keys(fields).length > 0 ? fields : undefined;
       })(),
+      // Forward Reverse-Proxy panel settings so Phase 5's `proxy` role
+      // SSHes to the dedicated proxy server (host, port, user, key)
+      // and writes nginx configs to the operator-chosen directory using
+      // the operator-chosen reload command. When a field is blank we
+      // omit it so provision-instance.sh applies its fallback (PVE host
+      // for single-node setups, /etc/nginx/upstream + `nginx -s reload`
+      // for the layout, etc.).
+      proxy: (() => {
+        const p = proxySettings;
+        const fields: {
+          host?: string;
+          sshPort?: number;
+          sshUser?: string;
+          sshKeyPath?: string;
+          nginxConfigPath?: string;
+          nginxReloadCommand?: string;
+        } = {};
+        const host = (p.host ?? '').trim();
+        const sshUser = (p.sshUser ?? '').trim();
+        const sshKeyPath = (p.sshKeyPath ?? '').trim();
+        const nginxConfigPath = (p.nginxConfigPath ?? '').trim();
+        const nginxReloadCommand = (p.nginxReloadCommand ?? '').trim();
+        if (host) fields.host = host;
+        if (Number.isInteger(p.sshPort) && p.sshPort > 0) {
+          fields.sshPort = p.sshPort;
+        }
+        if (sshUser) fields.sshUser = sshUser;
+        if (sshKeyPath) fields.sshKeyPath = sshKeyPath;
+        if (nginxConfigPath) fields.nginxConfigPath = nginxConfigPath;
+        if (nginxReloadCommand) {
+          fields.nginxReloadCommand = nginxReloadCommand;
+        }
+        return Object.keys(fields).length > 0 ? fields : undefined;
+      })(),
     };
 
     try {

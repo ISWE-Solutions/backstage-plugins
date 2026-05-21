@@ -173,6 +173,22 @@ export interface ProvisionRequest {
     apiTokenSecret?: string;
     validateApiCerts?: boolean;
   };
+  /**
+   * Optional reverse-proxy server details forwarded from the DHIS2 Reverse
+   * Proxy panel (or per-instance overrides on the Create Instance dialog).
+   * The Ansible Phase 5 (`roles/proxy`) play SSHes to `host` to write the
+   * nginx config + request a Let's Encrypt cert. When omitted, the script
+   * falls back to the Proxmox host derived from `PROXMOX_API_URL`, which
+   * is the legacy (single-node) behaviour.
+   */
+  proxy?: {
+    host?: string;
+    sshPort?: number;
+    sshUser?: string;
+    sshKeyPath?: string;
+    nginxConfigPath?: string;
+    nginxReloadCommand?: string;
+  };
 }
 
 /**
@@ -293,6 +309,29 @@ function buildCommand(
   // operators don't have to wire the same path in two places.
   if (cfg.privateKeyFile) {
     args.push('--ssh-key', cfg.privateKeyFile);
+  }
+  // Reverse-proxy server overrides. Each field is forwarded only when the
+  // request actually supplied it; the script applies its own defaults
+  // (typically the PVE host, root, port 22, /etc/nginx/upstream, etc.)
+  // when a flag is absent.
+  const proxy = req.proxy ?? {};
+  if (proxy.host && proxy.host.trim() !== '') {
+    args.push('--proxy-host', proxy.host.trim());
+  }
+  if (proxy.sshPort && Number.isInteger(proxy.sshPort)) {
+    args.push('--proxy-port', String(proxy.sshPort));
+  }
+  if (proxy.sshUser && proxy.sshUser.trim() !== '') {
+    args.push('--proxy-user', proxy.sshUser.trim());
+  }
+  if (proxy.sshKeyPath && proxy.sshKeyPath.trim() !== '') {
+    args.push('--proxy-ssh-key', proxy.sshKeyPath.trim());
+  }
+  if (proxy.nginxConfigPath && proxy.nginxConfigPath.trim() !== '') {
+    args.push('--proxy-nginx-dir', proxy.nginxConfigPath.trim());
+  }
+  if (proxy.nginxReloadCommand && proxy.nginxReloadCommand.trim() !== '') {
+    args.push('--proxy-nginx-reload', proxy.nginxReloadCommand.trim());
   }
   // Secrets + Proxmox API credentials go via env vars, NEVER on argv.
   // Per-request `req.proxmox.*` values (typically forwarded from the
