@@ -262,6 +262,35 @@ export async function createRouter(
           ? { user: b.newDbAccount.user, password: b.newDbAccount.password }
           : undefined,
       skipCertbot: b.skipCertbot === true,
+      // Optional per-request Proxmox API credentials forwarded from the
+      // ProxmoxClusterPanel saved settings. Each field is independently
+      // optional \u2014 anything left blank falls back to the orchestrator
+      // config / PROXMOX_* env vars on the backend.
+      proxmox:
+        b.proxmox && typeof b.proxmox === 'object'
+          ? {
+              apiUrl:
+                typeof b.proxmox.apiUrl === 'string'
+                  ? b.proxmox.apiUrl
+                  : undefined,
+              apiUser:
+                typeof b.proxmox.apiUser === 'string'
+                  ? b.proxmox.apiUser
+                  : undefined,
+              apiTokenId:
+                typeof b.proxmox.apiTokenId === 'string'
+                  ? b.proxmox.apiTokenId
+                  : undefined,
+              apiTokenSecret:
+                typeof b.proxmox.apiTokenSecret === 'string'
+                  ? b.proxmox.apiTokenSecret
+                  : undefined,
+              validateApiCerts:
+                typeof b.proxmox.validateApiCerts === 'boolean'
+                  ? b.proxmox.validateApiCerts
+                  : undefined,
+            }
+          : undefined,
     };
   }
 

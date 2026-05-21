@@ -507,6 +507,37 @@ export const DHIS2Page = () => {
         : undefined,
       rootPassword: request.rootPassword,
       newDbAccount: request.newDbAccount,
+      // Forward Proxmox API credentials from the ProxmoxClusterPanel saved
+      // settings so the operator can override the server-side defaults
+      // (PROXMOX_API_URL / PROXMOX_USER / PROXMOX_TOKEN_ID /
+      // PROXMOX_TOKEN_SECRET) per-job. Only non-empty fields are sent —
+      // anything blank falls back to the backend config / env vars.
+      proxmox: (() => {
+        const pm = settings.proxmox;
+        const apiUrl = (pm.apiUrl ?? '').trim();
+        const tokenId = (pm.tokenId ?? '').trim();
+        const tokenSecret = (pm.tokenSecret ?? '').trim();
+        const username = (pm.username ?? '').trim();
+        const fields: {
+          apiUrl?: string;
+          apiUser?: string;
+          apiTokenId?: string;
+          apiTokenSecret?: string;
+          validateApiCerts?: boolean;
+        } = {};
+        if (apiUrl) fields.apiUrl = apiUrl;
+        if (pm.authMethod === 'token') {
+          if (tokenId) fields.apiTokenId = tokenId;
+          if (tokenSecret) fields.apiTokenSecret = tokenSecret;
+          // If tokenId already encodes the user (root@pam!backstage), the
+          // backend extracts the user from it. Otherwise fall back to the
+          // explicit username field when set.
+          if (!tokenId.includes('!') && username) fields.apiUser = username;
+        }
+        // Always forward TLS preference so it tracks the panel toggle.
+        fields.validateApiCerts = Boolean(pm.verifyTls);
+        return Object.keys(fields).length > 0 ? fields : undefined;
+      })(),
     };
 
     try {

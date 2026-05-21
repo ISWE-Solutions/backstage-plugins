@@ -234,7 +234,11 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
             Connection details for the Proxmox VE API used to orchestrate LXC
             containers running DHIS2. Use an API token in production —
             password auth is shown for completeness but cannot be used directly
-            from the browser.
+            from the browser. <strong>These settings are also forwarded to
+            provisioning jobs and override the server-side
+            <code> PROXMOX_API_URL</code> / <code>PROXMOX_USER</code> /
+            <code> PROXMOX_TOKEN_ID</code> / <code>PROXMOX_TOKEN_SECRET</code>
+            env vars for that run.</strong>
           </Typography>
 
           <Grid container spacing={2}>
@@ -316,7 +320,7 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
                     label="Token ID"
                     value={proxmox.tokenId ?? ''}
                     onChange={e => updateProxmox({ tokenId: e.target.value })}
-                    helperText="e.g. backstage@pve!orchestrator"
+                    helperText="Full token id e.g. root@pam!backstage — the bare token name (e.g. backstage) is also accepted when Username is set above."
                     className={classes.field}
                   />
                 </Grid>

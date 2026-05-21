@@ -918,6 +918,20 @@ export interface ProvisionInstancePayload {
   rootPassword?: string;
   newDbAccount?: { user: string; password: string };
   skipCertbot?: boolean;
+  /**
+   * Optional Proxmox API credentials from the ProxmoxClusterPanel saved
+   * settings. When provided, individual fields override the server-side
+   * `dhis2.orchestrator.*` / `PROXMOX_*` env-var config for this job. The
+   * backend accepts `apiTokenId` either as the bare token name (e.g.
+   * `backstage`) or the full token id (`root@pam!backstage`).
+   */
+  proxmox?: {
+    apiUrl?: string;
+    apiUser?: string;
+    apiTokenId?: string;
+    apiTokenSecret?: string;
+    validateApiCerts?: boolean;
+  };
 }
 
 export type ProvisionJobStatus = 'queued' | 'running' | 'success' | 'failed';

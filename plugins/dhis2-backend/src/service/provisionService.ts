@@ -142,6 +142,55 @@ export interface ProvisionRequest {
   rootPassword?: string;
   newDbAccount?: { user: string; password: string };
   skipCertbot?: boolean;
+  /**
+   * Optional Proxmox API credentials sent by the frontend (e.g. from the
+   * ProxmoxClusterPanel settings). When provided, individual fields
+   * override the server-side `dhis2.orchestrator.*` / `PROXMOX_*` config
+   * for this job so an operator can re-target a single run without
+   * editing app-config / env vars.
+   *
+   * `apiTokenId` accepts either the full token id (`user@realm!name`)
+   * or just the token name — see `normalizeProxmoxCreds`.
+   */
+  proxmox?: {
+    apiUrl?: string;
+    apiUser?: string;
+    apiTokenId?: string;
+    apiTokenSecret?: string;
+    validateApiCerts?: boolean;
+  };
+}
+
+/**
+ * Normalize Proxmox API credentials so the orchestrator (and the bash
+ * script / Ansible role downstream) always receive `PROXMOX_USER` =
+ * `user@realm` and `PROXMOX_TOKEN_ID` = the token name (the part AFTER
+ * the `!`).
+ *
+ * Accepts both formats operators commonly paste from the Proxmox UI:
+ *
+ *   apiUser="root@pam"            apiTokenId="backstage"
+ *   apiUser="root@pam"            apiTokenId="root@pam!backstage"
+ *   apiUser=""                    apiTokenId="root@pam!backstage"
+ *
+ * Returns the canonical pair.
+ */
+export function normalizeProxmoxCreds(
+  apiUser: string | undefined,
+  apiTokenId: string | undefined,
+): { apiUser: string; apiTokenId: string } {
+  const rawUser = (apiUser ?? '').trim();
+  const rawToken = (apiTokenId ?? '').trim();
+  if (rawToken.includes('!')) {
+    const idx = rawToken.indexOf('!');
+    const userPart = rawToken.slice(0, idx).trim();
+    const tokenPart = rawToken.slice(idx + 1).trim();
+    return {
+      apiUser: rawUser || userPart,
+      apiTokenId: tokenPart,
+    };
+  }
+  return { apiUser: rawUser, apiTokenId: rawToken };
 }
 
 const MAX_LOG_LINES = 5000;
@@ -226,15 +275,34 @@ function buildCommand(
     args.push('--ssh-key', cfg.privateKeyFile);
   }
   // Secrets + Proxmox API credentials go via env vars, NEVER on argv.
+  // Per-request `req.proxmox.*` values (typically forwarded from the
+  // ProxmoxClusterPanel saved settings) override the orchestrator
+  // defaults from app-config / env vars on a per-job basis.
+  const reqPm = req.proxmox ?? {};
+  const effectiveApiUrl =
+    (reqPm.apiUrl && reqPm.apiUrl.trim()) || cfg.apiUrl;
+  const { apiUser: effectiveApiUser, apiTokenId: effectiveApiTokenId } =
+    normalizeProxmoxCreds(
+      (reqPm.apiUser && reqPm.apiUser.trim()) || cfg.apiUser,
+      (reqPm.apiTokenId && reqPm.apiTokenId.trim()) || cfg.apiTokenId,
+    );
+  const effectiveApiTokenSecret =
+    (reqPm.apiTokenSecret && reqPm.apiTokenSecret.trim()) ||
+    cfg.apiTokenSecret;
+  const effectiveValidateCerts =
+    typeof reqPm.validateApiCerts === 'boolean'
+      ? reqPm.validateApiCerts
+      : cfg.validateApiCerts;
+
   const env: Record<string, string> = {
     DHIS2_DB_PASS: req.database.password,
     DHIS2_ADMIN_PASS: req.adminPassword ?? '',
     ROOT_PASSWORD: req.rootPassword ?? req.adminPassword ?? '',
-    PROXMOX_API_URL: cfg.apiUrl,
-    PROXMOX_USER: cfg.apiUser,
-    PROXMOX_TOKEN_ID: cfg.apiTokenId,
-    PROXMOX_TOKEN_SECRET: cfg.apiTokenSecret,
-    PROXMOX_VALIDATE_CERTS: cfg.validateApiCerts ? 'true' : 'false',
+    PROXMOX_API_URL: effectiveApiUrl,
+    PROXMOX_USER: effectiveApiUser,
+    PROXMOX_TOKEN_ID: effectiveApiTokenId,
+    PROXMOX_TOKEN_SECRET: effectiveApiTokenSecret,
+    PROXMOX_VALIDATE_CERTS: effectiveValidateCerts ? 'true' : 'false',
   };
   if (req.newDbAccount?.password) {
     env.NEW_DB_PASS = req.newDbAccount.password;

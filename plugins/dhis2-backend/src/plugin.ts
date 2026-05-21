@@ -9,6 +9,7 @@ import { createRouter } from './service/router';
 import {
   OrchestratorConfig,
   ProvisionService,
+  normalizeProxmoxCreds,
 } from './service/provisionService';
 
 /**
@@ -130,10 +131,18 @@ export const dhis2Plugin = createBackendPlugin({
           // and the bash script itself fails fast with a clear error if the
           // PROXMOX_API_* env vars are unset when a provision is attempted.
           const apiUrl = (sub?.getOptionalString('apiUrl') ?? '').trim();
-          const apiUser = (sub?.getOptionalString('apiUser') ?? '').trim();
-          const apiTokenId = (
+          const rawApiUser = (sub?.getOptionalString('apiUser') ?? '').trim();
+          const rawApiTokenId = (
             sub?.getOptionalString('apiTokenId') ?? ''
           ).trim();
+          // Accept either canonical form (`apiUser=root@pam`,
+          // `apiTokenId=backstage`) or the full token id pasted as
+          // `apiTokenId=root@pam!backstage` — matching what the Proxmox UI
+          // shows and what the frontend ProxmoxClusterPanel stores.
+          const { apiUser, apiTokenId } = normalizeProxmoxCreds(
+            rawApiUser,
+            rawApiTokenId,
+          );
           const apiTokenSecret = (
             sub?.getOptionalString('apiTokenSecret') ?? ''
           ).trim();
