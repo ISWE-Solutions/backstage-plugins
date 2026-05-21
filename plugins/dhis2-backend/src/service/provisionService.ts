@@ -24,6 +24,14 @@ export interface OrchestratorConfig {
    */
   scriptPath: string;
   /**
+   * Explicit Proxmox node to drive over SSH from the orchestrator script.
+   * When omitted, the backend uses `host` if non-local, otherwise falls
+   * back to the per-request `node` (the PVE node the user chose for the
+   * new container). Set to 'localhost' to force the script to run pct /
+   * pvesh locally (only valid when the Backstage host IS a Proxmox node).
+   */
+  pveHost?: string;
+  /**
    * Optional path on the Backstage backend host where successfully
    * provisioned instances are appended as JSON. When omitted, no list is
    * persisted (the frontend will only see live jobs).
@@ -166,12 +174,16 @@ function buildCommand(
     args.push('--ssh-key', cfg.privateKeyFile);
   }
   // Option-2 plumbing: the orchestrator script always runs LOCALLY on the
-  // Backstage host (where Ansible lives). When cfg.host is something other
-  // than localhost it is treated as the remote PVE node — the script SSHes
-  // to it for each pct/pvesh/pvesm call and Ansible reaches the new LXC via
-  // a ProxyCommand jump through it.
-  if (!isLocalHost(cfg.host)) {
-    args.push('--pve-host', cfg.host);
+  // Backstage host (where Ansible lives). The --pve-host argument tells the
+  // script which Proxmox node to SSH to for each pct/pvesh/pvesm call.
+  //
+  // Resolution order:
+  //   1. cfg.pveHost     — explicit override (use '' or 'localhost' to skip)
+  //   2. cfg.host        — when set to a non-local hostname
+  //   3. req.node        — fall back to the user-selected PVE node
+  const pveHost = resolvePveHost(cfg, req);
+  if (pveHost && !isLocalHost(pveHost)) {
+    args.push('--pve-host', pveHost);
     if (cfg.user) args.push('--pve-user', cfg.user);
     if (cfg.privateKeyFile) args.push('--pve-ssh-key', cfg.privateKeyFile);
   }
@@ -195,6 +207,18 @@ function buildCommand(
 function isLocalHost(host: string): boolean {
   const h = host.trim().toLowerCase();
   return h === 'localhost' || h === '127.0.0.1' || h === '::1';
+}
+
+function resolvePveHost(
+  cfg: OrchestratorConfig,
+  req: ProvisionRequest,
+): string {
+  // Explicit override wins (including an explicit '' / 'localhost' to opt
+  // out of SSH wrapping when Backstage is colocated with PVE).
+  if (cfg.pveHost !== undefined) return cfg.pveHost;
+  if (cfg.host && !isLocalHost(cfg.host)) return cfg.host;
+  // Last resort: drive the per-request PVE node directly.
+  return req.node;
 }
 
 function streamLines(
@@ -343,7 +367,11 @@ export class ProvisionService {
     req: ProvisionRequest,
   ): Promise<void> {
     job.status = 'running';
-    const pveTarget = isLocalHost(cfg.host) ? 'localhost (no SSH)' : `${cfg.user}@${cfg.host}`;
+    const resolvedPve = resolvePveHost(cfg, req);
+    const pveTarget =
+      !resolvedPve || isLocalHost(resolvedPve)
+        ? 'localhost (no SSH)'
+        : `${cfg.user || 'root'}@${resolvedPve}`;
     appendLine(
       job,
       `[backend] Running provision-instance.sh locally on the Backstage host. PVE target: ${pveTarget}.`,

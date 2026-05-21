@@ -137,6 +137,10 @@ export const dhis2Plugin = createBackendPlugin({
               privateKeyFile,
               passphrase: sub?.getOptionalString('passphrase'),
               scriptPath,
+              // Optional explicit override of the Proxmox node the
+              // orchestrator script SSHes to. When undefined, the service
+              // falls back to host (if non-local) or the per-request node.
+              pveHost: sub?.getOptionalString('pveHost'),
               stateFile: sub?.getOptionalString('stateFile'),
               skipCertbot: sub?.getOptionalBoolean('skipCertbot') ?? false,
             };
