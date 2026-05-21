@@ -173,6 +173,14 @@ export interface CreateInstanceRequest {
    */
   dhisConfTemplate?: string;
   /**
+   * When true, the orchestrator will first stop and delete an existing
+   * LXC container with the same VMID (and the matching nginx vhost on
+   * the Proxmox host) before provisioning the new one. Destructive —
+   * the Create dialog gates this behind an explicit confirmation
+   * checkbox + warning prompt.
+   */
+  deleteIfExists?: boolean;
+  /**
    * Per-instance reverse-proxy configuration. Captured by the Create
    * dialog (pre-filled from the saved plugin defaults) and forwarded to
    * the orchestrator so each instance can be exposed with its own

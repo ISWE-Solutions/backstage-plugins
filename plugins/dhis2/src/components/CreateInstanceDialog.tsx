@@ -198,6 +198,12 @@ export const CreateInstanceDialog = ({
     DEFAULT_DHIS_CONF_TEMPLATE,
   );
 
+  // "Delete existing instance with the same VMID first" option. Off by
+  // default — enabling it triggers a confirmation prompt on submit since
+  // the action is destructive (the existing LXC + DB are wiped).
+  const [deleteIfExists, setDeleteIfExists] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+
   // Initialise default node/version from props when they arrive.
   useEffect(() => {
     if (nodes.length > 0 && !newInstance.node) {
@@ -296,7 +302,20 @@ export const CreateInstanceDialog = ({
     onClose();
   };
 
+  const submitNow = () => {
+    setConfirmDeleteOpen(false);
+    doSubmit();
+  };
+
   const handleSubmit = () => {
+    if (deleteIfExists) {
+      setConfirmDeleteOpen(true);
+      return;
+    }
+    doSubmit();
+  };
+
+  const doSubmit = () => {
     const derivedDomain =
       proxySettings.mode === 'subdomain'
         ? `${newInstance.name}.${proxySettings.baseDomain}`
@@ -319,6 +338,7 @@ export const CreateInstanceDialog = ({
         customizeDhisConf && dhisConfTemplate !== DEFAULT_DHIS_CONF_TEMPLATE
           ? dhisConfTemplate
           : undefined,
+      deleteIfExists: deleteIfExists || undefined,
       proxySettings,
       dhis2Settings,
     };
@@ -330,6 +350,7 @@ export const CreateInstanceDialog = ({
   };
 
   return (
+    <>
     <Dialog open={open} onClose={handleCancel} maxWidth="md" fullWidth>
       <DialogTitle>Create New DHIS2 Instance</DialogTitle>
       <DialogContent>
@@ -404,6 +425,27 @@ export const CreateInstanceDialog = ({
             </TextField>
           </Grid>
         </Grid>
+        <FormControlLabel
+          control={
+            <Checkbox
+              checked={deleteIfExists}
+              onChange={e => setDeleteIfExists(e.target.checked)}
+              color="secondary"
+            />
+          }
+          label={
+            <Box>
+              <Typography variant="body2">
+                Delete existing instance with the same VMID first
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                Destructive — stops and removes the existing LXC container
+                (and its database) before provisioning the new one. Useful
+                when re-running a failed install.
+              </Typography>
+            </Box>
+          }
+        />
         <Typography variant="h6" gutterBottom style={{ marginTop: 16 }}>
           Resources
         </Typography>
@@ -1383,5 +1425,36 @@ export const CreateInstanceDialog = ({
         </Button>
       </DialogActions>
     </Dialog>
+    <Dialog
+      open={confirmDeleteOpen}
+      onClose={() => setConfirmDeleteOpen(false)}
+      maxWidth="xs"
+      fullWidth
+    >
+      <DialogTitle>Delete existing instance?</DialogTitle>
+      <DialogContent>
+        <Alert severity="warning" style={{ marginBottom: 12 }}>
+          This will permanently stop and remove the existing LXC container
+          (and its DHIS2 database) before provisioning the new one. This
+          action cannot be undone.
+        </Alert>
+        <Typography variant="body2">
+          Proceed with deleting any existing instance at VMID{' '}
+          <strong>{settingsService.load().proxmox.vmidStart || 200}</strong>{' '}
+          and creating <strong>{newInstance.name || '(unnamed)'}</strong>?
+        </Typography>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setConfirmDeleteOpen(false)}>Cancel</Button>
+        <Button
+          onClick={submitNow}
+          color="secondary"
+          variant="contained"
+        >
+          Delete & Create
+        </Button>
+      </DialogActions>
+    </Dialog>
+    </>
   );
 };

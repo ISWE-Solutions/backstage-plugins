@@ -919,6 +919,13 @@ export interface ProvisionInstancePayload {
   newDbAccount?: { user: string; password: string };
   skipCertbot?: boolean;
   /**
+   * When true, the orchestrator will first stop + delete any existing
+   * LXC container with the same VMID (and tear down the matching nginx
+   * vhost on the Proxmox host) before provisioning the new one. The UI
+   * gates this behind a confirmation prompt.
+   */
+  deleteIfExists?: boolean;
+  /**
    * Optional Proxmox API credentials from the ProxmoxClusterPanel saved
    * settings. When provided, individual fields override the server-side
    * `dhis2.orchestrator.*` / `PROXMOX_*` env-var config for this job. The

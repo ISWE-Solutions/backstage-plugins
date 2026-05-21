@@ -143,6 +143,13 @@ export interface ProvisionRequest {
   newDbAccount?: { user: string; password: string };
   skipCertbot?: boolean;
   /**
+   * When true, the bash orchestrator first stops + deletes any existing
+   * LXC container with the same VMID (and removes its nginx vhost)
+   * before invoking the create-LXC step. The frontend gates this behind
+   * an explicit confirmation prompt.
+   */
+  deleteIfExists?: boolean;
+  /**
    * Optional Proxmox API credentials sent by the frontend (e.g. from the
    * ProxmoxClusterPanel settings). When provided, individual fields
    * override the server-side `dhis2.orchestrator.*` / `PROXMOX_*` config
@@ -267,6 +274,9 @@ function buildCommand(
   }
   if (cfg.skipCertbot || req.skipCertbot) {
     args.push('--skip-certbot');
+  }
+  if (req.deleteIfExists) {
+    args.push('--delete-if-exists');
   }
   // The provision script also needs an SSH key (used by Ansible to talk to
   // the freshly-created LXC). Reuse the orchestrator key when configured so

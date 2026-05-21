@@ -49,6 +49,9 @@ Optional:
   --vars-file <path>        YAML/env-style file with secrets (mode 0600).
                             Overridden by env vars if both are set.
   --skip-certbot            Don't request a Let's Encrypt cert
+  --delete-if-exists        Stop + purge any existing LXC at VMID (and its
+                            nginx vhost) before creating the new one.
+                            Destructive — recreates from scratch.
   --rollback-on-failure     Destroy the container if anything fails
   --keep-vars-file          Don't delete the rendered vars.yml on exit
                             (debugging only)
@@ -98,6 +101,7 @@ NEW_DB_USER=""
 DB_HOST=""
 DB_PORT=""
 EXISTING_DB=0
+DELETE_IF_EXISTS=0
 
 VMID=""; NODE=""; HOSTNAME=""; DOMAIN=""; EMAIL=""
 DHIS2_VERSION=""; DB_NAME=""; DB_USER=""
@@ -130,6 +134,7 @@ while [[ $# -gt 0 ]]; do
         --db-host) DB_HOST="$2"; shift 2;;
         --db-port) DB_PORT="$2"; shift 2;;
         --existing-db) EXISTING_DB=1; shift;;
+        --delete-if-exists) DELETE_IF_EXISTS=1; shift;;
         # Back-compat: accept and ignore the old PVE-SSH flags so callers
         # that still pass them don't break. The API-based flow doesn't
         # need them (configure-host-proxy.sh has its own --pve-host).
@@ -466,6 +471,25 @@ if [[ -n "${RESTORE_YAML_BLOCK}" ]]; then
     printf '\n%s\n' "${RESTORE_YAML_BLOCK}" >> "${EXTRA_VARS_FILE}"
 fi
 chmod 0600 "${EXTRA_VARS_FILE}"
+
+# ----------------------------------------------------------------------------
+# Phase 1.5 (optional): destructive wipe of any existing instance at this VMID
+# ----------------------------------------------------------------------------
+# When --delete-if-exists is passed, stop + purge the LXC at VMID and remove
+# the matching nginx vhost on the Proxmox host before the playbook recreates
+# them. Reuses the same Proxmox REST calls as rollback_lxc() and the
+# --remove path of configure-host-proxy.sh. Safe to run even when nothing
+# exists at VMID — both calls are best-effort and tolerate 404s.
+if [[ "${DELETE_IF_EXISTS}" == "1" ]]; then
+    log "--delete-if-exists set — wiping any existing VMID=${VMID} and its nginx vhost before recreating"
+    rollback_lxc || true
+    "${SCRIPT_DIR}/configure-host-proxy.sh" \
+        --remove --vmid "${VMID}" --domain "${DOMAIN}" \
+        --pve-host "${PVE_HOST}" --pve-user "${PVE_USER}" \
+        --pve-ssh-key "${PVE_SSH_KEY}" 2>/dev/null || true
+    # Give Proxmox a moment to release the VMID before the create call.
+    sleep 2
+fi
 
 # ----------------------------------------------------------------------------
 # Phase 2: ansible-playbook site.yml (LXC create + bootstrap + DHIS2)
