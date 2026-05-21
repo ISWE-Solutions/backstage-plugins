@@ -511,12 +511,22 @@ fi
 # Phase 2: ansible-playbook site.yml (LXC create + bootstrap + DHIS2)
 # ----------------------------------------------------------------------------
 log "Phase 2 — running ansible-playbook site.yml (this can take a while)"
-# DHIS2_DEBUG=1 ⇒ pass -vvv and -e dhis2_debug=true so no_log gates in the
-# pve_lxc role open up and the real Proxmox API error is shown.
+# DHIS2_DEBUG=1 ⇒ pass -v and -e dhis2_debug=true so no_log gates in the
+# pve_lxc / postgres roles open up and the real underlying error is shown.
+#
+# We deliberately stay at -v (not -vvv). -vvv emits the full ssh argv, the
+# python module body, AND a complete YAML dump of every module return value
+# on every task — for tasks like `systemd:` that dumps ~150 unit properties,
+# each task emits several KB of stdout. Inside the Backstage backend
+# (spawn(bash) | streamLines) that volume has been observed to back the
+# stdout pipe up enough to silently stall ansible-playbook for ~10 minutes
+# per task before something gives up and the playbook exits with code 2.
+# -v gives us the task-level changed/ok/failed result (more than enough to
+# tell what stage failed) without the verbose firehose.
 ANSIBLE_EXTRA_ARGS=()
 if [[ "${DHIS2_DEBUG:-0}" == "1" || "${DHIS2_DEBUG:-}" == "true" ]]; then
-    log "DHIS2_DEBUG=1 — enabling -vvv and dhis2_debug=true"
-    ANSIBLE_EXTRA_ARGS+=(-vvv -e "dhis2_debug=true")
+    log "DHIS2_DEBUG=1 — enabling -v and dhis2_debug=true"
+    ANSIBLE_EXTRA_ARGS+=(-v -e "dhis2_debug=true")
 fi
 (
     cd "${ANSIBLE_DIR}"
