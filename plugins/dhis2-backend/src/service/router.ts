@@ -269,7 +269,7 @@ export async function createRouter(
     if (!provisionService.isConfigured()) {
       res.status(503).json({
         error:
-          'Provisioning orchestrator is not configured. Set dhis2.orchestrator in app-config.yaml (host, user, privateKeyFile, scriptPath).',
+          'Provisioning orchestrator is not configured. Set dhis2.orchestrator in app-config.yaml (host defaults to localhost; user, privateKeyFile, scriptPath default for localhost; apiUrl, apiUser, apiTokenId, apiTokenSecret must be supplied).',
       });
       return;
     }

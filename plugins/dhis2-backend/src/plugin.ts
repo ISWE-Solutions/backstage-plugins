@@ -123,8 +123,12 @@ export const dhis2Plugin = createBackendPlugin({
           if (!isLocal && !privateKeyFile) missing.push('privateKeyFile');
           if (!scriptPath) missing.push('scriptPath');
 
-          // Proxmox REST API credentials (required — the pve_lxc Ansible
-          // role drives the API to create the LXC).
+          // Proxmox REST API credentials. These are required at runtime
+          // (the pve_lxc Ansible role drives the API to create the LXC)
+          // but we do NOT block plugin initialization on them: the orchestrator
+          // can still be used for non-provisioning operations (DB tests, etc.)
+          // and the bash script itself fails fast with a clear error if the
+          // PROXMOX_API_* env vars are unset when a provision is attempted.
           const apiUrl = (sub?.getOptionalString('apiUrl') ?? '').trim();
           const apiUser = (sub?.getOptionalString('apiUser') ?? '').trim();
           const apiTokenId = (
@@ -135,10 +139,18 @@ export const dhis2Plugin = createBackendPlugin({
           ).trim();
           const validateApiCerts =
             sub?.getOptionalBoolean('validateApiCerts') ?? false;
-          if (!apiUrl) missing.push('apiUrl');
-          if (!apiUser) missing.push('apiUser');
-          if (!apiTokenId) missing.push('apiTokenId');
-          if (!apiTokenSecret) missing.push('apiTokenSecret');
+          const missingApi: string[] = [];
+          if (!apiUrl) missingApi.push('apiUrl');
+          if (!apiUser) missingApi.push('apiUser');
+          if (!apiTokenId) missingApi.push('apiTokenId');
+          if (!apiTokenSecret) missingApi.push('apiTokenSecret');
+          if (missingApi.length > 0) {
+            logger.warn(
+              `DHIS2: Proxmox API credentials not set (missing: ${missingApi.join(
+                ', ',
+              )}). Provisioning will fail at runtime until these are provided via dhis2.orchestrator.{apiUrl,apiUser,apiTokenId,apiTokenSecret} or the PROXMOX_API_URL/PROXMOX_USER/PROXMOX_TOKEN_ID/PROXMOX_TOKEN_SECRET env vars.`,
+            );
+          }
 
           if (missing.length > 0) {
             logger.warn(
