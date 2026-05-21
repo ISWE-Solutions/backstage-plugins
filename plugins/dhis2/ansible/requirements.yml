@@ -11,8 +11,15 @@
 # These power community.general.proxmox, which talks to the Proxmox REST
 # API over HTTPS — no `pct`/`pvesh` CLI is required anywhere.
 
+# community.general 10.x requires ansible-core >= 2.17. Ubuntu 24.04 /
+# Debian 12 still ship ansible-core 2.16, which would emit:
+#   [WARNING]: Collection community.general does not support Ansible
+#   version 2.16.3
+# and then fail at runtime on newer modules. Pin to the 8.x/9.x line,
+# which still supports ansible-core 2.13+ and contains everything the
+# pve_lxc role uses (community.general.proxmox*).
 collections:
   - name: community.general
-    version: ">=8.0.0"
+    version: ">=8.0.0,<10.0.0"
   - name: ansible.posix
     version: ">=1.5.0"
