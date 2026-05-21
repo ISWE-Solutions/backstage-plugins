@@ -161,6 +161,32 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 PLUGIN_DIR="$(cd -- "${SCRIPT_DIR}/.." &>/dev/null && pwd)"
 ANSIBLE_DIR="${PLUGIN_DIR}/ansible"
 
+# Source the orchestrator env file written by scripts/install.sh. This
+# provides ANSIBLE_PYTHON_INTERPRETER (pointing at the venv that has
+# proxmoxer installed) so the pve_lxc role can talk to the Proxmox REST
+# API. Caller-set env vars win over the file (we don't clobber).
+ORCH_ENV_FILE="${ORCH_ENV_FILE:-/etc/backstage/orchestrator.env}"
+if [[ -r "${ORCH_ENV_FILE}" ]]; then
+    while IFS= read -r _line; do
+        [[ -z "${_line}" || "${_line}" =~ ^[[:space:]]*# ]] && continue
+        _key="${_line%%=*}"
+        _val="${_line#*=}"
+        # Strip optional surrounding quotes.
+        _val="${_val%\"}"; _val="${_val#\"}"
+        _val="${_val%\'}"; _val="${_val#\'}"
+        if [[ -z "${!_key:-}" ]]; then
+            export "${_key}=${_val}"
+        fi
+    done < "${ORCH_ENV_FILE}"
+    unset _line _key _val
+fi
+# Fallback: if no interpreter was set and the default install-time venv
+# exists, use it so a stock install just works without an env file.
+if [[ -z "${ANSIBLE_PYTHON_INTERPRETER:-}" \
+      && -x "/opt/backstage/venv/bin/python3" ]]; then
+    export ANSIBLE_PYTHON_INTERPRETER="/opt/backstage/venv/bin/python3"
+fi
+
 # Choose SSH key — default to a dhis2-specific key, fall back to id_ed25519.
 if [[ -z "${SSH_KEY}" ]]; then
     if [[ -r "${HOME}/.ssh/id_ed25519_dhis2" ]]; then
