@@ -2,7 +2,7 @@ import { LoggerService } from '@backstage/backend-plugin-api';
 import { Client as SshClient } from 'ssh2';
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import { randomUUID } from 'crypto';
+import { randomUUID, randomBytes } from 'crypto';
 
 /**
  * Configuration for the host that actually runs the provision-instance.sh
@@ -84,7 +84,12 @@ export interface ProvisionRequest {
   email: string;
   resources: { cpu: number; memory: number; storage: number };
   database: { name: string; user: string; password: string };
-  adminPassword: string;
+  /**
+   * Initial DHIS2 admin password. Optional — when omitted or blank, the
+   * backend generates a strong random password and emits it once into the
+   * job log so the operator can copy it.
+   */
+  adminPassword?: string;
   rootPassword?: string;
   newDbAccount?: { user: string; password: string };
   skipCertbot?: boolean;
@@ -119,6 +124,16 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+function generateSecurePassword(): string {
+  // 24 bytes of base64url -> ~32 chars, URL/CLI safe and free of shell
+  // metacharacters that would need quoting beyond what shellQuote handles.
+  return randomBytes(24)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
 function buildCommand(
   cfg: OrchestratorConfig,
   req: ProvisionRequest,
@@ -147,8 +162,8 @@ function buildCommand(
   // Secrets are exported as env vars on the remote shell, NEVER on argv.
   const env: Record<string, string> = {
     DHIS2_DB_PASS: req.database.password,
-    DHIS2_ADMIN_PASS: req.adminPassword,
-    ROOT_PASSWORD: req.rootPassword ?? req.adminPassword,
+    DHIS2_ADMIN_PASS: req.adminPassword ?? '',
+    ROOT_PASSWORD: req.rootPassword ?? req.adminPassword ?? '',
   };
   if (req.newDbAccount?.password) {
     env.NEW_DB_PASS = req.newDbAccount.password;
@@ -235,6 +250,13 @@ export class ProvisionService {
     }
     const cfg = this.cfg;
     const id = randomUUID();
+    // Auto-generate a strong admin password when the caller didn't supply
+    // one, and surface it via the job log so the operator can record it.
+    let adminPasswordWasGenerated = false;
+    if (!req.adminPassword) {
+      req.adminPassword = generateSecurePassword();
+      adminPasswordWasGenerated = true;
+    }
     const job: JobSnapshot = {
       id,
       status: 'queued',
@@ -249,6 +271,13 @@ export class ProvisionService {
       },
     };
     jobs.set(id, job);
+
+    if (adminPasswordWasGenerated) {
+      appendLine(
+        job,
+        `[backend] Generated DHIS2 admin password: ${req.adminPassword} -- copy this now, it will not be shown again`,
+      );
+    }
 
     // Fire-and-forget. All errors are captured into the job snapshot.
     this.runJob(job, cfg, req).catch(err => {

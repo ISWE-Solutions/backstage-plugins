@@ -208,7 +208,6 @@ export async function createRouter(
       'email',
       'resources',
       'database',
-      'adminPassword',
     ];
     for (const key of required) {
       if (b[key] === undefined || b[key] === null || b[key] === '') {
@@ -248,7 +247,10 @@ export async function createRouter(
       email: String(b.email),
       resources: { cpu: r.cpu, memory: r.memory, storage: r.storage },
       database: { name: d.name, user: d.user, password: d.password },
-      adminPassword: String(b.adminPassword),
+      adminPassword:
+        typeof b.adminPassword === 'string' && b.adminPassword !== ''
+          ? b.adminPassword
+          : undefined,
       rootPassword:
         typeof b.rootPassword === 'string' && b.rootPassword !== ''
           ? b.rootPassword

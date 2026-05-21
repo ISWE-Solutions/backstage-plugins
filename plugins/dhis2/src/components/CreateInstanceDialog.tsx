@@ -289,9 +289,6 @@ export const CreateInstanceDialog = ({
     if (!newInstance.name.trim()) return 'Instance name is required.';
     if (!newInstance.version) return 'DHIS2 version is required.';
     if (!newInstance.node) return 'Proxmox node is required.';
-    if (!restoreEnabled && !newInstance.adminPassword) {
-      return 'DHIS2 admin password is required.';
-    }
     return null;
   })();
 
@@ -513,10 +510,9 @@ export const CreateInstanceDialog = ({
           helperText={
             restoreEnabled
               ? 'Ignored when restoring from a backup (the restored admin password is preserved).'
-              : 'Password for the DHIS2 admin user'
+              : 'Optional. Leave blank to have a strong password auto-generated and shown in the provisioning log.'
           }
           disabled={restoreEnabled}
-          required={!restoreEnabled}
         />
         <FormControlLabel
           control={
