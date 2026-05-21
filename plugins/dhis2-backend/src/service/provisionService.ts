@@ -1,5 +1,6 @@
 import { LoggerService } from '@backstage/backend-plugin-api';
 import { Client as SshClient } from 'ssh2';
+import { spawn } from 'child_process';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import { randomUUID, randomBytes } from 'crypto';
@@ -180,6 +181,91 @@ async function readPrivateKey(keyPath: string): Promise<Buffer> {
   return await fs.readFile(keyPath);
 }
 
+function isLocalHost(host: string): boolean {
+  const h = host.trim().toLowerCase();
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1';
+}
+
+function streamLines(
+  job: JobSnapshot,
+  stream: NodeJS.ReadableStream,
+  prefix: string,
+) {
+  let buf = '';
+  stream.on('data', (chunk: Buffer | string) => {
+    buf += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+    const parts = buf.split('\n');
+    buf = parts.pop() ?? '';
+    for (const line of parts) appendLine(job, prefix ? `${prefix}${line}` : line);
+  });
+  stream.on('end', () => {
+    if (buf) appendLine(job, prefix ? `${prefix}${buf}` : buf);
+  });
+}
+
+async function runLocal(job: JobSnapshot, command: string): Promise<number> {
+  return await new Promise<number>((resolve, reject) => {
+    // The `command` already includes the env-var prefix and `bash -lc '...'`,
+    // so just hand it to a top-level shell.
+    const child = spawn('bash', ['-lc', command], { stdio: 'pipe' });
+    streamLines(job, child.stdout, '');
+    streamLines(job, child.stderr, '[stderr] ');
+    child.on('error', reject);
+    child.on('close', code => resolve(typeof code === 'number' ? code : -1));
+  });
+}
+
+async function runOverSsh(
+  job: JobSnapshot,
+  cfg: OrchestratorConfig,
+  command: string,
+): Promise<number> {
+  const privateKey = await readPrivateKey(cfg.privateKeyFile);
+  return await new Promise<number>((resolve, reject) => {
+    const conn = new SshClient();
+    conn
+      .on('ready', () => {
+        conn.exec(command, (err, stream) => {
+          if (err) {
+            conn.end();
+            reject(err);
+            return;
+          }
+          let stdoutBuf = '';
+          let stderrBuf = '';
+          stream
+            .on('close', (code: number | null) => {
+              if (stdoutBuf) appendLine(job, stdoutBuf);
+              if (stderrBuf) appendLine(job, `[stderr] ${stderrBuf}`);
+              conn.end();
+              resolve(typeof code === 'number' ? code : -1);
+            })
+            .on('data', (data: Buffer) => {
+              stdoutBuf += data.toString('utf8');
+              const parts = stdoutBuf.split('\n');
+              stdoutBuf = parts.pop() ?? '';
+              for (const line of parts) appendLine(job, line);
+            })
+            .stderr.on('data', (data: Buffer) => {
+              stderrBuf += data.toString('utf8');
+              const parts = stderrBuf.split('\n');
+              stderrBuf = parts.pop() ?? '';
+              for (const line of parts) appendLine(job, `[stderr] ${line}`);
+            });
+        });
+      })
+      .on('error', reject)
+      .connect({
+        host: cfg.host,
+        port: cfg.port,
+        username: cfg.user,
+        privateKey,
+        passphrase: cfg.passphrase,
+        readyTimeout: 30_000,
+      });
+  });
+}
+
 async function appendInstanceToState(
   cfg: OrchestratorConfig,
   inst: PersistedInstance,
@@ -297,9 +383,19 @@ export class ProvisionService {
     req: ProvisionRequest,
   ): Promise<void> {
     job.status = 'running';
-    appendLine(job, `[backend] Connecting to orchestrator ${cfg.user}@${cfg.host}:${cfg.port}`);
+    const local = isLocalHost(cfg.host);
+    if (local) {
+      appendLine(
+        job,
+        `[backend] Running orchestrator script locally as user "${process.getuid?.() === 0 ? 'root' : process.env.USER ?? 'unknown'}" (host=${cfg.host}, SSH bypassed)`,
+      );
+    } else {
+      appendLine(
+        job,
+        `[backend] Connecting to orchestrator ${cfg.user}@${cfg.host}:${cfg.port}`,
+      );
+    }
 
-    const privateKey = await readPrivateKey(cfg.privateKeyFile);
     const command = buildCommand(cfg, req);
     // Log the redacted form for traceability.
     appendLine(
@@ -307,49 +403,9 @@ export class ProvisionService {
       `[backend] Executing: ${cfg.scriptPath} --vmid ${req.vmid} --node ${req.node} --hostname ${req.hostname} --domain ${req.domain} --dhis2-version ${req.version} --db-name ${req.database.name} --db-user ${req.database.user} (secrets via env)`,
     );
 
-    const exitCode = await new Promise<number>((resolve, reject) => {
-      const conn = new SshClient();
-      conn
-        .on('ready', () => {
-          conn.exec(command, (err, stream) => {
-            if (err) {
-              conn.end();
-              reject(err);
-              return;
-            }
-            let stdoutBuf = '';
-            let stderrBuf = '';
-            stream
-              .on('close', (code: number | null) => {
-                if (stdoutBuf) appendLine(job, stdoutBuf);
-                if (stderrBuf) appendLine(job, `[stderr] ${stderrBuf}`);
-                conn.end();
-                resolve(typeof code === 'number' ? code : -1);
-              })
-              .on('data', (data: Buffer) => {
-                stdoutBuf += data.toString('utf8');
-                const parts = stdoutBuf.split('\n');
-                stdoutBuf = parts.pop() ?? '';
-                for (const line of parts) appendLine(job, line);
-              })
-              .stderr.on('data', (data: Buffer) => {
-                stderrBuf += data.toString('utf8');
-                const parts = stderrBuf.split('\n');
-                stderrBuf = parts.pop() ?? '';
-                for (const line of parts) appendLine(job, `[stderr] ${line}`);
-              });
-          });
-        })
-        .on('error', reject)
-        .connect({
-          host: cfg.host,
-          port: cfg.port,
-          username: cfg.user,
-          privateKey,
-          passphrase: cfg.passphrase,
-          readyTimeout: 30_000,
-        });
-    });
+    const exitCode = local
+      ? await runLocal(job, command)
+      : await runOverSsh(job, cfg, command);
 
     job.exitCode = exitCode;
     job.finishedAt = new Date().toISOString();

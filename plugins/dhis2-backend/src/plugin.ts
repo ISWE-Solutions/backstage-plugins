@@ -109,7 +109,9 @@ export const dhis2Plugin = createBackendPlugin({
 
           const missing: string[] = [];
           if (!user) missing.push('user');
-          if (!privateKeyFile) missing.push('privateKeyFile');
+          // SSH private key is only needed when we'll actually open an SSH
+          // connection — for a local orchestrator we exec the script directly.
+          if (!isLocal && !privateKeyFile) missing.push('privateKeyFile');
           if (!scriptPath) missing.push('scriptPath');
 
           if (missing.length > 0) {
