@@ -260,7 +260,7 @@ if [[ -n "${NEW_DB_USER}" && -z "${NEW_DB_PASS:-}" ]]; then
 fi
 
 # Sanity-check role layout (including the new ones).
-for role in common postgres dhis2 pve_lxc lxc_bootstrap stage_restore host_proxy; do
+for role in common postgres dhis2 pve_lxc lxc_bootstrap stage_restore proxy; do
     if [[ ! -d "${ANSIBLE_DIR}/roles/${role}" ]]; then
         echo "missing Ansible role: ansible/roles/${role}" >&2
         exit 1

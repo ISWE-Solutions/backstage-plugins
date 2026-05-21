@@ -195,4 +195,4 @@
   gather_facts: false
   become: true
   roles:
-    - role: host_proxy
+    - role: proxy
