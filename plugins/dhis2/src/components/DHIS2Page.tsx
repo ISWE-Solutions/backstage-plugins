@@ -13,6 +13,7 @@ import {
   Paper,
   Tabs,
   Tab,
+  Tooltip,
   CircularProgress,
   makeStyles,
 } from '@material-ui/core';
@@ -35,6 +36,7 @@ import DeviceHubIcon from '@material-ui/icons/DeviceHub';
 import CheckCircleIcon from '@material-ui/icons/CheckCircle';
 import ErrorOutlineIcon from '@material-ui/icons/ErrorOutline';
 import RadioButtonUncheckedIcon from '@material-ui/icons/RadioButtonUnchecked';
+import FileCopyIcon from '@material-ui/icons/FileCopy';
 import {
   DHIS2Instance,
   ProxmoxNode,
@@ -127,6 +129,109 @@ function TabPanel(props: TabPanelProps) {
   );
 }
 
+// Activity-log phase classification. The Ansible output emits headers like
+// `PLAY [Phase 1 — …]` and per-task lines like `TASK [postgres : …]`. We use
+// these to group the streaming log into visually distinct sections so the
+// PostgreSQL and DHIS2 stages (which both live inside Phase 4) are easy to
+// tell apart at a glance.
+type LogPhase =
+  | 'Submit'
+  | 'Proxmox'
+  | 'Bootstrap'
+  | 'Preflight'
+  | 'Restore'
+  | 'Common'
+  | 'PostgreSQL'
+  | 'DHIS2'
+  | 'Nginx'
+  | 'Finalize'
+  | 'Error'
+  | 'General';
+
+const PHASE_COLORS: Record<LogPhase, string> = {
+  Submit: '#9ca3af',
+  Proxmox: '#fbbf24',
+  Bootstrap: '#fb923c',
+  Preflight: '#a3a3a3',
+  Restore: '#c084fc',
+  Common: '#94a3b8',
+  PostgreSQL: '#60a5fa',
+  DHIS2: '#34d399',
+  Nginx: '#f472b6',
+  Finalize: '#22d3ee',
+  Error: '#f87171',
+  General: '#6b7280',
+};
+
+const classifyPhase = (line: string, prev: LogPhase): LogPhase => {
+  // Strip the leading "[hh:mm:ss] " timestamp that appendProvisionLog adds.
+  const raw = line.replace(/^\[[^\]]+\]\s*/, '');
+
+  if (/^ERROR:/i.test(raw)) return 'Error';
+
+  // PLAY headers from Ansible mark the start of a new top-level phase.
+  const playMatch = raw.match(/PLAY \[([^\]]+)\]/i);
+  if (playMatch) {
+    const name = playMatch[1];
+    if (/Phase 1\b/i.test(name)) return 'Proxmox';
+    if (/Phase 2b\b/i.test(name)) return 'Bootstrap';
+    if (/Phase 2\b/i.test(name)) return 'Bootstrap';
+    if (/Pre-?flight/i.test(name)) return 'Preflight';
+    if (/Phase 3\b|stage restore/i.test(name)) return 'Restore';
+    if (/Phase 4\b|provision DHIS2/i.test(name)) return 'Common';
+    return prev;
+  }
+
+  // TASK lines reveal which role is currently running inside Phase 4.
+  const taskMatch = raw.match(/TASK \[([a-zA-Z0-9_\-]+)\s*:/);
+  if (taskMatch) {
+    const role = taskMatch[1].toLowerCase();
+    if (role === 'pve_lxc') return 'Proxmox';
+    if (role === 'lxc_bootstrap') return 'Bootstrap';
+    if (role === 'stage_restore') return 'Restore';
+    if (role === 'common') return 'Common';
+    if (role === 'postgres' || role === 'postgresql') return 'PostgreSQL';
+    if (role === 'dhis2') return 'DHIS2';
+    if (role === 'nginx') return 'Nginx';
+    return prev;
+  }
+
+  // Wrapper / backend markers from provision-instance.sh and the backend.
+  if (/Phase 1 — creating LXC|container IP:/i.test(raw)) return 'Proxmox';
+  if (/Phase 2 — rendering inventory|running ansible-playbook/i.test(raw)) {
+    return prev === 'Submit' || prev === 'Proxmox' ? 'Bootstrap' : prev;
+  }
+  if (/Phase 3 — configuring central Nginx/i.test(raw)) return 'Nginx';
+  if (/DHIS2 provisioning complete|provisioned successfully/i.test(raw)) {
+    return 'Finalize';
+  }
+  if (/Starting provisioning|Backend accepted job|Streaming progress/i.test(raw)) {
+    return 'Submit';
+  }
+
+  return prev;
+};
+
+interface LogGroup {
+  phase: LogPhase;
+  lines: string[];
+}
+
+const groupLogByPhase = (lines: string[]): LogGroup[] => {
+  const groups: LogGroup[] = [];
+  let current: LogPhase = 'Submit';
+  for (const line of lines) {
+    const next = classifyPhase(line, current);
+    if (groups.length === 0 || next !== current) {
+      groups.push({ phase: next, lines: [line] });
+      current = next;
+    } else {
+      groups[groups.length - 1].lines.push(line);
+    }
+  }
+  return groups;
+};
+
 export const DHIS2Page = () => {
   const classes = useStyles();
   const { fetch: backstageFetch } = useApi(fetchApiRef);
@@ -171,6 +276,7 @@ export const DHIS2Page = () => {
   const [provisionDone, setProvisionDone] = useState(false);
   const [provisionInstanceName, setProvisionInstanceName] = useState('');
   const [provisionLog, setProvisionLog] = useState<string[]>([]);
+  const [logCopied, setLogCopied] = useState(false);
 
   useEffect(() => {
     loadInstances();
@@ -807,13 +913,64 @@ export const DHIS2Page = () => {
             </Box>
             {provisionLog.length > 0 && (
               <Box mt={2}>
-                <Typography variant="caption" color="textSecondary">
-                  Activity log
-                </Typography>
+                <Box
+                  display="flex"
+                  alignItems="center"
+                  justifyContent="space-between"
+                  mb={0.5}
+                >
+                  <Typography variant="caption" color="textSecondary">
+                    Activity log
+                  </Typography>
+                  <Tooltip title={logCopied ? 'Copied!' : 'Copy logs'}>
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        const text = provisionLog.join('\n');
+                        const fallback = () => {
+                          try {
+                            const ta = document.createElement('textarea');
+                            ta.value = text;
+                            ta.style.position = 'fixed';
+                            ta.style.opacity = '0';
+                            document.body.appendChild(ta);
+                            ta.select();
+                            document.execCommand('copy');
+                            document.body.removeChild(ta);
+                          } catch {
+                            /* ignore */
+                          }
+                        };
+                        const done = () => {
+                          setLogCopied(true);
+                          window.setTimeout(() => setLogCopied(false), 1500);
+                        };
+                        if (
+                          navigator.clipboard &&
+                          typeof navigator.clipboard.writeText === 'function'
+                        ) {
+                          navigator.clipboard
+                            .writeText(text)
+                            .then(done)
+                            .catch(() => {
+                              fallback();
+                              done();
+                            });
+                        } else {
+                          fallback();
+                          done();
+                        }
+                      }}
+                      aria-label="Copy activity log"
+                    >
+                      <FileCopyIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
                 <Paper
                   variant="outlined"
                   style={{
-                    maxHeight: 160,
+                    maxHeight: 280,
                     overflowY: 'auto',
                     padding: 8,
                     marginTop: 4,
@@ -824,9 +981,50 @@ export const DHIS2Page = () => {
                     fontSize: 12,
                   }}
                 >
-                  {provisionLog.map((line, idx) => (
-                    <div key={idx}>{line}</div>
-                  ))}
+                  {groupLogByPhase(provisionLog).map((group, gIdx) => {
+                    const color = PHASE_COLORS[group.phase];
+                    return (
+                      <Box
+                        key={gIdx}
+                        mb={1}
+                        style={{
+                          borderLeft: `3px solid ${color}`,
+                          paddingLeft: 8,
+                        }}
+                      >
+                        <Box
+                          style={{
+                            color,
+                            fontWeight: 600,
+                            fontSize: 11,
+                            letterSpacing: 0.5,
+                            textTransform: 'uppercase',
+                            marginBottom: 2,
+                            position: 'sticky',
+                            top: -8,
+                            background: '#0e1116',
+                            paddingTop: 2,
+                            paddingBottom: 2,
+                          }}
+                        >
+                          {group.phase}
+                        </Box>
+                        {group.lines.map((line, lIdx) => (
+                          <div
+                            key={lIdx}
+                            style={{
+                              whiteSpace: 'pre-wrap',
+                              wordBreak: 'break-word',
+                              color:
+                                group.phase === 'Error' ? '#fca5a5' : undefined,
+                            }}
+                          >
+                            {line}
+                          </div>
+                        ))}
+                      </Box>
+                    );
+                  })}
                 </Paper>
               </Box>
             )}
