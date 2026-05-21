@@ -374,6 +374,17 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
                 }
                 label="Verify TLS certificate"
               />
+              <Typography
+                variant="caption"
+                color="textSecondary"
+                component="div"
+              >
+                Leave off when the Proxmox API uses the stock self-signed
+                certificate (the default). Enable only when the PVE
+                endpoint is fronted by a publicly-trusted certificate —
+                otherwise provisioning fails with
+                CERTIFICATE_VERIFY_FAILED.
+              </Typography>
             </Grid>
           </Grid>
 

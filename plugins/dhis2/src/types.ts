@@ -486,7 +486,12 @@ export const DEFAULT_SETTINGS: DHIS2PluginSettings = {
     tokenSecret: '',
     username: 'root@pam',
     password: '',
-    verifyTls: true,
+    // Default to NOT validating the PVE API certificate. Proxmox VE
+    // ships a self-signed cert by default and most clusters never get
+    // a publicly-trusted one; enforcing validation here only produces
+    // CERTIFICATE_VERIFY_FAILED at provision time. Operators with a
+    // proper PKI can still re-enable it from the Proxmox Cluster panel.
+    verifyTls: false,
     defaultNode: 'pve1',
     rootfsStorage: 'local-lvm',
     templateStorage: 'local',
