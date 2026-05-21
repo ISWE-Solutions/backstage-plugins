@@ -914,7 +914,7 @@ export interface ProvisionInstancePayload {
   email: string;
   resources: { cpu: number; memory: number; storage: number };
   database: { name: string; user: string; password: string };
-  adminPassword: string;
+  adminPassword?: string;
   rootPassword?: string;
   newDbAccount?: { user: string; password: string };
   skipCertbot?: boolean;

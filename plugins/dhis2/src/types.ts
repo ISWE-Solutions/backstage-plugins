@@ -130,7 +130,12 @@ export interface CreateInstanceRequest {
     /** Port of the existing PostgreSQL server. Defaults to 5432. */
     port?: number;
   };
-  adminPassword: string;
+  /**
+   * LXC root password for the new container. Optional — when omitted or
+   * blank the backend generates a strong random password and surfaces it
+   * once in the provisioning log so the operator can copy it.
+   */
+  rootPassword?: string;
   /**
    * Optional per-instance overrides for the reverse-proxy routing settings.
    * When provided, these replace the corresponding values from the global

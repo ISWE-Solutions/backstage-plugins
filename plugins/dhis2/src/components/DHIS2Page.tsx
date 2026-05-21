@@ -441,7 +441,7 @@ export const DHIS2Page = () => {
             password: dhis2Cfg.postgresAdminPassword || '',
           }
         : undefined,
-      adminPassword: request.adminPassword,
+      rootPassword: request.rootPassword,
       newDbAccount: request.newDbAccount,
     };
 

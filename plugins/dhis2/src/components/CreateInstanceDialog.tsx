@@ -141,7 +141,7 @@ const buildInitialInstance = (
     user: 'dhis2',
     password: '',
   },
-  adminPassword: '',
+  rootPassword: '',
   proxyOverride: {
     mode: proxy.mode,
     baseDomain: proxy.baseDomain,
@@ -284,7 +284,7 @@ export const CreateInstanceDialog = ({
 
   // Block submission early for fields the backend strictly requires, so the
   // user gets a precise inline message instead of a generic round-trip error
-  // like '"adminPassword" is required'.
+  // like '"name" is required'.
   const formValidationError: string | null = (() => {
     if (!newInstance.name.trim()) return 'Instance name is required.';
     if (!newInstance.version) return 'DHIS2 version is required.';
@@ -501,18 +501,13 @@ export const CreateInstanceDialog = ({
         <TextField
           fullWidth
           type="password"
-          label="DHIS2 Admin Password"
-          value={newInstance.adminPassword}
+          label="LXC Root Password"
+          value={newInstance.rootPassword ?? ''}
           onChange={e =>
-            setNewInstance({ ...newInstance, adminPassword: e.target.value })
+            setNewInstance({ ...newInstance, rootPassword: e.target.value })
           }
           className={classes.formField}
-          helperText={
-            restoreEnabled
-              ? 'Ignored when restoring from a backup (the restored admin password is preserved).'
-              : 'Optional. Leave blank to have a strong password auto-generated and shown in the provisioning log.'
-          }
-          disabled={restoreEnabled}
+          helperText="Optional. Root password for the LXC container's default root user. Leave blank to have a strong password auto-generated and shown once in the provisioning log."
         />
         <FormControlLabel
           control={
@@ -963,9 +958,8 @@ export const CreateInstanceDialog = ({
               component="div"
               style={{ marginTop: 8 }}
             >
-              Note: the restored database keeps its own admin user and
-              password. The "DHIS2 Admin Password" set above is ignored
-              when restoring from a backup.
+              Note: the restored database keeps its own DHIS2 admin user and
+              password.
             </Typography>
           </Box>
         )}
