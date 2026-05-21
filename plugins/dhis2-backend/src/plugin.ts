@@ -11,6 +11,7 @@ import {
   ProvisionService,
   normalizeProxmoxCreds,
 } from './service/provisionService';
+import { DatabaseTransferService } from './service/databaseTransferService';
 
 /**
  * When the Backstage backend IS the orchestrator host (host=localhost), pick
@@ -210,11 +211,16 @@ export const dhis2Plugin = createBackendPlugin({
           orchestrator = null;
         }
         const provisionService = new ProvisionService(logger, orchestrator);
+        const databaseTransferService = new DatabaseTransferService(
+          logger,
+          provisionService,
+        );
         httpRouter.use(
           await createRouter({
             logger,
             httpAuth,
             provisionService,
+            databaseTransferService,
           }),
         );
       },

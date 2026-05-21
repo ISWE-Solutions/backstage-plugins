@@ -4,11 +4,17 @@ import express from 'express';
 import Router from 'express-promise-router';
 import { Client } from 'pg';
 import { ProvisionService, ProvisionRequest } from './provisionService';
+import {
+  DatabaseTransferService,
+  DbEndpoint,
+  TransferOptions,
+} from './databaseTransferService';
 
 export interface RouterOptions {
   logger: LoggerService;
   httpAuth: HttpAuthService;
   provisionService: ProvisionService;
+  databaseTransferService: DatabaseTransferService;
 }
 
 interface DbCredentials {
@@ -116,7 +122,8 @@ function describeError(
 export async function createRouter(
   options: RouterOptions,
 ): Promise<express.Router> {
-  const { logger, httpAuth, provisionService } = options;
+  const { logger, httpAuth, provisionService, databaseTransferService } =
+    options;
 
   const router = Router();
   router.use(express.json());
@@ -334,6 +341,100 @@ export async function createRouter(
   router.get('/instances', async (_req, res) => {
     const instances = await provisionService.listInstances();
     res.json({ instances });
+  });
+
+  // ---------------------------------------------------------------------
+  // Database transfer (pg_dump | psql) between source and target servers
+  // ---------------------------------------------------------------------
+
+  function parseEndpoint(label: string, raw: unknown): DbEndpoint {
+    if (!raw || typeof raw !== 'object') {
+      throw new InputError(`"${label}" must be an object`);
+    }
+    const o = raw as Record<string, unknown>;
+    const host = typeof o.host === 'string' ? o.host.trim() : '';
+    const portRaw = o.port;
+    const portNum =
+      typeof portRaw === 'number'
+        ? portRaw
+        : typeof portRaw === 'string' && portRaw !== ''
+          ? Number(portRaw)
+          : NaN;
+    const user = typeof o.user === 'string' ? o.user.trim() : '';
+    const password = typeof o.password === 'string' ? o.password : '';
+    const database = typeof o.database === 'string' ? o.database.trim() : '';
+    if (!host) throw new InputError(`"${label}.host" is required`);
+    if (!Number.isInteger(portNum) || portNum <= 0 || portNum > 65535) {
+      throw new InputError(`"${label}.port" must be an integer between 1 and 65535`);
+    }
+    if (!user) throw new InputError(`"${label}.user" is required`);
+    if (!password) throw new InputError(`"${label}.password" is required`);
+    if (!database) throw new InputError(`"${label}.database" is required`);
+    return { host, port: portNum, user, password, database };
+  }
+
+  function parseTransferOptions(raw: unknown): TransferOptions {
+    if (raw === undefined || raw === null) return {};
+    if (typeof raw !== 'object') {
+      throw new InputError('"options" must be an object');
+    }
+    const o = raw as Record<string, unknown>;
+    const opts: TransferOptions = {};
+    if (typeof o.createTargetDatabase === 'boolean')
+      opts.createTargetDatabase = o.createTargetDatabase;
+    if (typeof o.dropTargetIfExists === 'boolean')
+      opts.dropTargetIfExists = o.dropTargetIfExists;
+    if (typeof o.noOwner === 'boolean') opts.noOwner = o.noOwner;
+    if (typeof o.noPrivileges === 'boolean') opts.noPrivileges = o.noPrivileges;
+    if (typeof o.clean === 'boolean') opts.clean = o.clean;
+    if (
+      typeof o.maintenanceDatabase === 'string' &&
+      o.maintenanceDatabase.trim() !== ''
+    ) {
+      opts.maintenanceDatabase = o.maintenanceDatabase.trim();
+    }
+    return opts;
+  }
+
+  router.post('/instances/:id/transfer-database', async (req, res) => {
+    const instanceId = String(req.params.id);
+    let source: DbEndpoint;
+    let target: DbEndpoint;
+    let options: TransferOptions;
+    try {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      source = parseEndpoint('source', body.source);
+      target = parseEndpoint('target', body.target);
+      options = parseTransferOptions(body.options);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(400).json({ error: message });
+      return;
+    }
+    try {
+      const job = await databaseTransferService.startJob({
+        instanceId,
+        source,
+        target,
+        options,
+      });
+      logger.info(
+        `DHIS2: transfer job ${job.id} started for instance ${instanceId} (${source.database}@${source.host} \u2192 ${target.database}@${target.host})`,
+      );
+      res.status(202).json({ jobId: job.id, status: job.status });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(400).json({ error: message });
+    }
+  });
+
+  router.get('/databases/transfers/:id', (req, res) => {
+    const job = databaseTransferService.getJob(req.params.id);
+    if (!job) {
+      res.status(404).json({ error: 'Transfer job not found' });
+      return;
+    }
+    res.json(job);
   });
 
   return router;

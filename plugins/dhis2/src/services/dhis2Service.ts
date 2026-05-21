@@ -901,6 +901,62 @@ export class DHIS2Service {
     const body = (await res.json()) as { instances?: DHIS2Instance[] };
     return body.instances ?? [];
   }
+
+  /**
+   * Start a database transfer job that streams the source instance's
+   * database (via pg_dump) into the supplied target PostgreSQL server
+   * (via psql). Returns the job id; poll `getTransferJob(jobId)` for
+   * progress until status is `success` or `failed`.
+   */
+  async startDatabaseTransfer(
+    baseUrl: string,
+    instanceId: string,
+    payload: DatabaseTransferPayload,
+    fetchFn: typeof fetch = (...args) => fetch(...args),
+  ): Promise<{ jobId: string; status: string }> {
+    const url = `${baseUrl.replace(/\/+$/, '')}/instances/${encodeURIComponent(
+      instanceId,
+    )}/transfer-database`;
+    const res = await fetchWithLifecycleRetry(fetchFn, url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      let msg = `Transfer request failed (HTTP ${res.status})`;
+      try {
+        const body = await res.json();
+        const err = body?.error;
+        if (typeof err === 'string' && err.trim()) {
+          msg = err;
+        } else if (err && typeof err === 'object' && typeof err.message === 'string') {
+          msg = err.message;
+        }
+      } catch {
+        // ignore body parse failure
+      }
+      throw new Error(msg);
+    }
+    return (await res.json()) as { jobId: string; status: string };
+  }
+
+  /**
+   * Snapshot a running or completed database transfer job.
+   */
+  async getTransferJob(
+    baseUrl: string,
+    jobId: string,
+    fetchFn: typeof fetch = (...args) => fetch(...args),
+  ): Promise<TransferJobSnapshot> {
+    const url = `${baseUrl.replace(/\/+$/, '')}/databases/transfers/${encodeURIComponent(
+      jobId,
+    )}`;
+    const res = await fetchWithLifecycleRetry(fetchFn, url);
+    if (!res.ok) {
+      throw new Error(`Failed to load transfer job (HTTP ${res.status})`);
+    }
+    return (await res.json()) as TransferJobSnapshot;
+  }
 }
 
 /** Payload sent to POST /api/dhis2/instances/provision. */
@@ -968,3 +1024,54 @@ export interface ProvisionJobSnapshot {
 }
 
 export const dhis2Service = new DHIS2Service();
+
+/** Payload sent to POST /api/dhis2/instances/:id/transfer-database. */
+export interface DatabaseTransferPayload {
+  source: {
+    host: string;
+    port: number;
+    user: string;
+    password: string;
+    database: string;
+  };
+  target: {
+    host: string;
+    port: number;
+    user: string;
+    password: string;
+    database: string;
+  };
+  options?: {
+    createTargetDatabase?: boolean;
+    dropTargetIfExists?: boolean;
+    noOwner?: boolean;
+    noPrivileges?: boolean;
+    clean?: boolean;
+    maintenanceDatabase?: string;
+  };
+}
+
+export type TransferJobStatus = 'queued' | 'running' | 'success' | 'failed';
+
+export interface TransferJobSnapshot {
+  id: string;
+  instanceId: string;
+  status: TransferJobStatus;
+  exitCode?: number;
+  error?: string;
+  startedAt: string;
+  finishedAt?: string;
+  lines: string[];
+  request: {
+    source: { host: string; port: number; user: string; database: string };
+    target: { host: string; port: number; user: string; database: string };
+    options: {
+      createTargetDatabase: boolean;
+      dropTargetIfExists: boolean;
+      noOwner: boolean;
+      noPrivileges: boolean;
+      clean: boolean;
+      maintenanceDatabase: string;
+    };
+  };
+}

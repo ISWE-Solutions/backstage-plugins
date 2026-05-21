@@ -32,9 +32,11 @@ import SettingsIcon from '@material-ui/icons/Settings';
 import DescriptionIcon from '@material-ui/icons/Description';
 import SettingsBackupRestoreIcon from '@material-ui/icons/SettingsBackupRestore';
 import BackupIcon from '@material-ui/icons/Backup';
+import SwapHorizIcon from '@material-ui/icons/SwapHoriz';
 import OpenInNewIcon from '@material-ui/icons/OpenInNew';
 import { DHIS2Instance } from '../types';
 import { dhis2Service } from '../services/dhis2Service';
+import { TransferDatabaseDialog } from './TransferDatabaseDialog';
 
 const useStyles = makeStyles(theme => ({
   toolbar: {
@@ -151,6 +153,10 @@ export const DHIS2InstancesPanel = ({
   const [editTarget, setEditTarget] = useState<DHIS2Instance | null>(null);
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
   const [versions, setVersions] = useState<string[]>([]);
+
+  const [transferTarget, setTransferTarget] = useState<DHIS2Instance | null>(
+    null,
+  );
 
   const [confirm, setConfirm] = useState<{
     open: boolean;
@@ -552,6 +558,11 @@ export const DHIS2InstancesPanel = ({
                     <SettingsBackupRestoreIcon />
                   </IconButton>
                 </Tooltip>
+                <Tooltip title="Transfer database to another server">
+                  <IconButton onClick={() => setTransferTarget(instance)}>
+                    <SwapHorizIcon />
+                  </IconButton>
+                </Tooltip>
                 <Tooltip title="Edit settings">
                   <IconButton
                     onClick={() => handleOpenEdit(instance)}
@@ -777,6 +788,15 @@ export const DHIS2InstancesPanel = ({
       )}
       {editDialog}
       {confirmDialog}
+      <TransferDatabaseDialog
+        open={!!transferTarget}
+        instance={transferTarget}
+        onClose={() => setTransferTarget(null)}
+        onCompleted={() => {
+          notify('success', 'Database transfer completed');
+          onChanged?.();
+        }}
+      />
       {toastNode}
     </>
   );
