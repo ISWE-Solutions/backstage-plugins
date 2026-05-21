@@ -147,14 +147,23 @@
     - manager
 
 - name: Deploy DHIS2 WAR as ROOT
-  ansible.builtin.copy:
-    src: "{{ dhis2_install_dir }}/dhis.war"
-    dest: "{{ tomcat_webapps_dir }}/ROOT.war"
+  # `ansible.builtin.copy` with remote_src=true reads the entire file into
+  # Python on the target to compute a checksum. For a 300+ MB DHIS2 WAR
+  # inside a memory-constrained LXC that can stall for many minutes (or
+  # OOM the worker) before the task reports back. A plain `cp` is O(1)
+  # in memory and finishes in seconds.
+  ansible.builtin.command:
+    cmd: cp -f "{{ dhis2_install_dir }}/dhis.war" "{{ tomcat_webapps_dir }}/ROOT.war"
+  register: dhis2_root_war_copy
+  changed_when: true
+  notify: Restart Tomcat
+
+- name: Set ownership on deployed ROOT.war
+  ansible.builtin.file:
+    path: "{{ tomcat_webapps_dir }}/ROOT.war"
     owner: "{{ tomcat_user }}"
     group: "{{ tomcat_group }}"
     mode: "0640"
-    remote_src: true
-  notify: Restart Tomcat
 
 - name: Configure Tomcat defaults (JAVA_OPTS + DHIS2_HOME)
   ansible.builtin.copy:
