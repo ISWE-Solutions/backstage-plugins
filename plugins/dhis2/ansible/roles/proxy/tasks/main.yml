@@ -67,14 +67,20 @@
       {{ (host_proxy_upstream_dir ~ '/' ~ host_proxy_path_segment ~ '.conf')
          if host_proxy_routing_mode == 'path'
          else (host_proxy_upstream_dir ~ '/dhis2-' ~ host_proxy_vmid ~ '.conf') }}
+    # Base site files live in sites-available / sites-enabled and are
+    # named after the base domain WITHOUT a `.conf` suffix so they don't
+    # get picked up by `include /etc/nginx/conf.d/*.conf` or by the base
+    # vhost's `include {{ host_proxy_upstream_dir }}/*.conf` glob. The
+    # per-instance upstream fragments under host_proxy_upstream_dir keep
+    # their `.conf` extension — that's what the base vhost includes.
     host_proxy_site_file: >-
-      {{ (host_proxy_sites_available ~ '/' ~ host_proxy_base_domain ~ '.conf')
+      {{ (host_proxy_sites_available ~ '/' ~ host_proxy_base_domain)
          if host_proxy_routing_mode == 'path'
-         else (host_proxy_sites_available ~ '/dhis2-' ~ host_proxy_base_domain ~ '.conf') }}
+         else (host_proxy_sites_available ~ '/dhis2-' ~ host_proxy_base_domain) }}
     host_proxy_site_link: >-
-      {{ (host_proxy_sites_enabled ~ '/' ~ host_proxy_base_domain ~ '.conf')
+      {{ (host_proxy_sites_enabled ~ '/' ~ host_proxy_base_domain)
          if host_proxy_routing_mode == 'path'
-         else (host_proxy_sites_enabled ~ '/dhis2-' ~ host_proxy_base_domain ~ '.conf') }}
+         else (host_proxy_sites_enabled ~ '/dhis2-' ~ host_proxy_base_domain) }}
 
 - name: Show resolved layout
   ansible.builtin.debug:

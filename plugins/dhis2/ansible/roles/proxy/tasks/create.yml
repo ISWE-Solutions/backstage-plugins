@@ -51,6 +51,26 @@
   when: host_proxy_routing_mode == 'path'
   notify: reload nginx
 
+# Earlier revisions of this role named the base vhost
+# "<base_domain>.conf" — which got swept up by the base vhost's own
+# `include {{ host_proxy_upstream_dir }}/*.conf` (when both paths were
+# pointed at /etc/nginx/conf.d) and by `include conf.d/*.conf`. The
+# file is now stored without the .conf suffix, so remove any stale
+# copy from the previous layout before writing the new one.
+- name: Remove stale <base>.conf site file from previous layout
+  ansible.builtin.file:
+    path: "{{ host_proxy_site_file }}.conf"
+    state: absent
+  when: host_proxy_routing_mode == 'path'
+  notify: reload nginx
+
+- name: Remove stale <base>.conf sites-enabled symlink from previous layout
+  ansible.builtin.file:
+    path: "{{ host_proxy_site_link }}.conf"
+    state: absent
+  when: host_proxy_routing_mode == 'path'
+  notify: reload nginx
+
 - name: Write shared base vhost (path-based)
   ansible.builtin.template:
     src: base_path_vhost.conf.j2
