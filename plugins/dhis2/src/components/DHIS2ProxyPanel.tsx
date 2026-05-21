@@ -15,8 +15,6 @@ import {
   DialogActions,
   TextField,
   MenuItem,
-  FormControlLabel,
-  Switch,
   ButtonGroup,
   Snackbar,
   makeStyles,
@@ -314,12 +312,12 @@ export const DHIS2ProxyPanel = ({
         <Grid container spacing={2}>
           <Grid item xs={12}>
             <TextField
-              label="Target proxy host"
+              label="Proxy host"
               fullWidth
               value={draft.host}
               onChange={e => updateDraft('host', e.target.value)}
-              helperText="Hostname or IP of the dedicated Nginx reverse-proxy server"
-              placeholder="proxy.example.org"
+              helperText="SSH-reachable hostname or IP of the proxy server"
+              placeholder="10.20.30.143"
             />
           </Grid>
           <Grid item xs={6}>
@@ -341,50 +339,54 @@ export const DHIS2ProxyPanel = ({
               onChange={e => updateDraft('sshUser', e.target.value)}
             />
           </Grid>
-          <Grid item xs={12}>
-            <TextField
-              label="Base domain"
-              fullWidth
-              value={draft.baseDomain}
-              onChange={e => updateDraft('baseDomain', e.target.value)}
-              helperText={
-                draft.mode === 'subdomain'
-                  ? 'Instances become <name>.<baseDomain>'
-                  : 'Instances become <baseDomain>/<name>'
-              }
-            />
-          </Grid>
           <Grid item xs={6}>
             <TextField
-              label="Routing mode"
+              label="SSH auth"
               select
               fullWidth
-              value={draft.mode}
+              value={draft.authMethod}
               onChange={e =>
-                updateDraft('mode', e.target.value as ProxyServerSettings['mode'])
+                updateDraft(
+                  'authMethod',
+                  e.target.value as ProxyServerSettings['authMethod'],
+                )
               }
             >
-              <MenuItem value="subdomain">Subdomain</MenuItem>
-              <MenuItem value="path">Path</MenuItem>
+              <MenuItem value="ssh-key">ssh-key</MenuItem>
+              <MenuItem value="password">password</MenuItem>
             </TextField>
           </Grid>
-          <Grid item xs={6}>
-            <TextField
-              label="Upstream port"
-              type="number"
-              fullWidth
-              value={draft.upstreamPort}
-              onChange={e =>
-                updateDraft('upstreamPort', Number(e.target.value) || 8080)
-              }
-            />
-          </Grid>
+          {draft.authMethod === 'ssh-key' ? (
+            <Grid item xs={12}>
+              <TextField
+                label="SSH private key path"
+                fullWidth
+                value={draft.sshKeyPath ?? ''}
+                onChange={e => updateDraft('sshKeyPath', e.target.value)}
+                helperText="Path on the Backstage backend host"
+                placeholder="/root/.ssh/id_ed25519"
+              />
+            </Grid>
+          ) : (
+            <Grid item xs={12}>
+              <TextField
+                label="SSH password"
+                type="password"
+                fullWidth
+                value={draft.sshPassword ?? ''}
+                onChange={e => updateDraft('sshPassword', e.target.value)}
+                helperText="Stored locally in browser settings"
+              />
+            </Grid>
+          )}
           <Grid item xs={12}>
             <TextField
-              label="Nginx config path"
+              label="Nginx config directory"
               fullWidth
               value={draft.nginxConfigPath}
               onChange={e => updateDraft('nginxConfigPath', e.target.value)}
+              helperText="e.g. /etc/nginx/conf.d"
+              placeholder="/etc/nginx/conf.d"
             />
           </Grid>
           <Grid item xs={12}>
@@ -393,28 +395,7 @@ export const DHIS2ProxyPanel = ({
               fullWidth
               value={draft.nginxReloadCommand}
               onChange={e => updateDraft('nginxReloadCommand', e.target.value)}
-            />
-          </Grid>
-          <Grid item xs={6}>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={draft.forceHttps}
-                  onChange={e => updateDraft('forceHttps', e.target.checked)}
-                />
-              }
-              label="Force HTTPS"
-            />
-          </Grid>
-          <Grid item xs={6}>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={draft.enableHsts}
-                  onChange={e => updateDraft('enableHsts', e.target.checked)}
-                />
-              }
-              label="Enable HSTS"
+              placeholder="sudo systemctl reload nginx"
             />
           </Grid>
         </Grid>

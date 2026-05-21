@@ -9,6 +9,49 @@ import {
 } from '../types';
 import { settingsService } from './settingsService';
 
+/**
+ * Wrap `fetch` so transient "Service has not started up yet" responses from
+ * Backstage's backend lifecycle middleware (HTTP 503) are retried with
+ * exponential backoff instead of bubbling up as user-facing errors during
+ * cold start.
+ */
+async function fetchWithLifecycleRetry(
+  fetchFn: typeof fetch,
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  opts: { retries?: number; initialDelayMs?: number; maxDelayMs?: number } = {},
+): Promise<Response> {
+  const retries = opts.retries ?? 20; // ~ up to ~60s total with backoff
+  const initialDelayMs = opts.initialDelayMs ?? 500;
+  const maxDelayMs = opts.maxDelayMs ?? 4000;
+  let delay = initialDelayMs;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const res = await fetchFn(input, init);
+    if (res.status !== 503) return res;
+    // Only retry the well-known startup race; pass other 503s straight back.
+    let isStartup = false;
+    try {
+      const cloned = res.clone();
+      const body = await cloned.json();
+      const message =
+        (typeof body?.error === 'string' && body.error) ||
+        body?.error?.message ||
+        body?.message ||
+        '';
+      if (typeof message === 'string' && /has not started up yet/i.test(message)) {
+        isStartup = true;
+      }
+    } catch {
+      // Body wasn't JSON; fall through and surface the 503.
+    }
+    if (!isStartup || attempt === retries) return res;
+    await new Promise(r => setTimeout(r, delay));
+    delay = Math.min(maxDelayMs, Math.round(delay * 1.5));
+  }
+  // Unreachable, but satisfies the type checker.
+  return fetchFn(input, init);
+}
+
 const MOCK_NODES: ProxmoxNode[] = [
   { node: 'pve1', status: 'online', cpu: 0.22, maxcpu: 16, mem: 12_884_901_888, maxmem: 68_719_476_736, disk: 53_687_091_200, maxdisk: 536_870_912_000 },
   { node: 'pve2', status: 'online', cpu: 0.14, maxcpu: 16, mem: 9_663_676_416, maxmem: 68_719_476_736, disk: 42_949_672_960, maxdisk: 536_870_912_000 },
@@ -790,11 +833,15 @@ export class DHIS2Service {
     payload: ProvisionInstancePayload,
     fetchFn: typeof fetch = (...args) => fetch(...args),
   ): Promise<{ jobId: string; status: string }> {
-    const res = await fetchFn(`${baseUrl}/instances/provision`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    const res = await fetchWithLifecycleRetry(
+      fetchFn,
+      `${baseUrl}/instances/provision`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+    );
     if (!res.ok) {
       let msg = `Provision request failed (HTTP ${res.status})`;
       try {
@@ -830,7 +877,8 @@ export class DHIS2Service {
     jobId: string,
     fetchFn: typeof fetch = (...args) => fetch(...args),
   ): Promise<ProvisionJobSnapshot> {
-    const res = await fetchFn(
+    const res = await fetchWithLifecycleRetry(
+      fetchFn,
       `${baseUrl}/instances/jobs/${encodeURIComponent(jobId)}`,
     );
     if (!res.ok) {
