@@ -838,6 +838,7 @@ export const DHIS2Page = () => {
               onChanged={loadInstances}
               unmanagedContainers={unmanagedContainers}
               reconcileWarning={reconcileWarning}
+              clusterNodes={nodes.map(n => n.node)}
             />
           </TabPanel>
 

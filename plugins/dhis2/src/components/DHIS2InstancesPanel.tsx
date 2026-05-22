@@ -120,6 +120,12 @@ export interface DHIS2InstancesPanelProps {
    * (e.g. Proxmox API not configured). Shown as an info banner.
    */
   reconcileWarning?: string | null;
+  /**
+   * Names of Proxmox cluster nodes used to populate the node filter.
+   * When provided, this list is used verbatim instead of deriving the
+   * filter options from the instance list — so empty nodes still appear.
+   */
+  clusterNodes?: string[];
 }
 
 type Severity = 'success' | 'error' | 'info';
@@ -193,6 +199,7 @@ export const DHIS2InstancesPanel = ({
   onChanged,
   unmanagedContainers = [],
   reconcileWarning = null,
+  clusterNodes,
 }: DHIS2InstancesPanelProps) => {
   const classes = useStyles();
 
@@ -260,10 +267,16 @@ export const DHIS2InstancesPanel = ({
     }
   }, [editTarget, versions.length]);
 
-  const nodes = useMemo(
-    () => Array.from(new Set(instances.map(i => i.node))).sort(),
-    [instances],
-  );
+  // Node filter options. Prefer the live list of Proxmox cluster nodes
+  // passed in by the parent so the dropdown reflects the cluster even
+  // when no instances exist yet on a given node; fall back to nodes
+  // derived from the instance list when the cluster list is unavailable.
+  const nodes = useMemo(() => {
+    if (clusterNodes && clusterNodes.length > 0) {
+      return Array.from(new Set(clusterNodes)).sort();
+    }
+    return Array.from(new Set(instances.map(i => i.node))).sort();
+  }, [clusterNodes, instances]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
