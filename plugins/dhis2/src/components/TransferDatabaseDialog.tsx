@@ -92,9 +92,16 @@ export const TransferDatabaseDialog = ({
   const { fetch: backstageFetch } = useApi(fetchApiRef);
   const discoveryApi = useApi(discoveryApiRef);
 
-  const [source, setSource] = useState<Endpoint>(blankEndpoint());
+  // Source is derived from the instance's stored database settings (managed
+  // via the Edit Settings dialog). The user only configures the target here.
+  const source: Endpoint = {
+    host: instance?.database.host ?? '',
+    port: instance?.database.port ?? DEFAULT_PG_PORT,
+    user: instance?.database.user ?? '',
+    password: instance?.database.password ?? '',
+    database: instance?.database.name ?? '',
+  };
   const [target, setTarget] = useState<Endpoint>(blankEndpoint());
-  const [showSrcPwd, setShowSrcPwd] = useState(false);
   const [showTgtPwd, setShowTgtPwd] = useState(false);
 
   const [createTargetDb, setCreateTargetDb] = useState(true);
@@ -115,18 +122,11 @@ export const TransferDatabaseDialog = ({
   // Reset state whenever a new instance is opened.
   useEffect(() => {
     if (!open) return;
-    setSource(
-      blankEndpoint({
-        user: instance?.database.user ?? '',
-        database: instance?.database.name ?? '',
-      }),
-    );
     setTarget(
       blankEndpoint({
         database: instance?.database.name ?? '',
       }),
     );
-    setShowSrcPwd(false);
     setShowTgtPwd(false);
     setCreateTargetDb(true);
     setDropTargetIfExists(false);
@@ -184,18 +184,28 @@ export const TransferDatabaseDialog = ({
   const inProgress =
     submitting || job?.status === 'queued' || job?.status === 'running';
 
+  const sourceMissing = useMemo(() => {
+    const missing: string[] = [];
+    if (!source.host.trim()) missing.push('host');
+    if (!source.user.trim()) missing.push('user');
+    if (!source.password) missing.push('password');
+    if (!source.database.trim()) missing.push('database');
+    return missing;
+  }, [source]);
+
   const fieldErrors = useMemo(() => {
     const errs: string[] = [];
-    const check = (label: string, ep: Endpoint) => {
-      if (!ep.host.trim()) errs.push(`${label} host is required`);
-      if (!Number.isInteger(ep.port) || ep.port <= 0 || ep.port > 65535)
-        errs.push(`${label} port must be 1–65535`);
-      if (!ep.user.trim()) errs.push(`${label} user is required`);
-      if (!ep.password) errs.push(`${label} password is required`);
-      if (!ep.database.trim()) errs.push(`${label} database is required`);
-    };
-    check('Source', source);
-    check('Target', target);
+    if (sourceMissing.length > 0) {
+      errs.push(
+        `Source database is missing ${sourceMissing.join(', ')} — set them in the instance's Edit Settings dialog.`,
+      );
+    }
+    if (!target.host.trim()) errs.push('Target host is required');
+    if (!Number.isInteger(target.port) || target.port <= 0 || target.port > 65535)
+      errs.push('Target port must be 1–65535');
+    if (!target.user.trim()) errs.push('Target user is required');
+    if (!target.password) errs.push('Target password is required');
+    if (!target.database.trim()) errs.push('Target database is required');
     if (
       source.host.trim() === target.host.trim() &&
       source.port === target.port &&
@@ -206,7 +216,7 @@ export const TransferDatabaseDialog = ({
       );
     }
     return errs;
-  }, [source, target]);
+  }, [source, target, sourceMissing]);
 
   const handleTestTarget = async () => {
     setTesting(true);
@@ -400,7 +410,23 @@ export const TransferDatabaseDialog = ({
           network reachability to both endpoints.
         </Alert>
 
-        {renderEndpoint('Source (current instance database)', source, setSource, showSrcPwd, setShowSrcPwd)}
+        <Box className={classes.section}>
+          <Typography variant="subtitle1" className={classes.sectionTitle}>
+            Source (current instance database)
+          </Typography>
+          {sourceMissing.length === 0 ? (
+            <Typography variant="body2" color="textSecondary">
+              {source.user}@{source.host}:{source.port}/{source.database}
+            </Typography>
+          ) : (
+            <Alert severity="warning">
+              Source database is missing {sourceMissing.join(', ')}. Configure
+              it in the instance's <strong>Edit Settings</strong> dialog before
+              starting a transfer.
+            </Alert>
+          )}
+        </Box>
+
         {renderEndpoint('Target server', target, setTarget, showTgtPwd, setShowTgtPwd)}
 
         <Box className={classes.section} display="flex" alignItems="center" style={{ gap: 12 }}>

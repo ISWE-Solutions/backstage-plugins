@@ -12,6 +12,7 @@ import {
   normalizeProxmoxCreds,
 } from './service/provisionService';
 import { DatabaseTransferService } from './service/databaseTransferService';
+import { InstanceRegistryService } from './service/instanceRegistryService';
 
 /**
  * When the Backstage backend IS the orchestrator host (host=localhost), pick
@@ -215,12 +216,17 @@ export const dhis2Plugin = createBackendPlugin({
           logger,
           provisionService,
         );
+        const instanceRegistryService = new InstanceRegistryService(
+          logger,
+          provisionService,
+        );
         httpRouter.use(
           await createRouter({
             logger,
             httpAuth,
             provisionService,
             databaseTransferService,
+            instanceRegistryService,
           }),
         );
       },

@@ -93,6 +93,16 @@ export interface DHIS2Instance {
   database: {
     name: string;
     user: string;
+    /** Hostname or IP of the PostgreSQL server this instance points at. */
+    host?: string;
+    /** Port of the PostgreSQL server. Defaults to 5432 when omitted. */
+    port?: number;
+    /**
+     * Stored password for the instance's database user. Required for
+     * orchestrator-driven operations such as database transfer; configured
+     * via the instance's Edit Settings dialog.
+     */
+    password?: string;
   };
   resources: {
     cpu: number;
@@ -103,6 +113,15 @@ export interface DHIS2Instance {
   updated: string;
   /** ISO timestamp of the most recent successful backup, if any. */
   lastBackup?: string;
+  /**
+   * Reconciliation result vs. the live Proxmox cluster. Set by the
+   * backend `GET /instances` enrichment step:
+   *   - `managed`  : registered + live + carries the `dhis2` tag.
+   *   - `untagged` : registered + live, but the `dhis2` tag was removed.
+   *   - `missing`  : registered, but the LXC no longer exists on PVE.
+   *   - `unknown`  : Proxmox API not configured / unreachable.
+   */
+  driftStatus?: 'managed' | 'untagged' | 'missing' | 'unknown';
 }
 
 export interface CreateInstanceRequest {

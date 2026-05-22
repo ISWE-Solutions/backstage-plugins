@@ -4,6 +4,7 @@ import express from 'express';
 import Router from 'express-promise-router';
 import { Client } from 'pg';
 import { ProvisionService, ProvisionRequest } from './provisionService';
+import { InstanceRegistryService } from './instanceRegistryService';
 import {
   DatabaseTransferService,
   DbEndpoint,
@@ -15,6 +16,7 @@ export interface RouterOptions {
   httpAuth: HttpAuthService;
   provisionService: ProvisionService;
   databaseTransferService: DatabaseTransferService;
+  instanceRegistryService: InstanceRegistryService;
 }
 
 interface DbCredentials {
@@ -122,8 +124,13 @@ function describeError(
 export async function createRouter(
   options: RouterOptions,
 ): Promise<express.Router> {
-  const { logger, httpAuth, provisionService, databaseTransferService } =
-    options;
+  const {
+    logger,
+    httpAuth,
+    provisionService,
+    databaseTransferService,
+    instanceRegistryService,
+  } = options;
 
   const router = Router();
   router.use(express.json());
@@ -339,8 +346,13 @@ export async function createRouter(
   });
 
   router.get('/instances', async (_req, res) => {
-    const instances = await provisionService.listInstances();
+    const instances = await instanceRegistryService.listEnriched();
     res.json({ instances });
+  });
+
+  router.get('/instances/reconcile', async (_req, res) => {
+    const report = await instanceRegistryService.reconcile();
+    res.json(report);
   });
 
   // ---------------------------------------------------------------------

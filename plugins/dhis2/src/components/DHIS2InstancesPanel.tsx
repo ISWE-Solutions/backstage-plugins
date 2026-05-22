@@ -103,6 +103,23 @@ export interface DHIS2InstancesPanelProps {
    * the parent can re-load its instance list.
    */
   onChanged?: () => void;
+  /**
+   * Containers in the Proxmox cluster that carry the `dhis2` tag but
+   * are NOT in the backend's instance registry. Surfaced as a banner so
+   * the operator can adopt or investigate them.
+   */
+  unmanagedContainers?: Array<{
+    vmid: number;
+    node: string;
+    name?: string;
+    tags?: string;
+    status?: string;
+  }>;
+  /**
+   * Optional message describing why reconciliation could not be performed
+   * (e.g. Proxmox API not configured). Shown as an info banner.
+   */
+  reconcileWarning?: string | null;
 }
 
 type Severity = 'success' | 'error' | 'info';
@@ -113,7 +130,44 @@ interface EditDraft {
   cpu: number;
   memoryMb: number;
   storageGb: number;
+  dbName: string;
+  dbUser: string;
+  dbHost: string;
+  dbPort: number;
+  dbPassword: string;
 }
+
+const DEFAULT_PG_PORT = 5432;
+
+/**
+ * Map a `driftStatus` from the backend reconciler into a small chip
+ * descriptor. `managed` (healthy) and `unknown` (no Proxmox API) are
+ * deliberately not rendered to avoid noise on the cards.
+ */
+const driftChipFor = (
+  status: DHIS2Instance['driftStatus'],
+):
+  | { label: string; tooltip: string; color: 'default' | 'secondary' }
+  | null => {
+  switch (status) {
+    case 'missing':
+      return {
+        label: 'Missing on Proxmox',
+        tooltip:
+          'This instance is registered with Backstage but the underlying LXC no longer exists on the Proxmox cluster. Investigate or delete the registry entry.',
+        color: 'secondary',
+      };
+    case 'untagged':
+      return {
+        label: 'Untagged',
+        tooltip:
+          'The LXC exists but is missing the `dhis2` tag in Proxmox. The reconciler may stop recognising it as managed by this plugin. Re-apply the tag in the PVE UI.',
+        color: 'default',
+      };
+    default:
+      return null;
+  }
+};
 
 const formatRelative = (iso?: string): string => {
   if (!iso) return 'never';
@@ -137,6 +191,8 @@ export const DHIS2InstancesPanel = ({
   onRestore,
   onDelete,
   onChanged,
+  unmanagedContainers = [],
+  reconcileWarning = null,
 }: DHIS2InstancesPanelProps) => {
   const classes = useStyles();
 
@@ -294,6 +350,11 @@ export const DHIS2InstancesPanel = ({
       cpu: instance.resources.cpu,
       memoryMb: instance.resources.memory,
       storageGb: instance.resources.storage,
+      dbName: instance.database.name,
+      dbUser: instance.database.user,
+      dbHost: instance.database.host ?? '',
+      dbPort: instance.database.port ?? DEFAULT_PG_PORT,
+      dbPassword: instance.database.password ?? '',
     });
   };
 
@@ -311,6 +372,13 @@ export const DHIS2InstancesPanel = ({
           cpu: draft.cpu,
           memory: draft.memoryMb,
           storage: draft.storageGb,
+        },
+        database: {
+          name: draft.dbName,
+          user: draft.dbUser,
+          host: draft.dbHost,
+          port: draft.dbPort,
+          password: draft.dbPassword,
         },
       });
       onChanged?.();
@@ -439,6 +507,21 @@ export const DHIS2InstancesPanel = ({
                       size="small"
                       className={classes.statusChip}
                     />
+                    {(() => {
+                      const drift = driftChipFor(instance.driftStatus);
+                      if (!drift) return null;
+                      return (
+                        <Tooltip title={drift.tooltip}>
+                          <Chip
+                            label={drift.label}
+                            color={drift.color}
+                            size="small"
+                            variant="outlined"
+                            className={classes.statusChip}
+                          />
+                        </Tooltip>
+                      );
+                    })()}
                   </Typography>
                   <Typography variant="body2" color="textSecondary">
                     <strong>Version:</strong> {instance.version} |{' '}
@@ -677,6 +760,72 @@ export const DHIS2InstancesPanel = ({
                 }
               />
             </Grid>
+            <Grid item xs={12}>
+              <Typography variant="subtitle2" style={{ marginTop: 8 }}>
+                Source database
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                Connection details for this instance's PostgreSQL database.
+                Used as the source for database transfers.
+              </Typography>
+            </Grid>
+            <Grid item xs={12} sm={8}>
+              <TextField
+                label="DB host"
+                fullWidth
+                value={editDraft.dbHost}
+                onChange={e =>
+                  setEditDraft({ ...editDraft, dbHost: e.target.value })
+                }
+                placeholder="db.example.org"
+              />
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <TextField
+                label="DB port"
+                type="number"
+                fullWidth
+                value={editDraft.dbPort}
+                onChange={e =>
+                  setEditDraft({
+                    ...editDraft,
+                    dbPort: Number(e.target.value) || DEFAULT_PG_PORT,
+                  })
+                }
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                label="DB name"
+                fullWidth
+                value={editDraft.dbName}
+                onChange={e =>
+                  setEditDraft({ ...editDraft, dbName: e.target.value })
+                }
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                label="DB user"
+                fullWidth
+                value={editDraft.dbUser}
+                onChange={e =>
+                  setEditDraft({ ...editDraft, dbUser: e.target.value })
+                }
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                label="DB password"
+                type="password"
+                fullWidth
+                value={editDraft.dbPassword}
+                onChange={e =>
+                  setEditDraft({ ...editDraft, dbPassword: e.target.value })
+                }
+                helperText="Stored on the orchestrator and used for database transfers."
+              />
+            </Grid>
           </Grid>
         )}
       </DialogContent>
@@ -775,6 +924,37 @@ export const DHIS2InstancesPanel = ({
   return (
     <>
       {renderToolbar()}
+      {reconcileWarning && (
+        <Box mb={2}>
+          <Alert severity="info" variant="outlined">
+            Proxmox reconciliation is unavailable: {reconcileWarning}
+          </Alert>
+        </Box>
+      )}
+      {unmanagedContainers.length > 0 && (
+        <Box mb={2}>
+          <Alert severity="warning" variant="outlined">
+            <Typography variant="body2" gutterBottom>
+              <strong>
+                {unmanagedContainers.length} DHIS2-tagged container
+                {unmanagedContainers.length === 1 ? '' : 's'} on the cluster
+                {unmanagedContainers.length === 1 ? ' is' : ' are'} not in the
+                Backstage registry.
+              </strong>{' '}
+              They were likely created outside this plugin. Investigate or
+              adopt them so they appear in this list.
+            </Typography>
+            <Typography variant="caption" component="div">
+              {unmanagedContainers
+                .slice(0, 10)
+                .map(c => `${c.name ?? `vmid-${c.vmid}`} (${c.node}/${c.vmid})`)
+                .join(', ')}
+              {unmanagedContainers.length > 10 &&
+                ` and ${unmanagedContainers.length - 10} more`}
+            </Typography>
+          </Alert>
+        </Box>
+      )}
       {filtered.length === 0 ? (
         <Box textAlign="center" p={4}>
           <Typography variant="body2" color="textSecondary">

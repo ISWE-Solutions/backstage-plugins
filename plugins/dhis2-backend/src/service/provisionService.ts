@@ -3,6 +3,11 @@ import { spawn } from 'child_process';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import { randomUUID, randomBytes } from 'crypto';
+import {
+  DHIS2_TAGS,
+  ProxmoxApiCredentials,
+  ensureLxcTags,
+} from './proxmoxApi';
 
 /**
  * Configuration for the host that runs provision-instance.sh.
@@ -623,10 +628,85 @@ export class ProvisionService {
       job.instance = inst;
       appendLine(job, `[backend] provision-instance.sh exited 0`);
       await appendInstanceToState(cfg, inst, this.logger);
+      // Best-effort: tag the new LXC so reconciliation can verify it
+      // belongs to this plugin. Non-fatal — a tagging failure only loses
+      // the secondary marker, the registry entry is already persisted.
+      await this.tagInstance(job, cfg, req).catch(err => {
+        appendLine(
+          job,
+          `[backend] WARN: failed to tag LXC ${req.vmid} on ${req.node}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      });
     } else {
       job.status = 'failed';
       job.error = `provision-instance.sh exited with code ${exitCode}`;
       appendLine(job, `[backend] ${job.error}`);
     }
+  }
+
+  /**
+   * Expose the effective Proxmox credentials so the router / registry can
+   * call the Proxmox API for reconciliation. Returns null when the plugin
+   * has not been configured with API credentials.
+   */
+  proxmoxCredentials(): ProxmoxApiCredentials | null {
+    if (
+      !this.cfg ||
+      !this.cfg.apiUrl ||
+      !this.cfg.apiUser ||
+      !this.cfg.apiTokenId ||
+      !this.cfg.apiTokenSecret
+    ) {
+      return null;
+    }
+    return {
+      apiUrl: this.cfg.apiUrl,
+      apiUser: this.cfg.apiUser,
+      apiTokenId: this.cfg.apiTokenId,
+      apiTokenSecret: this.cfg.apiTokenSecret,
+      validateCerts: Boolean(this.cfg.validateApiCerts),
+    };
+  }
+
+  private async tagInstance(
+    job: JobSnapshot,
+    cfg: OrchestratorConfig,
+    req: ProvisionRequest,
+  ): Promise<void> {
+    // Resolve effective per-job Proxmox creds (request can override config).
+    const reqPm = req.proxmox ?? {};
+    const apiUrl = (reqPm.apiUrl && reqPm.apiUrl.trim()) || cfg.apiUrl;
+    const apiUser =
+      (reqPm.apiUser && reqPm.apiUser.trim()) || cfg.apiUser;
+    const apiTokenId =
+      (reqPm.apiTokenId && reqPm.apiTokenId.trim()) || cfg.apiTokenId;
+    const apiTokenSecret =
+      (reqPm.apiTokenSecret && reqPm.apiTokenSecret.trim()) ||
+      cfg.apiTokenSecret;
+    if (!apiUrl || !apiUser || !apiTokenId || !apiTokenSecret) {
+      appendLine(
+        job,
+        `[backend] Skipping Proxmox tag step: API credentials not configured.`,
+      );
+      return;
+    }
+    const validateCerts =
+      typeof reqPm.validateApiCerts === 'boolean'
+        ? reqPm.validateApiCerts && Boolean(cfg.validateApiCerts)
+        : Boolean(cfg.validateApiCerts);
+    const tags = DHIS2_TAGS.split(';');
+    const applied = await ensureLxcTags(
+      { apiUrl, apiUser, apiTokenId, apiTokenSecret, validateCerts },
+      req.node,
+      req.vmid,
+      tags,
+      this.logger,
+    );
+    appendLine(
+      job,
+      `[backend] Tagged LXC ${req.vmid} on ${req.node}: tags="${applied}"`,
+    );
   }
 }

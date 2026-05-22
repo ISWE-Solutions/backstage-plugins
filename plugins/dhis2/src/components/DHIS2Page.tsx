@@ -242,6 +242,19 @@ export const DHIS2Page = () => {
   const { fetch: backstageFetch } = useApi(fetchApiRef);
   const discoveryApi = useApi(discoveryApiRef);
   const [instances, setInstances] = useState<DHIS2Instance[]>([]);
+  // Reconciliation report from the backend (containers in the cluster
+  // tagged `dhis2` but not in the registry, plus any reason Proxmox
+  // could not be reached). Refreshed alongside `loadInstances`.
+  const [unmanagedContainers, setUnmanagedContainers] = useState<
+    Array<{
+      vmid: number;
+      node: string;
+      name?: string;
+      tags?: string;
+      status?: string;
+    }>
+  >([]);
+  const [reconcileWarning, setReconcileWarning] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   // Bumped after a successful provisioning run so the CreateInstanceDialog
@@ -358,9 +371,28 @@ export const DHIS2Page = () => {
         for (const inst of data) byId.set(inst.id, inst);
         for (const inst of persisted) byId.set(inst.id, inst);
         setInstances(Array.from(byId.values()));
+        // Pull the reconciliation report so the panel can surface drift.
+        // Failures are non-fatal — the panel just won't show the banner.
+        try {
+          const report = await dhis2Service.getInstanceReconciliation(
+            baseUrl,
+            backstageFetch,
+          );
+          setUnmanagedContainers(report.unmanaged ?? []);
+          setReconcileWarning(
+            report.proxmoxReachable
+              ? null
+              : report.unreachableReason ?? 'Proxmox API not reachable',
+          );
+        } catch {
+          setUnmanagedContainers([]);
+          setReconcileWarning(null);
+        }
       } catch {
         // Backend unreachable — fall back to mock list.
         setInstances(data);
+        setUnmanagedContainers([]);
+        setReconcileWarning(null);
       }
     } catch (error) {
       console.error('Failed to load instances:', error);
@@ -804,6 +836,8 @@ export const DHIS2Page = () => {
               onRestore={instance => setRestoreDialog({ open: true, instance })}
               onDelete={handleDeleteInstance}
               onChanged={loadInstances}
+              unmanagedContainers={unmanagedContainers}
+              reconcileWarning={reconcileWarning}
             />
           </TabPanel>
 

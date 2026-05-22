@@ -67,6 +67,10 @@
     unprivileged: true
     password: "{{ pve_root_password }}"
     pubkey: "{{ pve_ssh_pubkey }}"
+    # Tag the container so Backstage can confidently identify which LXCs
+    # in the cluster are DHIS2 instances managed by this plugin. The
+    # dhis2-backend reconciler treats `dhis2` as the primary marker.
+    tags: "{{ pve_tags | default('dhis2;backstage') }}"
     state: present
     timeout: 300
   register: pve_create_result

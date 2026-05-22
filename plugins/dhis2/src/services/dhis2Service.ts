@@ -687,6 +687,13 @@ export class DHIS2Service {
       name?: string;
       version?: string;
       resources?: Partial<{ cpu: number; memory: number; storage: number }>;
+      database?: Partial<{
+        name: string;
+        user: string;
+        host: string;
+        port: number;
+        password: string;
+      }>;
     },
   ): Promise<void> {
     console.log(`Updating instance ${id}`, patch);
@@ -900,6 +907,43 @@ export class DHIS2Service {
     if (!res.ok) return [];
     const body = (await res.json()) as { instances?: DHIS2Instance[] };
     return body.instances ?? [];
+  }
+
+  /**
+   * Fetch a reconciliation report comparing the backend's registry of
+   * instances against the live Proxmox cluster. Used by the Instances
+   * page to surface drift (untagged LXCs, missing LXCs, or unmanaged
+   * DHIS2 containers created outside the plugin).
+   */
+  async getInstanceReconciliation(
+    baseUrl: string,
+    fetchFn: typeof fetch = (...args) => fetch(...args),
+  ): Promise<{
+    unmanaged: Array<{
+      vmid: number;
+      node: string;
+      name?: string;
+      tags?: string;
+      status?: string;
+    }>;
+    orphans: DHIS2Instance[];
+    untagged: DHIS2Instance[];
+    proxmoxReachable: boolean;
+    unreachableReason?: string;
+  }> {
+    const res = await fetchFn(
+      `${baseUrl.replace(/\/+$/, '')}/instances/reconcile`,
+    );
+    if (!res.ok) {
+      return {
+        unmanaged: [],
+        orphans: [],
+        untagged: [],
+        proxmoxReachable: false,
+        unreachableReason: `Reconcile request failed (HTTP ${res.status})`,
+      };
+    }
+    return res.json();
   }
 
   /**
