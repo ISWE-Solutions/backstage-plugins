@@ -1309,50 +1309,93 @@ export const DHIS2Page = () => {
                     fontSize: 12,
                   }}
                 >
-                  {groupLogByPhase(displayedLog).map((group, gIdx) => {
-                    const color = PHASE_COLORS[group.phase];
+                  {(() => {
+                    const groups = groupLogByPhase(displayedLog);
+                    // The currently-running phase is whichever group was
+                    // appended last. We render a single sticky banner at
+                    // the top of the scrolling pane so the user always
+                    // sees the active phase regardless of which group's
+                    // <Box> currently intersects the viewport. Per-group
+                    // headers below are kept (non-sticky) purely as
+                    // section demarcators in the scroll history.
+                    const activePhase: LogPhase =
+                      groups.length > 0
+                        ? groups[groups.length - 1].phase
+                        : 'Submit';
+                    const activeColor = PHASE_COLORS[activePhase];
                     return (
-                      <Box
-                        key={gIdx}
-                        mb={1}
-                        style={{
-                          borderLeft: `3px solid ${color}`,
-                          paddingLeft: 8,
-                        }}
-                      >
+                      <>
                         <Box
                           style={{
-                            color,
-                            fontWeight: 600,
+                            position: 'sticky',
+                            top: -8,
+                            zIndex: 1,
+                            marginLeft: -8,
+                            marginRight: -8,
+                            marginTop: -8,
+                            paddingLeft: 8,
+                            paddingRight: 8,
+                            paddingTop: 6,
+                            paddingBottom: 6,
+                            marginBottom: 6,
+                            background: '#0e1116',
+                            borderBottom: `2px solid ${activeColor}`,
+                            color: activeColor,
+                            fontWeight: 700,
                             fontSize: 11,
                             letterSpacing: 0.5,
                             textTransform: 'uppercase',
-                            marginBottom: 2,
-                            position: 'sticky',
-                            top: -8,
-                            background: '#0e1116',
-                            paddingTop: 2,
-                            paddingBottom: 2,
                           }}
                         >
-                          {group.phase}
+                          {activePhase}
+                          {!provisionDone && !provisionError && ' — running…'}
                         </Box>
-                        {group.lines.map((line, lIdx) => (
-                          <div
-                            key={lIdx}
-                            style={{
-                              whiteSpace: 'pre-wrap',
-                              wordBreak: 'break-word',
-                              color:
-                                group.phase === 'Error' ? '#fca5a5' : undefined,
-                            }}
-                          >
-                            {line}
-                          </div>
-                        ))}
-                      </Box>
+                        {groups.map((group, gIdx) => {
+                          const color = PHASE_COLORS[group.phase];
+                          return (
+                            <Box
+                              key={gIdx}
+                              mb={1}
+                              style={{
+                                borderLeft: `3px solid ${color}`,
+                                paddingLeft: 8,
+                              }}
+                            >
+                              <Box
+                                style={{
+                                  color,
+                                  fontWeight: 600,
+                                  fontSize: 11,
+                                  letterSpacing: 0.5,
+                                  textTransform: 'uppercase',
+                                  marginBottom: 2,
+                                  paddingTop: 2,
+                                  paddingBottom: 2,
+                                }}
+                              >
+                                {group.phase}
+                              </Box>
+                              {group.lines.map((line, lIdx) => (
+                                <div
+                                  key={lIdx}
+                                  style={{
+                                    whiteSpace: 'pre-wrap',
+                                    wordBreak: 'break-word',
+                                    color:
+                                      group.phase === 'Error'
+                                        ? '#fca5a5'
+                                        : undefined,
+                                  }}
+                                >
+                                  {line}
+                                </div>
+                              ))}
+                            </Box>
+                          );
+                        })}
+                      </>
                     );
-                  })}
+                  })()}
                 </Paper>
               </Box>
               );
