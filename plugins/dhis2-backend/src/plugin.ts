@@ -58,11 +58,11 @@ function defaultScriptPath(): string | undefined {
   // Common deployment layouts where the plugin's scripts/ directory ships
   // alongside the backend bundle.
   const candidates = [
-    '/opt/backstage/plugins/dhis2/scripts/provision-instance.sh',
-    '/opt/dhis2-backstage/plugins/dhis2/scripts/provision-instance.sh',
+    '/opt/backstage/plugins/dhis2/scripts/create-instance.sh',
+    '/opt/dhis2-backstage/plugins/dhis2/scripts/create-instance.sh',
     path.resolve(
       process.cwd(),
-      'plugins/dhis2/scripts/provision-instance.sh',
+      'plugins/dhis2/scripts/create-instance.sh',
     ),
   ];
   for (const candidate of candidates) {

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # delete-instance.sh — tear down a previously-provisioned DHIS2
 # instance. Runs Phase 5 (remove central nginx vhost via
-# configure-host-proxy.sh --remove) and Phase 1/3 (Ansible: destroy LXC
+# configure-proxy.sh --remove) and Phase 1/3 (Ansible: destroy LXC
 # and optionally drop a remote PostgreSQL database).
 #
 # Phase headers ("PLAY [Phase N — ...]") are written verbatim so the
@@ -33,7 +33,7 @@ Optional (central Nginx):
   --proxy-nginx-reload <cmd>
                             Command run after vhost removal
                             (default: nginx -s reload, applied by
-                            configure-host-proxy.sh)
+                            configure-proxy.sh)
   --skip-proxy-cleanup      Don't touch nginx (instance retained at LB)
 
 Optional (shared PostgreSQL host):
@@ -153,7 +153,7 @@ cleanup() {
 trap cleanup EXIT
 
 # ----------------------------------------------------------------------------
-# Phase 5 — remove central Nginx vhost via configure-host-proxy.sh --remove
+# Phase 5 — remove central Nginx vhost via configure-proxy.sh --remove
 # ----------------------------------------------------------------------------
 # Run before destroying the LXC so users stop getting routed to it.
 # Header is printed in the same format ansible uses ("PLAY [Phase N — ...]"),
@@ -164,7 +164,7 @@ if [[ "${SKIP_PROXY_CLEANUP}" == "1" ]]; then
     log "--skip-proxy-cleanup set, leaving nginx config in place"
 else
     PROXY_ARGS=(--remove --vmid "${VMID}" --domain "${DOMAIN}")
-    # When the operator hasn't supplied a --proxy-host, configure-host-proxy.sh
+    # When the operator hasn't supplied a --proxy-host, configure-proxy.sh
     # runs locally on whichever host this script was invoked from. The
     # provision side defaults to the PVE host, so mirror that.
     EFFECTIVE_PROXY_HOST="${PROXY_HOST}"
@@ -188,13 +188,13 @@ else
     if [[ -n "${PROXY_NGINX_DIR}" ]]; then
         PROXY_ARGS+=(--upstream-dir "${PROXY_NGINX_DIR}")
     fi
-    log "running: configure-host-proxy.sh ${PROXY_ARGS[*]}"
+    log "running: configure-proxy.sh ${PROXY_ARGS[*]}"
     # Tolerate failures — leaving a stale nginx upstream file is recoverable
     # (the playbook will report the LXC destroy separately) and we still want
     # to attempt the LXC + DB cleanup so the operator can re-run on the
     # nginx side later.
-    "${SCRIPT_DIR}/configure-host-proxy.sh" "${PROXY_ARGS[@]}" || \
-        log "WARN: configure-host-proxy.sh --remove exited non-zero; continuing"
+    "${SCRIPT_DIR}/configure-proxy.sh" "${PROXY_ARGS[@]}" || \
+        log "WARN: configure-proxy.sh --remove exited non-zero; continuing"
 fi
 
 # ----------------------------------------------------------------------------

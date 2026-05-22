@@ -3,7 +3,7 @@
 #
 # Runs AFTER the orchestrator wrapper (scripts/delete-instance.sh)
 # has already removed the per-instance nginx vhost via
-# configure-host-proxy.sh --remove. This playbook handles:
+# configure-proxy.sh --remove. This playbook handles:
 #   - Phase 1: stop + destroy the LXC via the Proxmox REST API
 #   - Phase 3: (optional) drop the DHIS2 database + role on a shared
 #              PostgreSQL host when dhis2_db_drop=true

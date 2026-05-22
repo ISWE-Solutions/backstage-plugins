@@ -1283,7 +1283,7 @@ export interface ProxyFilesSnapshot {
  * payload is an override or feature flag.
  */
 export interface DecommissionInstancePayload {
-  /** Skip the configure-host-proxy.sh --remove step. */
+  /** Skip the configure-proxy.sh --remove step. */
   skipProxyCleanup?: boolean;
   /**
    * When true, drop the DHIS2 database + role on a shared PostgreSQL

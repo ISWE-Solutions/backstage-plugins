@@ -1,7 +1,7 @@
 ---
 # host_proxy — central Nginx reverse proxy on the Proxmox host.
 #
-# Mirrors plugins/dhis2/scripts/configure-host-proxy.sh but as native
+# Mirrors plugins/dhis2/scripts/configure-proxy.sh but as native
 # Ansible tasks so the orchestration runs inside the same site.yml play
 # instead of via a shelled-out script. The legacy script is kept for the
 # rollback / --delete-if-exists path because that runs before Ansible.

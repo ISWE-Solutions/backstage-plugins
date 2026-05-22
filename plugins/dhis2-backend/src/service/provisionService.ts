@@ -19,7 +19,7 @@ import { InstanceStore } from './instanceStore';
  * Backstage host does NOT need to be a Proxmox node.
  *
  * The legacy `host` / `user` / `privateKeyFile` fields are still consumed
- * by configure-host-proxy.sh (which SSHes to the PVE host to install the
+ * by configure-proxy.sh (which SSHes to the PVE host to install the
  * central Nginx + Let's Encrypt cert).
  */
 export interface OrchestratorConfig {
@@ -37,7 +37,7 @@ export interface OrchestratorConfig {
   scriptPath: string;
   /**
    * Explicit Proxmox node to SSH to for the central Nginx step (used by
-   * configure-host-proxy.sh). When omitted, falls back to host (if
+   * configure-proxy.sh). When omitted, falls back to host (if
    * non-local) and then to the per-request node.
    */
   pveHost?: string;
@@ -305,7 +305,7 @@ export interface DecommissionRequest {
   domain: string;
   /** Human-readable instance name — only used for log lines and the job echo. */
   name: string;
-  /** Skip the configure-host-proxy.sh --remove step. */
+  /** Skip the configure-proxy.sh --remove step. */
   skipProxyCleanup?: boolean;
   /** When true, drop the DHIS2 database+role on a shared PostgreSQL host. */
   dropDatabase?: boolean;
@@ -1017,9 +1017,10 @@ export class ProvisionService {
     req: ProvisionRequest,
   ): Promise<void> {
     job.status = 'running';
+    const provisionScriptName = path.basename(cfg.scriptPath);
     appendLine(
       job,
-      `[backend] Running provision-instance.sh locally on the Backstage host. Proxmox API: ${cfg.apiUser}@${cfg.apiUrl} (LXC lifecycle via REST; nginx via SSH to ${resolvePveHost(cfg, req) || 'localhost'}).`,
+      `[backend] Running ${provisionScriptName} locally on the Backstage host. Proxmox API: ${cfg.apiUser}@${cfg.apiUrl} (LXC lifecycle via REST; nginx via SSH to ${resolvePveHost(cfg, req) || 'localhost'}).`,
     );
 
     const command = buildCommand(cfg, req);
@@ -1112,7 +1113,7 @@ export class ProvisionService {
         updated: job.finishedAt,
       };
       job.instance = inst;
-      appendLine(job, `[backend] provision-instance.sh exited 0`);
+      appendLine(job, `[backend] ${provisionScriptName} exited 0`);
       await appendInstanceToState(this.instanceStore, inst, this.logger);
       // Best-effort: tag the new LXC so reconciliation can verify it
       // belongs to this plugin. Non-fatal — a tagging failure only loses
@@ -1127,7 +1128,7 @@ export class ProvisionService {
       });
     } else {
       job.status = 'failed';
-      job.error = `provision-instance.sh exited with code ${exitCode}`;
+      job.error = `${provisionScriptName} exited with code ${exitCode}`;
       appendLine(job, `[backend] ${job.error}`);
     }
   }
@@ -1419,7 +1420,7 @@ export class ProvisionService {
   // instance upstream snippet (in `proxy.nginxConfigPath`, default
   // /etc/nginx/upstream) and the vhost / "dhis.conf" file. Both live on
   // the central proxy host and are accessed via SSH — the same channel
-  // configure-host-proxy.sh and delete-instance.sh use.
+  // configure-proxy.sh and delete-instance.sh use.
 
   async readProxyFiles(
     instanceId: string,
@@ -1493,7 +1494,7 @@ export interface ProxyAccessOverrides {
   /**
    * Optional explicit path for the site/vhost file. When omitted, derived
    * from the instance's routing mode (subdomain vs path-based) using the
-   * same defaults configure-host-proxy.sh applies.
+   * same defaults configure-proxy.sh applies.
    */
   sitesAvailable?: string;
 }

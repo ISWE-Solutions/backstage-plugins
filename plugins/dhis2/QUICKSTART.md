@@ -334,7 +334,7 @@ everything *inside* the container over SSH. No upstream Ansible dependency.
 plugins/dhis2/
 ├── scripts/
 │   ├── create-container.sh      # Proxmox: pvesh/pct + SSH bootstrap
-│   ├── configure-host-proxy.sh  # central Nginx + certbot (on PVE host)
+│   ├── configure-proxy.sh  # central Nginx + certbot (on PVE host)
 │   └── create-instance.sh       # orchestrator: phases 1 → 2 → 3
 └── ansible/
     ├── ansible.cfg
@@ -374,7 +374,7 @@ cd plugins/dhis2/scripts
 ```
 
 Re-running is idempotent — Ansible will report `changed=0` for stable
-roles. Tear-down: `./configure-host-proxy.sh --remove --vmid 200 --domain dhis2.example.org && pct destroy 200 --purge`.
+roles. Tear-down: `./configure-proxy.sh --remove --vmid 200 --domain dhis2.example.org && pct destroy 200 --purge`.
 
 ## Getting Help
 

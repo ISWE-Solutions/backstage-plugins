@@ -1,7 +1,7 @@
 ---
 # Defaults for the host_proxy role.
 #
-# This role replaces the legacy plugins/dhis2/scripts/configure-host-proxy.sh
+# This role replaces the legacy plugins/dhis2/scripts/configure-proxy.sh
 # shell helper for the create / apply path. It runs on the Proxmox host
 # (the central Nginx that terminates TLS) and writes either a path-based
 # (<base>/<instance>) or subdomain (<instance>.<base>) reverse-proxy

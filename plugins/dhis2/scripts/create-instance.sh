@@ -12,7 +12,7 @@
 #      containing the container spec, DHIS2 vars, DB credentials, PVE API
 #      credentials, and (optionally) a restore spec.
 #   3. Runs `ansible-playbook site.yml`.
-#   4. Runs configure-host-proxy.sh for central Nginx + Let's Encrypt.
+#   4. Runs configure-proxy.sh for central Nginx + Let's Encrypt.
 #
 # Secrets are taken from env vars or a --vars-file (mode 0600) — never argv.
 # A temp vars.yml is rendered for Ansible and removed on exit via `trap`.
@@ -153,7 +153,7 @@ while [[ $# -gt 0 ]]; do
         --delete-if-exists) DELETE_IF_EXISTS=1; shift;;
         # Back-compat: accept and ignore the old PVE-SSH flags so callers
         # that still pass them don't break. The API-based flow doesn't
-        # need them (configure-host-proxy.sh has its own --pve-host).
+        # need them (configure-proxy.sh has its own --pve-host).
         --pve-host) PVE_HOST="$2"; shift 2;;
         --pve-user) PVE_USER="$2"; shift 2;;
         --pve-ssh-key) PVE_SSH_KEY="$2"; shift 2;;
@@ -191,7 +191,7 @@ case "${TOMCAT_VERSION}" in
         ;;
 esac
 
-# Default PVE_HOST/USER for configure-host-proxy.sh (nginx + certbot still
+# Default PVE_HOST/USER for configure-proxy.sh (nginx + certbot still
 # need to run ON the Proxmox node over SSH). When PROXMOX_API_URL is set
 # we reuse its hostname (stripping scheme and port); the operator can
 # override via env var.
@@ -335,7 +335,7 @@ cleanup() {
     if [[ ${rc} -ne 0 && ${ROLLBACK_ON_FAILURE} -eq 1 ]]; then
         log "FAILED (rc=${rc}) — attempting LXC + nginx rollback via API"
         rollback_lxc || true
-        "${SCRIPT_DIR}/configure-host-proxy.sh" \
+        "${SCRIPT_DIR}/configure-proxy.sh" \
             --remove --vmid "${VMID}" --domain "${DOMAIN}" \
             --pve-host "${PVE_HOST}" --pve-user "${PVE_USER}" \
             --pve-ssh-key "${PVE_SSH_KEY}" 2>/dev/null || true
@@ -566,12 +566,12 @@ chmod 0600 "${EXTRA_VARS_FILE}"
 # When --delete-if-exists is passed, stop + purge the LXC at VMID and remove
 # the matching nginx vhost on the Proxmox host before the playbook recreates
 # them. Reuses the same Proxmox REST calls as rollback_lxc() and the
-# --remove path of configure-host-proxy.sh. Safe to run even when nothing
+# --remove path of configure-proxy.sh. Safe to run even when nothing
 # exists at VMID — both calls are best-effort and tolerate 404s.
 if [[ "${DELETE_IF_EXISTS}" == "1" ]]; then
     log "--delete-if-exists set — wiping any existing VMID=${VMID} and its nginx vhost before recreating"
     rollback_lxc || true
-    "${SCRIPT_DIR}/configure-host-proxy.sh" \
+    "${SCRIPT_DIR}/configure-proxy.sh" \
         --remove --vmid "${VMID}" --domain "${DOMAIN}" \
         --pve-host "${PVE_HOST}" --pve-user "${PVE_USER}" \
         --pve-ssh-key "${PVE_SSH_KEY}" 2>/dev/null || true
@@ -631,7 +631,7 @@ log "container IP: ${CONTAINER_IP}"
 # Phase 3 (legacy): central Nginx + certbot on the Proxmox host
 # ----------------------------------------------------------------------------
 # NOTE: this phase has been moved into the Ansible playbook (site.yml
-# Phase 5, roles/host_proxy). The legacy configure-host-proxy.sh script
+# Phase 5, roles/host_proxy). The legacy configure-proxy.sh script
 # is still used for the rollback / --delete-if-exists tear-down path
 # above; the create path is now driven by Ansible end-to-end.
 

@@ -12,7 +12,7 @@
 #   4. common/postgres/dhis2 — usual roles (run as the ansible user).
 #
 # TLS is handled at the Proxmox host by the central Nginx
-# (see ../scripts/configure-host-proxy.sh) so this playbook does NOT
+# (see ../scripts/configure-proxy.sh) so this playbook does NOT
 # install or configure any in-container web proxy.
 
 - name: "Phase 1 — create LXC via Proxmox API"
@@ -166,7 +166,7 @@
 # orchestrator's pve_ssh_* extra-vars) and runs the host_proxy role to
 # write the per-instance nginx config + base vhost + request a Let's
 # Encrypt cert. This replaces the legacy
-# plugins/dhis2/scripts/configure-host-proxy.sh call from
+# plugins/dhis2/scripts/configure-proxy.sh call from
 # create-instance.sh's Phase 3.
 
 - name: "Phase 5a — register Proxmox host for the central Nginx play"
