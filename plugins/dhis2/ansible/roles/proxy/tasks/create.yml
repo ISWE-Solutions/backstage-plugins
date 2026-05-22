@@ -38,9 +38,37 @@
     - "{{ host_proxy_sites_available }}"
     - "{{ host_proxy_sites_enabled }}"
 
+# Webroot for certbot --webroot. Needs to exist before nginx tries to
+# serve /.well-known/acme-challenge/ out of it.
+- name: Ensure certbot webroot exists
+  ansible.builtin.file:
+    path: "{{ host_proxy_webroot }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: not host_proxy_skip_certbot | bool
+
+# Detect whether the base-domain cert already exists. The base vhost
+# template gates its 443 server{} block on this fact — if the cert is
+# missing we render an HTTP-only bootstrap vhost first, run certbot via
+# --webroot, then re-render with the SSL block enabled. This avoids the
+# chicken-and-egg where certbot --nginx runs `nginx -t` before issuing
+# the cert and fails on the very ssl_certificate path it's about to
+# create.
+- name: Check whether base-domain TLS cert already exists
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ host_proxy_base_domain }}/fullchain.pem"
+  register: host_proxy_cert_stat
+
+- name: Set cert_present fact (pre-certbot)
+  ansible.builtin.set_fact:
+    host_proxy_cert_present: "{{ host_proxy_cert_stat.stat.exists | bool }}"
+
 # Path-based mode: per-instance file contains only a 'location /<inst>/'
 # block; the base vhost terminates TLS and includes
-# {{ host_proxy_upstream_dir }}/*.conf inside its 443 server{}.
+# {{ host_proxy_upstream_dir }}/*.conf inside its 443 server{} block —
+# but only once host_proxy_cert_present is true.
 - name: Write per-instance location snippet (path-based)
   ansible.builtin.template:
     src: per_instance_path.conf.j2
@@ -117,14 +145,28 @@
   when: host_proxy_sites_available != host_proxy_sites_enabled
   notify: reload nginx
 
-# Request a TLS cert for the base FQDN. certbot certonly is idempotent
-# (re-runs report 'cert not yet due') so we don't need a creates: guard
-# at this layer; in path-based mode every sibling instance shares the
-# same cert.
+# Request a TLS cert for the base FQDN. We use the --webroot
+# authenticator so certbot doesn't have to `nginx -t` (and therefore
+# doesn't trip over a not-yet-existent ssl_certificate path on the very
+# first run). certbot certonly is idempotent — re-runs report
+# 'cert not yet due for renewal' so we don't need a creates: guard at
+# this layer; in path-based mode every sibling instance shares the same
+# cert.
+#
+# Reload nginx first so the just-written bootstrap vhost (HTTP-only)
+# is active and serving /.well-known/acme-challenge/ out of the webroot.
+- name: Reload nginx so the bootstrap vhost serves ACME challenges
+  ansible.builtin.command: "{{ host_proxy_nginx_reload_cmd }}"
+  when:
+    - not host_proxy_skip_certbot | bool
+    - not host_proxy_cert_present | bool
+  changed_when: true
+
 - name: Request Let's Encrypt certificate
   ansible.builtin.command:
     cmd: >-
-      {{ host_proxy_certbot_bin }} certonly --nginx
+      {{ host_proxy_certbot_bin }} certonly --webroot
+      -w {{ host_proxy_webroot | quote }}
       -d {{ host_proxy_base_domain | quote }}
       --non-interactive --agree-tos
       --email {{ host_proxy_email | quote }}
@@ -135,6 +177,47 @@
     - host_proxy_certbot.rc != 0
     - "'not yet due for renewal' not in host_proxy_certbot.stdout"
   when: not host_proxy_skip_certbot | bool
+  notify: reload nginx
+
+# Re-stat the cert after certbot ran and re-render the base vhost with
+# the 443 server{} block enabled. The template is conditional on
+# host_proxy_cert_present, so the second pass adds the SSL listener
+# without breaking nginx on the first.
+- name: Re-check base-domain TLS cert after certbot
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ host_proxy_base_domain }}/fullchain.pem"
+  register: host_proxy_cert_stat_post
+  when: not host_proxy_skip_certbot | bool
+
+- name: Update cert_present fact (post-certbot)
+  ansible.builtin.set_fact:
+    host_proxy_cert_present: "{{ host_proxy_cert_stat_post.stat.exists | bool }}"
+  when:
+    - not host_proxy_skip_certbot | bool
+    - host_proxy_cert_stat_post is defined
+
+- name: Re-write shared base vhost with SSL enabled (path-based)
+  ansible.builtin.template:
+    src: base_path_vhost.conf.j2
+    dest: "{{ host_proxy_site_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when:
+    - host_proxy_routing_mode == 'path'
+    - host_proxy_cert_present | bool
+  notify: reload nginx
+
+- name: Re-write site file with SSL enabled (subdomain)
+  ansible.builtin.template:
+    src: subdomain_vhost.conf.j2
+    dest: "{{ host_proxy_site_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when:
+    - host_proxy_routing_mode == 'subdomain'
+    - host_proxy_cert_present | bool
   notify: reload nginx
 
 # Validate the rendered config BEFORE the handler tries to reload nginx

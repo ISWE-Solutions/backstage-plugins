@@ -40,3 +40,12 @@ host_proxy_skip_certbot: false
 host_proxy_nginx_validate_cmd: nginx -t
 host_proxy_nginx_reload_cmd: systemctl reload nginx
 host_proxy_certbot_bin: certbot
+
+# Webroot used by certbot's --webroot authenticator. We prefer --webroot
+# over --nginx because --nginx runs `nginx -t` before issuing the cert,
+# which fails the very first time we provision a new base domain (the
+# vhost we just wrote references /etc/letsencrypt/live/<base>/fullchain.pem
+# that certbot is about to create). Serving the ACME challenges out of
+# this directory lets us issue the cert before the SSL server{} block is
+# enabled.
+host_proxy_webroot: /var/www/letsencrypt
