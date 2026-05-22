@@ -70,7 +70,11 @@
     # Tag the container so Backstage can confidently identify which LXCs
     # in the cluster are DHIS2 instances managed by this plugin. The
     # dhis2-backend reconciler treats `dhis2` as the primary marker.
-    tags: "{{ pve_tags | default('dhis2;backstage') }}"
+    # community.general.proxmox expects `tags` as a list of separate
+    # strings (PVE itself stores them semicolon-delimited); passing a
+    # joined string like "dhis2;backstage" fails validation with
+    # "dhis2;backstage is not a valid tag".
+    tags: "{{ pve_tags | default(['dhis2', 'backstage']) }}"
     state: present
     timeout: 300
   register: pve_create_result
