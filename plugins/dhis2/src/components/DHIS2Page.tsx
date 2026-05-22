@@ -359,20 +359,20 @@ export const DHIS2Page = () => {
   const loadInstances = async () => {
     setLoading(true);
     try {
-      const data = await dhis2Service.getInstances();
-      // Merge in instances that the backend has actually provisioned.
+      // The backend's persisted registry is the source of truth for what
+      // is actually deployed. Use it directly \u2014 the mock list from
+      // `dhis2Service.getInstances()` is reserved as a last-resort
+      // fallback when the backend is unreachable (e.g. during local UI
+      // development without the dhis2-backend running).
       try {
         const baseUrl = await discoveryApi.getBaseUrl('dhis2');
         const persisted = await dhis2Service.getPersistedInstances(
           baseUrl,
           backstageFetch,
         );
-        const byId = new Map<string, DHIS2Instance>();
-        for (const inst of data) byId.set(inst.id, inst);
-        for (const inst of persisted) byId.set(inst.id, inst);
-        setInstances(Array.from(byId.values()));
+        setInstances(persisted);
         // Pull the reconciliation report so the panel can surface drift.
-        // Failures are non-fatal — the panel just won't show the banner.
+        // Failures are non-fatal \u2014 the panel just won't show the banner.
         try {
           const report = await dhis2Service.getInstanceReconciliation(
             baseUrl,
@@ -389,7 +389,9 @@ export const DHIS2Page = () => {
           setReconcileWarning(null);
         }
       } catch {
-        // Backend unreachable — fall back to mock list.
+        // Backend unreachable \u2014 fall back to mock list so the UI is
+        // still usable in standalone dev mode.
+        const data = await dhis2Service.getInstances();
         setInstances(data);
         setUnmanagedContainers([]);
         setReconcileWarning(null);
