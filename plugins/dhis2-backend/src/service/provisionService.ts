@@ -197,6 +197,52 @@ export interface ProvisionRequest {
 }
 
 /**
+ * Shape the frontend sends to POST /instances/:id/decommission.
+ *
+ * Mirrors the subset of `ProvisionRequest` needed to tear down a
+ * previously-provisioned instance. The instance id from the URL is the
+ * primary key; the rest of the payload supplies the Proxmox + nginx
+ * teardown settings (defaulted from saved global settings in the UI).
+ */
+export interface DecommissionRequest {
+  /** Persisted instance id (e.g. "dhis2-101"). Used to look up + remove from state. */
+  instanceId: string;
+  vmid: number;
+  node: string;
+  /** Same form used by provision-instance.sh: '<fqdn>' or '<fqdn>/<segment>'. */
+  domain: string;
+  /** Human-readable instance name — only used for log lines and the job echo. */
+  name: string;
+  /** Skip the configure-host-proxy.sh --remove step. */
+  skipProxyCleanup?: boolean;
+  /** When true, drop the DHIS2 database+role on a shared PostgreSQL host. */
+  dropDatabase?: boolean;
+  database?: {
+    name?: string;
+    user?: string;
+    host?: string;
+    port?: number;
+  };
+  databaseAdmin?: { user?: string; password?: string };
+  proxy?: {
+    host?: string;
+    sshPort?: number;
+    sshUser?: string;
+    sshKeyPath?: string;
+    nginxConfigPath?: string;
+    nginxReloadCommand?: string;
+  };
+  /** Per-job Proxmox credential override (same semantics as ProvisionRequest.proxmox). */
+  proxmox?: {
+    apiUrl?: string;
+    apiUser?: string;
+    apiTokenId?: string;
+    apiTokenSecret?: string;
+    validateApiCerts?: boolean;
+  };
+}
+
+/**
  * Normalize Proxmox API credentials so the orchestrator (and the bash
  * script / Ansible role downstream) always receive `PROXMOX_USER` =
  * `user@realm` and `PROXMOX_TOKEN_ID` = the token name (the part AFTER
@@ -481,6 +527,128 @@ async function appendInstanceToState(
   }
 }
 
+/**
+ * Remove a persisted instance from the orchestrator state file. Best-effort:
+ * if the state file is missing or unreadable, the function is a no-op.
+ */
+async function removeInstanceFromState(
+  cfg: OrchestratorConfig,
+  instanceId: string,
+  logger: LoggerService,
+): Promise<void> {
+  if (!cfg.stateFile) return;
+  try {
+    const raw = await fs.readFile(cfg.stateFile, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+    const existing = parsed as PersistedInstance[];
+    const filtered = existing.filter(e => e.id !== instanceId);
+    if (filtered.length === existing.length) return;
+    await fs.writeFile(cfg.stateFile, JSON.stringify(filtered, null, 2), {
+      mode: 0o600,
+    });
+  } catch (err) {
+    logger.warn(
+      `DHIS2: failed to remove instance ${instanceId} from ${cfg.stateFile}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+}
+
+function buildDecommissionCommand(
+  cfg: OrchestratorConfig,
+  req: DecommissionRequest,
+  scriptPath: string,
+): string {
+  const args: string[] = [
+    scriptPath,
+    '--vmid', String(req.vmid),
+    '--node', req.node,
+    '--domain', req.domain,
+  ];
+  if (req.skipProxyCleanup) {
+    args.push('--skip-proxy-cleanup');
+  }
+  const proxy = req.proxy ?? {};
+  if (proxy.host && proxy.host.trim() !== '') {
+    args.push('--proxy-host', proxy.host.trim());
+  }
+  if (proxy.sshPort && Number.isInteger(proxy.sshPort)) {
+    args.push('--proxy-port', String(proxy.sshPort));
+  }
+  if (proxy.sshUser && proxy.sshUser.trim() !== '') {
+    args.push('--proxy-user', proxy.sshUser.trim());
+  }
+  if (proxy.sshKeyPath && proxy.sshKeyPath.trim() !== '') {
+    args.push('--proxy-ssh-key', proxy.sshKeyPath.trim());
+  }
+  if (proxy.nginxConfigPath && proxy.nginxConfigPath.trim() !== '') {
+    args.push('--proxy-nginx-dir', proxy.nginxConfigPath.trim());
+  }
+  if (proxy.nginxReloadCommand && proxy.nginxReloadCommand.trim() !== '') {
+    args.push('--proxy-nginx-reload', proxy.nginxReloadCommand.trim());
+  }
+  if (cfg.privateKeyFile) {
+    args.push('--ssh-key', cfg.privateKeyFile);
+  }
+  const db = req.database ?? {};
+  if (req.dropDatabase) {
+    args.push('--drop-database');
+    if (db.host && db.host.trim() !== '') {
+      args.push('--db-host', db.host.trim());
+    }
+    if (db.port && Number.isInteger(db.port)) {
+      args.push('--db-port', String(db.port));
+    }
+    if (db.name && db.name.trim() !== '') {
+      args.push('--db-name', db.name.trim());
+    }
+    if (db.user && db.user.trim() !== '') {
+      args.push('--db-user', db.user.trim());
+    }
+  }
+
+  const reqPm = req.proxmox ?? {};
+  const effectiveApiUrl =
+    (reqPm.apiUrl && reqPm.apiUrl.trim()) || cfg.apiUrl;
+  const { apiUser: effectiveApiUser, apiTokenId: effectiveApiTokenId } =
+    normalizeProxmoxCreds(
+      (reqPm.apiUser && reqPm.apiUser.trim()) || cfg.apiUser,
+      (reqPm.apiTokenId && reqPm.apiTokenId.trim()) || cfg.apiTokenId,
+    );
+  const effectiveApiTokenSecret =
+    (reqPm.apiTokenSecret && reqPm.apiTokenSecret.trim()) ||
+    cfg.apiTokenSecret;
+  const cfgValidate = Boolean(cfg.validateApiCerts);
+  const reqValidate =
+    typeof reqPm.validateApiCerts === 'boolean'
+      ? reqPm.validateApiCerts
+      : cfgValidate;
+  const effectiveValidateCerts = cfgValidate && reqValidate;
+
+  const env: Record<string, string> = {
+    PROXMOX_API_URL: effectiveApiUrl,
+    PROXMOX_USER: effectiveApiUser,
+    PROXMOX_TOKEN_ID: effectiveApiTokenId,
+    PROXMOX_TOKEN_SECRET: effectiveApiTokenSecret,
+    PROXMOX_VALIDATE_CERTS: effectiveValidateCerts ? 'true' : 'false',
+  };
+  if (req.dropDatabase) {
+    env.DHIS2_DB_ADMIN_USER = req.databaseAdmin?.user || 'postgres';
+    env.DHIS2_DB_ADMIN_PASS = req.databaseAdmin?.password || '';
+  }
+  const debugFlag = process.env.DHIS2_DEBUG;
+  if (debugFlag && debugFlag !== '0' && debugFlag.toLowerCase() !== 'false') {
+    env.DHIS2_DEBUG = '1';
+  }
+  const envPrefix = Object.entries(env)
+    .map(([k, v]) => `${k}=${shellQuote(v)}`)
+    .join(' ');
+  const quotedArgs = args.map(shellQuote).join(' ');
+  return `${envPrefix} bash -lc ${shellQuote(quotedArgs)}`;
+}
+
 export class ProvisionService {
   constructor(
     private readonly logger: LoggerService,
@@ -642,6 +810,99 @@ export class ProvisionService {
     } else {
       job.status = 'failed';
       job.error = `provision-instance.sh exited with code ${exitCode}`;
+      appendLine(job, `[backend] ${job.error}`);
+    }
+  }
+
+  /**
+   * Start a decommission job. Returns the job id immediately; the script
+   * runs asynchronously and streams stdout/stderr into the job's log
+   * buffer just like `startJob`. On success the persisted instance is
+   * removed from the registry.
+   */
+  startDecommissionJob(req: DecommissionRequest): JobSnapshot {
+    if (!this.cfg) {
+      throw new Error(
+        'Decommission is not configured. Set dhis2.orchestrator in app-config.yaml.',
+      );
+    }
+    const cfg = this.cfg;
+    const id = randomUUID();
+    const job: JobSnapshot = {
+      id,
+      status: 'queued',
+      startedAt: new Date().toISOString(),
+      lines: [],
+      request: {
+        name: req.name,
+        domain: req.domain,
+        version: '',
+        node: req.node,
+        vmid: req.vmid,
+      },
+    };
+    jobs.set(id, job);
+
+    this.runDecommissionJob(job, cfg, req).catch(err => {
+      job.status = 'failed';
+      job.error = err instanceof Error ? err.message : String(err);
+      job.finishedAt = new Date().toISOString();
+      appendLine(job, `[backend] FATAL: ${job.error}`);
+      this.logger.error(
+        `DHIS2: decommission job ${id} crashed: ${job.error}`,
+      );
+    });
+
+    return snapshot(job);
+  }
+
+  private async runDecommissionJob(
+    job: JobSnapshot,
+    cfg: OrchestratorConfig,
+    req: DecommissionRequest,
+  ): Promise<void> {
+    job.status = 'running';
+    const decommissionScript = path.join(
+      path.dirname(cfg.scriptPath),
+      'decommission-instance.sh',
+    );
+    appendLine(
+      job,
+      `[backend] Running decommission-instance.sh locally on the Backstage host for instance "${req.name}" (vmid=${req.vmid}, node=${req.node}, domain=${req.domain}).`,
+    );
+
+    const command = buildDecommissionCommand(cfg, req, decommissionScript);
+    appendLine(
+      job,
+      `[backend] Executing: ${decommissionScript} --vmid ${req.vmid} --node ${req.node} --domain ${req.domain} (secrets via env)`,
+    );
+
+    const exitCode = await runLocal(job, command);
+    job.exitCode = exitCode;
+    job.finishedAt = new Date().toISOString();
+
+    if (exitCode === 0) {
+      job.status = 'success';
+      appendLine(job, `[backend] decommission-instance.sh exited 0`);
+      // Remove the instance from the persisted state file. Best-effort —
+      // a missing or unreadable state file is not fatal.
+      try {
+        await removeInstanceFromState(cfg, req.instanceId, this.logger);
+        appendLine(
+          job,
+          `[backend] Removed instance ${req.instanceId} from registry`,
+        );
+      } catch (err) {
+        appendLine(
+          job,
+          `[backend] WARN: failed to update registry: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    } else {
+      job.status = 'failed';
+      job.error = `decommission-instance.sh exited with code ${exitCode}`;
       appendLine(job, `[backend] ${job.error}`);
     }
   }

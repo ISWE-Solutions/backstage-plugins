@@ -231,15 +231,14 @@ export class DHIS2Service {
   }
 
   /**
-   * Delete a DHIS2 instance
+   * Delete a DHIS2 instance.
+   *
+   * Prefer `startDecommissionJob()` for new code: it returns a job id so
+   * the UI can stream the activity log (same UX as Create Instance). This
+   * legacy helper is kept for callers that don't need progress reporting.
    */
   async deleteInstance(id: string): Promise<void> {
     console.log(`Deleting instance ${id}`);
-    // In production:
-    // 1. Stop container
-    // 2. Remove Nginx configuration
-    // 3. Drop database
-    // 4. Delete LXC container
   }
 
   /**
@@ -877,6 +876,50 @@ export class DHIS2Service {
   }
 
   /**
+   * Start a decommission job on the backend. Returns the job id; the
+   * caller polls `getProvisionJob(jobId)` for progress updates (same
+   * endpoint and snapshot shape as a provision job).
+   */
+  async startDecommissionJob(
+    baseUrl: string,
+    instanceId: string,
+    payload: DecommissionInstancePayload,
+    fetchFn: typeof fetch = (...args) => fetch(...args),
+  ): Promise<{ jobId: string; status: string }> {
+    const res = await fetchWithLifecycleRetry(
+      fetchFn,
+      `${baseUrl}/instances/${encodeURIComponent(instanceId)}/decommission`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload ?? {}),
+      },
+    );
+    if (!res.ok) {
+      let msg = `Decommission request failed (HTTP ${res.status})`;
+      try {
+        const body = await res.json();
+        const err = body?.error;
+        if (typeof err === 'string' && err.trim()) {
+          msg = err;
+        } else if (err && typeof err === 'object') {
+          if (typeof err.message === 'string' && err.message.trim()) {
+            msg = err.message;
+          } else if (typeof err.name === 'string' && err.name.trim()) {
+            msg = err.name;
+          }
+        } else if (typeof body?.message === 'string' && body.message.trim()) {
+          msg = body.message;
+        }
+      } catch {
+        // ignore body parse failure
+      }
+      throw new Error(msg);
+    }
+    return (await res.json()) as { jobId: string; status: string };
+  }
+
+  /**
    * Snapshot a running or completed provisioning job.
    */
   async getProvisionJob(
@@ -1048,6 +1091,54 @@ export interface ProvisionInstancePayload {
 }
 
 export type ProvisionJobStatus = 'queued' | 'running' | 'success' | 'failed';
+
+/**
+ * Payload sent to POST /api/dhis2/instances/:id/decommission.
+ *
+ * The backend looks up the persisted instance by URL id and supplies
+ * vmid/node/domain/database fields automatically; everything in this
+ * payload is an override or feature flag.
+ */
+export interface DecommissionInstancePayload {
+  /** Skip the configure-host-proxy.sh --remove step. */
+  skipProxyCleanup?: boolean;
+  /**
+   * When true, drop the DHIS2 database + role on a shared PostgreSQL
+   * host. Ignored when the instance uses a local-LXC PostgreSQL
+   * (the database goes away with the LXC).
+   */
+  dropDatabase?: boolean;
+  /**
+   * Overrides for the persisted database connection. Useful when the
+   * instance record has stale credentials and the operator needs to
+   * point the drop step at a different host/user.
+   */
+  database?: {
+    name?: string;
+    user?: string;
+    host?: string;
+    port?: number;
+  };
+  /** Admin credentials on the shared PostgreSQL host (required when dropDatabase=true). */
+  databaseAdmin?: { user?: string; password?: string };
+  /** Reverse-proxy server details (same shape as ProvisionInstancePayload.proxy). */
+  proxy?: {
+    host?: string;
+    sshPort?: number;
+    sshUser?: string;
+    sshKeyPath?: string;
+    nginxConfigPath?: string;
+    nginxReloadCommand?: string;
+  };
+  /** Per-job Proxmox credential override. */
+  proxmox?: {
+    apiUrl?: string;
+    apiUser?: string;
+    apiTokenId?: string;
+    apiTokenSecret?: string;
+    validateApiCerts?: boolean;
+  };
+}
 
 export interface ProvisionJobSnapshot {
   id: string;

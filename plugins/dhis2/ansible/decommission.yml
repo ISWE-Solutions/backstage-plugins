@@ -1,0 +1,124 @@
+---
+# decommission.yml — tear down a previously-provisioned DHIS2 instance.
+#
+# Runs AFTER the orchestrator wrapper (scripts/decommission-instance.sh)
+# has already removed the per-instance nginx vhost via
+# configure-host-proxy.sh --remove. This playbook handles:
+#   - Phase 1: stop + destroy the LXC via the Proxmox REST API
+#   - Phase 3: (optional) drop the DHIS2 database + role on a shared
+#              PostgreSQL host when dhis2_db_drop=true
+#
+# Phase names mirror site.yml so the Backstage activity-log classifier
+# groups output under the familiar "Proxmox" / "PostgreSQL" sections.
+#
+# Required extra-vars (rendered by scripts/decommission-instance.sh):
+#   pve_api_host, pve_api_user, pve_api_token_id, pve_api_token_secret
+#   pve_validate_certs, pve_node, pve_vmid
+#
+# Optional (shared-PostgreSQL host) — when present the play drops the
+# DHIS2 database and role on the shared server:
+#   dhis2_db_host, dhis2_db_port, dhis2_db_name, dhis2_db_user
+#   dhis2_db_admin_user, dhis2_db_admin_password
+#   dhis2_db_drop (bool) — must be true to drop; default false
+
+# ---------------------------------------------------------------------------
+# Phase 1 — destroy LXC via Proxmox REST API
+# ---------------------------------------------------------------------------
+- name: "Phase 1 — stop and destroy LXC via Proxmox API"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Stop the LXC container (best-effort)
+      community.general.proxmox:
+        api_host: "{{ pve_api_host }}"
+        api_user: "{{ pve_api_user }}"
+        api_token_id: "{{ pve_api_token_id }}"
+        api_token_secret: "{{ pve_api_token_secret }}"
+        validate_certs: "{{ pve_validate_certs | default(false) }}"
+        node: "{{ pve_node }}"
+        vmid: "{{ pve_vmid }}"
+        state: stopped
+        timeout: 120
+      register: _pve_stop
+      failed_when: false
+      changed_when: _pve_stop.changed | default(false)
+
+    - name: Show stop result
+      ansible.builtin.debug:
+        msg: >-
+          stop status: {{ _pve_stop.msg | default(_pve_stop.status | default('ok')) }}
+
+    - name: Destroy the LXC container (purges disks + config)
+      community.general.proxmox:
+        api_host: "{{ pve_api_host }}"
+        api_user: "{{ pve_api_user }}"
+        api_token_id: "{{ pve_api_token_id }}"
+        api_token_secret: "{{ pve_api_token_secret }}"
+        validate_certs: "{{ pve_validate_certs | default(false) }}"
+        node: "{{ pve_node }}"
+        vmid: "{{ pve_vmid }}"
+        state: absent
+        purge: true
+        force: true
+        timeout: 300
+      register: _pve_destroy
+      failed_when:
+        - _pve_destroy.failed | default(false)
+        - "'does not exist' not in (_pve_destroy.msg | default(''))"
+      changed_when: _pve_destroy.changed | default(false)
+
+    - name: Show destroy result
+      ansible.builtin.debug:
+        msg: >-
+          destroy status: {{ _pve_destroy.msg | default('ok') }}
+
+# ---------------------------------------------------------------------------
+# Phase 3 — drop the DHIS2 database + role on the shared PostgreSQL host
+# ---------------------------------------------------------------------------
+# Only runs when both (a) dhis2_db_host points to a non-local server AND
+# (b) dhis2_db_drop is explicitly true. Local-LXC PostgreSQL is gone with
+# the container, so this play is a no-op in that mode.
+- name: "Phase 3 — drop database and role on shared PostgreSQL host"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    _db_host: "{{ dhis2_db_host | default('', true) }}"
+    _db_remote: >-
+      {{ _db_host | length > 0
+         and _db_host not in ['localhost', '127.0.0.1', '::1', 'postgres'] }}
+  tasks:
+    - name: Report database drop decision
+      ansible.builtin.debug:
+        msg: >-
+          db_remote={{ _db_remote }} dhis2_db_drop={{ dhis2_db_drop | default(false) }}
+
+    - name: Drop the DHIS2 database on the shared server
+      community.postgresql.postgresql_db:
+        login_host: "{{ dhis2_db_host }}"
+        login_port: "{{ dhis2_db_port | default(5432) }}"
+        login_user: "{{ dhis2_db_admin_user }}"
+        login_password: "{{ dhis2_db_admin_password }}"
+        name: "{{ dhis2_db_name }}"
+        state: absent
+      when:
+        - _db_remote
+        - dhis2_db_drop | default(false) | bool
+        - dhis2_db_name | default('', true) | length > 0
+        - dhis2_db_admin_user | default('', true) | length > 0
+
+    - name: Drop the per-instance DHIS2 role on the shared server
+      community.postgresql.postgresql_user:
+        login_host: "{{ dhis2_db_host }}"
+        login_port: "{{ dhis2_db_port | default(5432) }}"
+        login_user: "{{ dhis2_db_admin_user }}"
+        login_password: "{{ dhis2_db_admin_password }}"
+        name: "{{ dhis2_db_user }}"
+        state: absent
+      when:
+        - _db_remote
+        - dhis2_db_drop | default(false) | bool
+        - dhis2_db_user | default('', true) | length > 0
+        - dhis2_db_admin_user | default('', true) | length > 0
+      failed_when: false

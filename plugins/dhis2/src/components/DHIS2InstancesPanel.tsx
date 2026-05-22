@@ -36,6 +36,7 @@ import SwapHorizIcon from '@material-ui/icons/SwapHoriz';
 import OpenInNewIcon from '@material-ui/icons/OpenInNew';
 import { DHIS2Instance } from '../types';
 import { dhis2Service } from '../services/dhis2Service';
+import { settingsService } from '../services/settingsService';
 import { TransferDatabaseDialog } from './TransferDatabaseDialog';
 
 const useStyles = makeStyles(theme => ({
@@ -338,7 +339,7 @@ export const DHIS2InstancesPanel = ({
   const handleDelete = (instance: DHIS2Instance) =>
     confirmThen(
       'Delete instance',
-      `Permanently delete "${instance.name}"? This removes the container, nginx config and database.`,
+      `Permanently delete "${instance.name}"? This runs the Ansible decommission playbook to stop and destroy the LXC, remove the central Nginx vhost, and (when a shared PostgreSQL host is configured) drop the database. Progress streams in the activity log just like Create Instance.`,
       () => onDelete(instance.id),
     );
 
@@ -839,6 +840,156 @@ export const DHIS2InstancesPanel = ({
                 helperText="Stored on the orchestrator and used for database transfers."
               />
             </Grid>
+            {(() => {
+              // Decommission settings — read-only summary of what will be
+              // used by the Delete button. Sourced from the saved global
+              // settings (Proxmox + Reverse Proxy + Database
+              // Configurations panels) and the persisted instance record.
+              const s = settingsService.load();
+              const remoteDbHost =
+                (editDraft.dbHost || s.dhis2.postgresHost || '').trim();
+              const willDropDb =
+                remoteDbHost.length > 0 &&
+                !['localhost', '127.0.0.1', '::1', 'postgres'].includes(
+                  remoteDbHost,
+                );
+              const fmt = (v?: string | number) =>
+                v === undefined || v === null || v === ''
+                  ? '(unset)'
+                  : String(v);
+              return (
+                <>
+                  <Grid item xs={12}>
+                    <Typography
+                      variant="subtitle2"
+                      style={{ marginTop: 16 }}
+                    >
+                      Decommission settings
+                    </Typography>
+                    <Typography variant="caption" color="textSecondary">
+                      Read-only — sourced from the plugin Settings tab and
+                      this instance's record. The Delete button uses these
+                      values to tear down the LXC (Proxmox API), the
+                      central Nginx vhost (SSH to the proxy host), and
+                      optionally the shared-PostgreSQL database.
+                      Update them under Settings ▸ Proxmox / Reverse Proxy
+                      / Database Configurations.
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      label="Proxmox API URL"
+                      fullWidth
+                      value={fmt(s.proxmox.apiUrl)}
+                      InputProps={{ readOnly: true }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      label="Proxmox node"
+                      fullWidth
+                      value={fmt(editTarget?.node)}
+                      InputProps={{ readOnly: true }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <TextField
+                      label="VMID"
+                      fullWidth
+                      value={fmt(editTarget?.vmid)}
+                      InputProps={{ readOnly: true }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={8}>
+                    <TextField
+                      label="Domain / path"
+                      fullWidth
+                      value={fmt(editTarget?.domain)}
+                      InputProps={{ readOnly: true }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      label="Proxy host (SSH)"
+                      fullWidth
+                      value={fmt(s.proxy.host)}
+                      InputProps={{ readOnly: true }}
+                      helperText="SSH target running the central Nginx"
+                    />
+                  </Grid>
+                  <Grid item xs={6} sm={3}>
+                    <TextField
+                      label="SSH port"
+                      fullWidth
+                      value={fmt(s.proxy.sshPort)}
+                      InputProps={{ readOnly: true }}
+                    />
+                  </Grid>
+                  <Grid item xs={6} sm={3}>
+                    <TextField
+                      label="SSH user"
+                      fullWidth
+                      value={fmt(s.proxy.sshUser)}
+                      InputProps={{ readOnly: true }}
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField
+                      label="SSH key path"
+                      fullWidth
+                      value={fmt(s.proxy.sshKeyPath)}
+                      InputProps={{ readOnly: true }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={7}>
+                    <TextField
+                      label="Nginx upstream dir"
+                      fullWidth
+                      value={fmt(s.proxy.nginxConfigPath)}
+                      InputProps={{ readOnly: true }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={5}>
+                    <TextField
+                      label="Nginx reload command"
+                      fullWidth
+                      value={fmt(s.proxy.nginxReloadCommand)}
+                      InputProps={{ readOnly: true }}
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Typography variant="caption" color="textSecondary">
+                      {willDropDb
+                        ? `Database will be dropped on shared host "${remoteDbHost}" using the admin role below.`
+                        : 'Database is local to the LXC and will be destroyed with it (no separate drop step).'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      label="DB admin user"
+                      fullWidth
+                      value={fmt(s.dhis2.postgresAdminUser)}
+                      InputProps={{ readOnly: true }}
+                      disabled={!willDropDb}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      label="DB admin password"
+                      type="password"
+                      fullWidth
+                      value={
+                        s.dhis2.postgresAdminPassword
+                          ? '••••••••'
+                          : '(unset)'
+                      }
+                      InputProps={{ readOnly: true }}
+                      disabled={!willDropDb}
+                    />
+                  </Grid>
+                </>
+              );
+            })()}
           </Grid>
         )}
       </DialogContent>

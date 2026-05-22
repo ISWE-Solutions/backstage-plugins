@@ -3,7 +3,11 @@ import { InputError } from '@backstage/errors';
 import express from 'express';
 import Router from 'express-promise-router';
 import { Client } from 'pg';
-import { ProvisionService, ProvisionRequest } from './provisionService';
+import {
+  ProvisionService,
+  ProvisionRequest,
+  DecommissionRequest,
+} from './provisionService';
 import { InstanceRegistryService } from './instanceRegistryService';
 import {
   DatabaseTransferService,
@@ -400,6 +404,159 @@ export async function createRouter(
       return;
     }
     res.json(job);
+  });
+
+  // ---------------------------------------------------------------------
+  // Instance decommission (delete) — Ansible-backed, streamed log
+  // ---------------------------------------------------------------------
+  function parseDecommissionRequest(
+    instanceId: string,
+    body: unknown,
+    instance: {
+      name: string;
+      vmid: string;
+      node: string;
+      domain: string;
+      database: { name: string; user: string };
+    },
+  ): DecommissionRequest {
+    const b = (body && typeof body === 'object' ? body : {}) as Record<
+      string,
+      any
+    >;
+    const vmidNum = Number(instance.vmid);
+    if (!Number.isInteger(vmidNum) || vmidNum <= 0) {
+      throw new InputError(
+        `Persisted instance has invalid vmid "${instance.vmid}"`,
+      );
+    }
+    const proxy = (b.proxy && typeof b.proxy === 'object' ? b.proxy : {}) as Record<
+      string,
+      any
+    >;
+    const dbOverride =
+      b.database && typeof b.database === 'object'
+        ? (b.database as Record<string, any>)
+        : {};
+    const dbAdmin =
+      b.databaseAdmin && typeof b.databaseAdmin === 'object'
+        ? (b.databaseAdmin as Record<string, any>)
+        : {};
+    const proxmox =
+      b.proxmox && typeof b.proxmox === 'object'
+        ? (b.proxmox as Record<string, any>)
+        : {};
+    return {
+      instanceId,
+      vmid: vmidNum,
+      node: instance.node,
+      domain: instance.domain,
+      name: instance.name,
+      skipProxyCleanup: Boolean(b.skipProxyCleanup),
+      dropDatabase: Boolean(b.dropDatabase),
+      database: {
+        name:
+          typeof dbOverride.name === 'string' && dbOverride.name.trim() !== ''
+            ? dbOverride.name.trim()
+            : instance.database.name,
+        user:
+          typeof dbOverride.user === 'string' && dbOverride.user.trim() !== ''
+            ? dbOverride.user.trim()
+            : instance.database.user,
+        host:
+          typeof dbOverride.host === 'string' ? dbOverride.host.trim() : undefined,
+        port:
+          typeof dbOverride.port === 'number'
+            ? dbOverride.port
+            : typeof dbOverride.port === 'string' && dbOverride.port !== ''
+              ? Number(dbOverride.port)
+              : undefined,
+      },
+      databaseAdmin: {
+        user: typeof dbAdmin.user === 'string' ? dbAdmin.user.trim() : undefined,
+        password:
+          typeof dbAdmin.password === 'string' ? dbAdmin.password : undefined,
+      },
+      proxy: {
+        host: typeof proxy.host === 'string' ? proxy.host.trim() : undefined,
+        sshPort:
+          typeof proxy.sshPort === 'number'
+            ? proxy.sshPort
+            : typeof proxy.sshPort === 'string' && proxy.sshPort !== ''
+              ? Number(proxy.sshPort)
+              : undefined,
+        sshUser:
+          typeof proxy.sshUser === 'string' ? proxy.sshUser.trim() : undefined,
+        sshKeyPath:
+          typeof proxy.sshKeyPath === 'string'
+            ? proxy.sshKeyPath.trim()
+            : undefined,
+        nginxConfigPath:
+          typeof proxy.nginxConfigPath === 'string'
+            ? proxy.nginxConfigPath.trim()
+            : undefined,
+        nginxReloadCommand:
+          typeof proxy.nginxReloadCommand === 'string'
+            ? proxy.nginxReloadCommand.trim()
+            : undefined,
+      },
+      proxmox: {
+        apiUrl:
+          typeof proxmox.apiUrl === 'string' ? proxmox.apiUrl.trim() : undefined,
+        apiUser:
+          typeof proxmox.apiUser === 'string'
+            ? proxmox.apiUser.trim()
+            : undefined,
+        apiTokenId:
+          typeof proxmox.apiTokenId === 'string'
+            ? proxmox.apiTokenId.trim()
+            : undefined,
+        apiTokenSecret:
+          typeof proxmox.apiTokenSecret === 'string'
+            ? proxmox.apiTokenSecret
+            : undefined,
+        validateApiCerts:
+          typeof proxmox.validateApiCerts === 'boolean'
+            ? proxmox.validateApiCerts
+            : undefined,
+      },
+    };
+  }
+
+  router.post('/instances/:id/decommission', async (req, res) => {
+    if (!provisionService.isConfigured()) {
+      res.status(503).json({
+        error:
+          'Provisioning orchestrator is not configured. Set dhis2.orchestrator in app-config.yaml.',
+      });
+      return;
+    }
+    const instanceId = req.params.id;
+    const persisted = await provisionService.listInstances();
+    const found = persisted.find(i => i.id === instanceId);
+    if (!found) {
+      res.status(404).json({ error: `Instance ${instanceId} not found` });
+      return;
+    }
+    let payload: DecommissionRequest;
+    try {
+      payload = parseDecommissionRequest(instanceId, req.body, {
+        name: found.name,
+        vmid: found.vmid,
+        node: found.node,
+        domain: found.domain,
+        database: found.database,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(400).json({ error: message });
+      return;
+    }
+    const job = provisionService.startDecommissionJob(payload);
+    logger.info(
+      `DHIS2: decommission job ${job.id} started for ${payload.name} (vmid=${payload.vmid}, node=${payload.node})`,
+    );
+    res.status(202).json({ jobId: job.id, status: job.status });
   });
 
   router.get('/instances', async (_req, res) => {

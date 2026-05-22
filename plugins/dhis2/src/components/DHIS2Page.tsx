@@ -732,11 +732,182 @@ export const DHIS2Page = () => {
   };
 
   const handleDeleteInstance = async (id: string) => {
+    const instance = instances.find(i => i.id === id);
+    if (!instance) {
+      console.warn(`Delete: instance ${id} not found in local state`);
+      return;
+    }
+    // Mirror the Create flow: pop the same activity-log dialog, drive the
+    // STEP_MARKERS by polling /instances/jobs/:id, and refresh on success.
+    const steps: ProvisionStep[] = [
+      { key: 'submit', label: 'Submitting decommission job to backend', status: 'pending' },
+      { key: 'connect', label: 'Connecting to orchestrator host', status: 'pending' },
+      { key: 'proxy', label: `Phase 5 — removing central Nginx vhost for ${instance.domain}`, status: 'pending' },
+      { key: 'container', label: `Phase 1 — destroying LXC ${instance.vmid} on ${instance.node}`, status: 'pending' },
+      { key: 'postgres', label: 'Phase 3 — dropping database (if remote)', status: 'pending' },
+      { key: 'finalize', label: 'Finalizing decommission', status: 'pending' },
+    ];
+    setProvisionInstanceName(`${instance.name} (decommission)`);
+    setProvisionSteps(steps);
+    setProvisionLog([]);
+    setProvisionError(null);
+    setProvisionDone(false);
+    setProvisionOpen(true);
+    setReplayActive(false);
+    setReplayPlaying(false);
+    setReplayIndex(0);
+    setAutoScroll(true);
+    appendProvisionLog(`Starting decommission for "${instance.name}".`);
+
+    // Build payload from saved settings + the persisted instance record.
+    const settings = settingsService.load();
+    const pm = settings.proxmox;
+    const dhis2Cfg = settings.dhis2;
+    const p = settings.proxy;
+    const remotePgHost = (instance.database.host ?? dhis2Cfg.postgresHost ?? '').trim();
+    const dropDb =
+      remotePgHost.length > 0 &&
+      !['localhost', '127.0.0.1', '::1', 'postgres'].includes(remotePgHost);
+
+    const payload = {
+      skipProxyCleanup: false,
+      dropDatabase: dropDb,
+      database: {
+        name: instance.database.name,
+        user: instance.database.user,
+        host: remotePgHost || undefined,
+        port:
+          instance.database.port ??
+          (remotePgHost ? dhis2Cfg.postgresPort : undefined),
+      },
+      databaseAdmin: dropDb
+        ? {
+            user: dhis2Cfg.postgresAdminUser || 'postgres',
+            password: dhis2Cfg.postgresAdminPassword || '',
+          }
+        : undefined,
+      proxy: (() => {
+        const fields: {
+          host?: string;
+          sshPort?: number;
+          sshUser?: string;
+          sshKeyPath?: string;
+          nginxConfigPath?: string;
+          nginxReloadCommand?: string;
+        } = {};
+        const host = (p.host ?? '').trim();
+        const sshUser = (p.sshUser ?? '').trim();
+        const sshKeyPath = (p.sshKeyPath ?? '').trim();
+        const nginxConfigPath = (p.nginxConfigPath ?? '').trim();
+        const nginxReloadCommand = (p.nginxReloadCommand ?? '').trim();
+        if (host) fields.host = host;
+        if (Number.isInteger(p.sshPort) && p.sshPort > 0) {
+          fields.sshPort = p.sshPort;
+        }
+        if (sshUser) fields.sshUser = sshUser;
+        if (sshKeyPath) fields.sshKeyPath = sshKeyPath;
+        if (nginxConfigPath) fields.nginxConfigPath = nginxConfigPath;
+        if (nginxReloadCommand) fields.nginxReloadCommand = nginxReloadCommand;
+        return Object.keys(fields).length > 0 ? fields : undefined;
+      })(),
+      proxmox: (() => {
+        const apiUrl = (pm.apiUrl ?? '').trim();
+        const tokenId = (pm.tokenId ?? '').trim();
+        const tokenSecret = (pm.tokenSecret ?? '').trim();
+        const username = (pm.username ?? '').trim();
+        const fields: {
+          apiUrl?: string;
+          apiUser?: string;
+          apiTokenId?: string;
+          apiTokenSecret?: string;
+          validateApiCerts?: boolean;
+        } = {};
+        if (apiUrl) fields.apiUrl = apiUrl;
+        if (pm.authMethod === 'token') {
+          if (tokenId) fields.apiTokenId = tokenId;
+          if (tokenSecret) fields.apiTokenSecret = tokenSecret;
+          if (!tokenId.includes('!') && username) fields.apiUser = username;
+        }
+        fields.validateApiCerts = Boolean(pm.verifyTls);
+        return Object.keys(fields).length > 0 ? fields : undefined;
+      })(),
+    };
+
     try {
-      await dhis2Service.deleteInstance(id);
-      loadInstances();
+      updateStep('submit', 'running');
+      const baseUrl = await discoveryApi.getBaseUrl('dhis2');
+      const { jobId } = await dhis2Service.startDecommissionJob(
+        baseUrl,
+        id,
+        payload,
+        backstageFetch,
+      );
+      updateStep('submit', 'done');
+      updateStep('connect', 'running');
+      appendProvisionLog(`Backend accepted job ${jobId}. Streaming progress…`);
+
+      let lastLineCount = 0;
+      const deadline = Date.now() + 30 * 60 * 1000; // 30 minutes
+      while (Date.now() < deadline) {
+        await wait(1500);
+        const job = await dhis2Service.getProvisionJob(
+          baseUrl,
+          jobId,
+          backstageFetch,
+        );
+        if (job.lines.length > lastLineCount) {
+          for (let i = lastLineCount; i < job.lines.length; i++) {
+            const line = job.lines[i];
+            appendProvisionLog(line);
+            for (const m of STEP_MARKERS) {
+              if (m.pattern.test(line)) advanceSteps(m.advanceTo);
+            }
+          }
+          lastLineCount = job.lines.length;
+        }
+        if (job.status === 'running' || job.status === 'queued') {
+          if (job.lines.length > 0) advanceSteps('proxy');
+          continue;
+        }
+        if (job.status === 'success') {
+          setProvisionSteps(prev =>
+            prev.map(s =>
+              s.status === 'error' ? s : { ...s, status: 'done' },
+            ),
+          );
+          setProvisionDone(true);
+          appendProvisionLog(
+            `Instance "${instance.name}" decommissioned successfully (exit 0).`,
+          );
+          loadInstances();
+          break;
+        }
+        const message =
+          job.error ?? `Decommission failed (exit ${job.exitCode ?? '?'})`;
+        setProvisionSteps(prev =>
+          prev.map(s =>
+            s.status === 'running'
+              ? { ...s, status: 'error', detail: message }
+              : s,
+          ),
+        );
+        setProvisionError(message);
+        appendProvisionLog(`ERROR: ${message}`);
+        break;
+      }
     } catch (error) {
-      console.error('Failed to delete instance:', error);
+      console.error('Failed to decommission instance:', error);
+      const message =
+        error instanceof Error ? error.message : String(error);
+      setProvisionSteps(prev =>
+        prev.map(s =>
+          s.status === 'running'
+            ? { ...s, status: 'error', detail: message }
+            : s,
+        ),
+      );
+      setProvisionError(message);
+      appendProvisionLog(`ERROR: ${message}`);
     }
   };
 
