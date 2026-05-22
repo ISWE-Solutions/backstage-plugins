@@ -1195,6 +1195,46 @@ export interface ProvisionInstancePayload {
    * --tomcat-version` and consumed by the Ansible `dhis2` role.
    */
   tomcatVersion?: '9' | '10';
+  proxyOverride?: {
+    mode?: 'path' | 'subdomain';
+    baseDomain?: string;
+    pathPrefix?: string;
+  };
+  restore?: Record<string, unknown>;
+  proxySettings?: {
+    mode?: 'path' | 'subdomain';
+    baseDomain?: string;
+    pathPrefix?: string;
+    host?: string;
+    sshPort?: number;
+    sshUser?: string;
+    sshKeyPath?: string;
+    nginxConfigPath?: string;
+    nginxReloadCommand?: string;
+    sslProvider?: 'letsencrypt' | 'manual' | 'none';
+    letsencryptEmail?: string;
+    sslCertPath?: string;
+    sslKeyPath?: string;
+    forceHttps?: boolean;
+    enableHsts?: boolean;
+    upstreamPort?: number;
+  };
+  dhis2Settings?: {
+    defaultVersion?: string;
+    javaHeap?: string;
+    tomcatPort?: number;
+    defaultCpu?: number;
+    defaultMemoryMb?: number;
+    defaultStorageGb?: number;
+    postgresHost?: string;
+    postgresPort?: number;
+    postgresAdminUser?: string;
+    postgresAdminPassword?: string;
+    backupEnabled?: boolean;
+    backupSchedule?: string;
+    backupRetentionDays?: number;
+    backupBucket?: string;
+  };
   /**
    * Optional Proxmox API credentials from the ProxmoxClusterPanel saved
    * settings. When provided, individual fields override the server-side

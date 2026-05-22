@@ -555,6 +555,10 @@ export const DHIS2Page = () => {
       newDbAccount: request.newDbAccount,
       deleteIfExists: request.deleteIfExists,
       tomcatVersion: request.tomcatVersion,
+      proxyOverride: request.proxyOverride,
+      restore: request.restore,
+      proxySettings,
+      dhis2Settings: request.dhis2Settings,
       // Forward Proxmox API credentials from the ProxmoxClusterPanel saved
       // settings so the operator can override the server-side defaults
       // (PROXMOX_API_URL / PROXMOX_USER / PROXMOX_TOKEN_ID /

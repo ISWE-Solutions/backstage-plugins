@@ -309,6 +309,167 @@ export async function createRouter(
         typeof b.tomcatVersion === 'string' && b.tomcatVersion !== ''
           ? b.tomcatVersion
           : undefined,
+      proxyOverride:
+        b.proxyOverride && typeof b.proxyOverride === 'object'
+          ? {
+              mode:
+                typeof b.proxyOverride.mode === 'string'
+                  ? b.proxyOverride.mode
+                  : undefined,
+              baseDomain:
+                typeof b.proxyOverride.baseDomain === 'string'
+                  ? b.proxyOverride.baseDomain
+                  : undefined,
+              pathPrefix:
+                typeof b.proxyOverride.pathPrefix === 'string'
+                  ? b.proxyOverride.pathPrefix
+                  : undefined,
+            }
+          : undefined,
+      restore:
+        b.restore && typeof b.restore === 'object'
+          ? (b.restore as Record<string, unknown>)
+          : undefined,
+      proxySettings:
+        b.proxySettings && typeof b.proxySettings === 'object'
+          ? {
+              mode:
+                typeof b.proxySettings.mode === 'string'
+                  ? b.proxySettings.mode
+                  : undefined,
+              baseDomain:
+                typeof b.proxySettings.baseDomain === 'string'
+                  ? b.proxySettings.baseDomain
+                  : undefined,
+              pathPrefix:
+                typeof b.proxySettings.pathPrefix === 'string'
+                  ? b.proxySettings.pathPrefix
+                  : undefined,
+              host:
+                typeof b.proxySettings.host === 'string'
+                  ? b.proxySettings.host
+                  : undefined,
+              sshPort:
+                typeof b.proxySettings.sshPort === 'number' &&
+                Number.isInteger(b.proxySettings.sshPort) &&
+                b.proxySettings.sshPort > 0
+                  ? b.proxySettings.sshPort
+                  : undefined,
+              sshUser:
+                typeof b.proxySettings.sshUser === 'string'
+                  ? b.proxySettings.sshUser
+                  : undefined,
+              sshKeyPath:
+                typeof b.proxySettings.sshKeyPath === 'string'
+                  ? b.proxySettings.sshKeyPath
+                  : undefined,
+              nginxConfigPath:
+                typeof b.proxySettings.nginxConfigPath === 'string'
+                  ? b.proxySettings.nginxConfigPath
+                  : undefined,
+              nginxReloadCommand:
+                typeof b.proxySettings.nginxReloadCommand === 'string'
+                  ? b.proxySettings.nginxReloadCommand
+                  : undefined,
+              sslProvider:
+                typeof b.proxySettings.sslProvider === 'string'
+                  ? b.proxySettings.sslProvider
+                  : undefined,
+              letsencryptEmail:
+                typeof b.proxySettings.letsencryptEmail === 'string'
+                  ? b.proxySettings.letsencryptEmail
+                  : undefined,
+              sslCertPath:
+                typeof b.proxySettings.sslCertPath === 'string'
+                  ? b.proxySettings.sslCertPath
+                  : undefined,
+              sslKeyPath:
+                typeof b.proxySettings.sslKeyPath === 'string'
+                  ? b.proxySettings.sslKeyPath
+                  : undefined,
+              forceHttps:
+                typeof b.proxySettings.forceHttps === 'boolean'
+                  ? b.proxySettings.forceHttps
+                  : undefined,
+              enableHsts:
+                typeof b.proxySettings.enableHsts === 'boolean'
+                  ? b.proxySettings.enableHsts
+                  : undefined,
+              upstreamPort:
+                typeof b.proxySettings.upstreamPort === 'number' &&
+                Number.isInteger(b.proxySettings.upstreamPort) &&
+                b.proxySettings.upstreamPort > 0
+                  ? b.proxySettings.upstreamPort
+                  : undefined,
+            }
+          : undefined,
+      dhis2Settings:
+        b.dhis2Settings && typeof b.dhis2Settings === 'object'
+          ? {
+              defaultVersion:
+                typeof b.dhis2Settings.defaultVersion === 'string'
+                  ? b.dhis2Settings.defaultVersion
+                  : undefined,
+              javaHeap:
+                typeof b.dhis2Settings.javaHeap === 'string'
+                  ? b.dhis2Settings.javaHeap
+                  : undefined,
+              tomcatPort:
+                typeof b.dhis2Settings.tomcatPort === 'number' &&
+                Number.isInteger(b.dhis2Settings.tomcatPort)
+                  ? b.dhis2Settings.tomcatPort
+                  : undefined,
+              defaultCpu:
+                typeof b.dhis2Settings.defaultCpu === 'number' &&
+                Number.isInteger(b.dhis2Settings.defaultCpu)
+                  ? b.dhis2Settings.defaultCpu
+                  : undefined,
+              defaultMemoryMb:
+                typeof b.dhis2Settings.defaultMemoryMb === 'number' &&
+                Number.isInteger(b.dhis2Settings.defaultMemoryMb)
+                  ? b.dhis2Settings.defaultMemoryMb
+                  : undefined,
+              defaultStorageGb:
+                typeof b.dhis2Settings.defaultStorageGb === 'number' &&
+                Number.isInteger(b.dhis2Settings.defaultStorageGb)
+                  ? b.dhis2Settings.defaultStorageGb
+                  : undefined,
+              postgresHost:
+                typeof b.dhis2Settings.postgresHost === 'string'
+                  ? b.dhis2Settings.postgresHost
+                  : undefined,
+              postgresPort:
+                typeof b.dhis2Settings.postgresPort === 'number' &&
+                Number.isInteger(b.dhis2Settings.postgresPort)
+                  ? b.dhis2Settings.postgresPort
+                  : undefined,
+              postgresAdminUser:
+                typeof b.dhis2Settings.postgresAdminUser === 'string'
+                  ? b.dhis2Settings.postgresAdminUser
+                  : undefined,
+              postgresAdminPassword:
+                typeof b.dhis2Settings.postgresAdminPassword === 'string'
+                  ? b.dhis2Settings.postgresAdminPassword
+                  : undefined,
+              backupEnabled:
+                typeof b.dhis2Settings.backupEnabled === 'boolean'
+                  ? b.dhis2Settings.backupEnabled
+                  : undefined,
+              backupSchedule:
+                typeof b.dhis2Settings.backupSchedule === 'string'
+                  ? b.dhis2Settings.backupSchedule
+                  : undefined,
+              backupRetentionDays:
+                typeof b.dhis2Settings.backupRetentionDays === 'number' &&
+                Number.isInteger(b.dhis2Settings.backupRetentionDays)
+                  ? b.dhis2Settings.backupRetentionDays
+                  : undefined,
+              backupBucket:
+                typeof b.dhis2Settings.backupBucket === 'string'
+                  ? b.dhis2Settings.backupBucket
+                  : undefined,
+            }
+          : undefined,
       // Optional per-request Proxmox API credentials forwarded from the
       // ProxmoxClusterPanel saved settings. Each field is independently
       // optional \u2014 anything left blank falls back to the orchestrator

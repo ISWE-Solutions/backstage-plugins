@@ -8,6 +8,7 @@ import {
   ProxmoxApiCredentials,
   ensureLxcTags,
 } from './proxmoxApi';
+import { InstanceStore } from './instanceStore';
 
 /**
  * Configuration for the host that runs provision-instance.sh.
@@ -88,8 +89,55 @@ export interface PersistedInstance {
   version: string;
   url: string;
   domain: string;
-  database: { name: string; user: string };
+  database: {
+    name: string;
+    user: string;
+    host?: string;
+    port?: number;
+    password?: string;
+    existing?: boolean;
+  };
   resources: { cpu: number; memory: number; storage: number };
+  tomcatVersion?: string;
+  proxyOverride?: {
+    mode?: string;
+    baseDomain?: string;
+    pathPrefix?: string;
+  };
+  restore?: Record<string, unknown>;
+  proxySettings?: {
+    mode?: string;
+    baseDomain?: string;
+    pathPrefix?: string;
+    host?: string;
+    sshPort?: number;
+    sshUser?: string;
+    sshKeyPath?: string;
+    nginxConfigPath?: string;
+    nginxReloadCommand?: string;
+    sslProvider?: string;
+    letsencryptEmail?: string;
+    sslCertPath?: string;
+    sslKeyPath?: string;
+    forceHttps?: boolean;
+    enableHsts?: boolean;
+    upstreamPort?: number;
+  };
+  dhis2Settings?: {
+    defaultVersion?: string;
+    javaHeap?: string;
+    tomcatPort?: number;
+    defaultCpu?: number;
+    defaultMemoryMb?: number;
+    defaultStorageGb?: number;
+    postgresHost?: string;
+    postgresPort?: number;
+    postgresAdminUser?: string;
+    backupEnabled?: boolean;
+    backupSchedule?: string;
+    backupRetentionDays?: number;
+    backupBucket?: string;
+  };
   created: string;
   updated: string;
 }
@@ -161,6 +209,50 @@ export interface ProvisionRequest {
    * the script defaults to `9` (matches DHIS2 2.40/2.41).
    */
   tomcatVersion?: string;
+  /** Optional per-instance routing override from Create dialog. */
+  proxyOverride?: {
+    mode?: string;
+    baseDomain?: string;
+    pathPrefix?: string;
+  };
+  /** Optional restore source descriptor for initial data load. */
+  restore?: Record<string, unknown>;
+  /** Optional reverse-proxy settings snapshot from Create dialog. */
+  proxySettings?: {
+    mode?: string;
+    baseDomain?: string;
+    pathPrefix?: string;
+    host?: string;
+    sshPort?: number;
+    sshUser?: string;
+    sshKeyPath?: string;
+    nginxConfigPath?: string;
+    nginxReloadCommand?: string;
+    sslProvider?: string;
+    letsencryptEmail?: string;
+    sslCertPath?: string;
+    sslKeyPath?: string;
+    forceHttps?: boolean;
+    enableHsts?: boolean;
+    upstreamPort?: number;
+  };
+  /** Optional DHIS2 defaults snapshot from Create dialog. */
+  dhis2Settings?: {
+    defaultVersion?: string;
+    javaHeap?: string;
+    tomcatPort?: number;
+    defaultCpu?: number;
+    defaultMemoryMb?: number;
+    defaultStorageGb?: number;
+    postgresHost?: string;
+    postgresPort?: number;
+    postgresAdminUser?: string;
+    postgresAdminPassword?: string;
+    backupEnabled?: boolean;
+    backupSchedule?: string;
+    backupRetentionDays?: number;
+    backupBucket?: string;
+  };
   /**
    * Optional Proxmox API credentials sent by the frontend (e.g. from the
    * ProxmoxClusterPanel settings). When provided, individual fields
@@ -324,6 +416,16 @@ export function normalizeProxmoxCreds(
   return { apiUser: rawUser, apiTokenId: rawToken };
 }
 
+/**
+ * OpenSSH `-i` requires a private key path. When operators accidentally
+ * paste `*.pub`, normalize it to the corresponding private key file.
+ */
+function normalizeSshPrivateKeyPath(pathLike?: string): string | undefined {
+  const trimmed = (pathLike ?? '').trim();
+  if (!trimmed) return undefined;
+  return trimmed.endsWith('.pub') ? trimmed.slice(0, -4) : trimmed;
+}
+
 const MAX_LOG_LINES = 5000;
 
 // In-memory job registry. Single-process Backstage backend — fine for now.
@@ -408,8 +510,9 @@ function buildCommand(
   // The provision script also needs an SSH key (used by Ansible to talk to
   // the freshly-created LXC). Reuse the orchestrator key when configured so
   // operators don't have to wire the same path in two places.
-  if (cfg.privateKeyFile) {
-    args.push('--ssh-key', cfg.privateKeyFile);
+  const orchestratorSshKey = normalizeSshPrivateKeyPath(cfg.privateKeyFile);
+  if (orchestratorSshKey) {
+    args.push('--ssh-key', orchestratorSshKey);
   }
   // Reverse-proxy server overrides. Each field is forwarded only when the
   // request actually supplied it; the script applies its own defaults
@@ -425,8 +528,9 @@ function buildCommand(
   if (proxy.sshUser && proxy.sshUser.trim() !== '') {
     args.push('--proxy-user', proxy.sshUser.trim());
   }
-  if (proxy.sshKeyPath && proxy.sshKeyPath.trim() !== '') {
-    args.push('--proxy-ssh-key', proxy.sshKeyPath.trim());
+  const proxySshKey = normalizeSshPrivateKeyPath(proxy.sshKeyPath);
+  if (proxySshKey) {
+    args.push('--proxy-ssh-key', proxySshKey);
   }
   if (proxy.nginxConfigPath && proxy.nginxConfigPath.trim() !== '') {
     args.push('--proxy-nginx-dir', proxy.nginxConfigPath.trim());
@@ -547,30 +651,15 @@ async function runLocal(job: JobSnapshot, command: string): Promise<number> {
 }
 
 async function appendInstanceToState(
-  cfg: OrchestratorConfig,
+  store: InstanceStore,
   inst: PersistedInstance,
   logger: LoggerService,
 ): Promise<void> {
-  if (!cfg.stateFile) return;
   try {
-    await fs.mkdir(path.dirname(cfg.stateFile), { recursive: true });
-    let existing: PersistedInstance[] = [];
-    try {
-      const raw = await fs.readFile(cfg.stateFile, 'utf8');
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) existing = parsed as PersistedInstance[];
-    } catch {
-      // File missing or unreadable — start fresh.
-    }
-    // De-dupe on id.
-    const filtered = existing.filter(e => e.id !== inst.id);
-    filtered.push(inst);
-    await fs.writeFile(cfg.stateFile, JSON.stringify(filtered, null, 2), {
-      mode: 0o600,
-    });
+    await store.upsert(inst);
   } catch (err) {
     logger.warn(
-      `DHIS2: failed to persist instance to ${cfg.stateFile}: ${
+      `DHIS2: failed to persist instance ${inst.id} to plugin database: ${
         err instanceof Error ? err.message : String(err)
       }`,
     );
@@ -582,24 +671,15 @@ async function appendInstanceToState(
  * if the state file is missing or unreadable, the function is a no-op.
  */
 async function removeInstanceFromState(
-  cfg: OrchestratorConfig,
+  store: InstanceStore,
   instanceId: string,
   logger: LoggerService,
 ): Promise<void> {
-  if (!cfg.stateFile) return;
   try {
-    const raw = await fs.readFile(cfg.stateFile, 'utf8');
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return;
-    const existing = parsed as PersistedInstance[];
-    const filtered = existing.filter(e => e.id !== instanceId);
-    if (filtered.length === existing.length) return;
-    await fs.writeFile(cfg.stateFile, JSON.stringify(filtered, null, 2), {
-      mode: 0o600,
-    });
+    await store.deleteById(instanceId);
   } catch (err) {
     logger.warn(
-      `DHIS2: failed to remove instance ${instanceId} from ${cfg.stateFile}: ${
+      `DHIS2: failed to remove instance ${instanceId} from plugin database: ${
         err instanceof Error ? err.message : String(err)
       }`,
     );
@@ -612,36 +692,16 @@ async function removeInstanceFromState(
  * Proxmox reconciliation will catch the drift on the next poll).
  */
 async function updateInstanceInState(
-  cfg: OrchestratorConfig,
+  store: InstanceStore,
   instanceId: string,
   patch: Partial<PersistedInstance>,
   logger: LoggerService,
 ): Promise<PersistedInstance | null> {
-  if (!cfg.stateFile) return null;
   try {
-    const raw = await fs.readFile(cfg.stateFile, 'utf8');
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return null;
-    const existing = parsed as PersistedInstance[];
-    const idx = existing.findIndex(e => e.id === instanceId);
-    if (idx < 0) return null;
-    const merged: PersistedInstance = {
-      ...existing[idx],
-      ...patch,
-      // Nested objects need a manual merge so callers can patch only
-      // some sub-fields without nuking the rest.
-      database: { ...existing[idx].database, ...(patch.database ?? {}) },
-      resources: { ...existing[idx].resources, ...(patch.resources ?? {}) },
-      updated: new Date().toISOString(),
-    };
-    existing[idx] = merged;
-    await fs.writeFile(cfg.stateFile, JSON.stringify(existing, null, 2), {
-      mode: 0o600,
-    });
-    return merged;
+    return await store.updateById(instanceId, patch);
   } catch (err) {
     logger.warn(
-      `DHIS2: failed to update instance ${instanceId} in ${cfg.stateFile}: ${
+      `DHIS2: failed to update instance ${instanceId} in plugin database: ${
         err instanceof Error ? err.message : String(err)
       }`,
     );
@@ -687,10 +747,14 @@ function buildEditCommand(
   if (proxy.sshUser && proxy.sshUser.trim() !== '') {
     args.push('--pve-user', proxy.sshUser.trim());
   }
-  if (proxy.sshKeyPath && proxy.sshKeyPath.trim() !== '') {
-    args.push('--pve-ssh-key', proxy.sshKeyPath.trim());
-  } else if (cfg.privateKeyFile) {
-    args.push('--pve-ssh-key', cfg.privateKeyFile);
+  const pveSshKey = normalizeSshPrivateKeyPath(proxy.sshKeyPath);
+  if (pveSshKey) {
+    args.push('--pve-ssh-key', pveSshKey);
+  } else {
+    const fallbackPveSshKey = normalizeSshPrivateKeyPath(cfg.privateKeyFile);
+    if (fallbackPveSshKey) {
+      args.push('--pve-ssh-key', fallbackPveSshKey);
+    }
   }
 
   const reqPm = req.proxmox ?? {};
@@ -754,8 +818,9 @@ function buildDecommissionCommand(
   if (proxy.sshUser && proxy.sshUser.trim() !== '') {
     args.push('--proxy-user', proxy.sshUser.trim());
   }
-  if (proxy.sshKeyPath && proxy.sshKeyPath.trim() !== '') {
-    args.push('--proxy-ssh-key', proxy.sshKeyPath.trim());
+  const proxySshKey = normalizeSshPrivateKeyPath(proxy.sshKeyPath);
+  if (proxySshKey) {
+    args.push('--proxy-ssh-key', proxySshKey);
   }
   if (proxy.nginxConfigPath && proxy.nginxConfigPath.trim() !== '') {
     args.push('--proxy-nginx-dir', proxy.nginxConfigPath.trim());
@@ -763,8 +828,9 @@ function buildDecommissionCommand(
   if (proxy.nginxReloadCommand && proxy.nginxReloadCommand.trim() !== '') {
     args.push('--proxy-nginx-reload', proxy.nginxReloadCommand.trim());
   }
-  if (cfg.privateKeyFile) {
-    args.push('--ssh-key', cfg.privateKeyFile);
+  const orchestratorSshKey = normalizeSshPrivateKeyPath(cfg.privateKeyFile);
+  if (orchestratorSshKey) {
+    args.push('--ssh-key', orchestratorSshKey);
   }
   const db = req.database ?? {};
   if (req.dropDatabase) {
@@ -827,18 +893,44 @@ export class ProvisionService {
   constructor(
     private readonly logger: LoggerService,
     private readonly cfg: OrchestratorConfig | null,
+    private readonly instanceStore: InstanceStore,
   ) {}
 
   isConfigured(): boolean {
     return this.cfg !== null;
   }
 
-  async listInstances(): Promise<PersistedInstance[]> {
-    if (!this.cfg?.stateFile) return [];
+  /**
+   * One-time migration path from legacy JSON state file persistence to
+   * plugin-database persistence. Safe to run multiple times.
+   */
+  async importLegacyStateFile(): Promise<void> {
+    if (!this.cfg?.stateFile) return;
     try {
       const raw = await fs.readFile(this.cfg.stateFile, 'utf8');
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? (parsed as PersistedInstance[]) : [];
+      if (!Array.isArray(parsed) || parsed.length === 0) return;
+      const existing = await this.instanceStore.list();
+      const existingIds = new Set(existing.map(i => i.id));
+      let imported = 0;
+      for (const item of parsed as PersistedInstance[]) {
+        if (!item?.id || existingIds.has(item.id)) continue;
+        await this.instanceStore.upsert(item);
+        imported += 1;
+      }
+      if (imported > 0) {
+        this.logger.info(
+          `DHIS2: imported ${imported} instance(s) from legacy state file ${this.cfg.stateFile}`,
+        );
+      }
+    } catch {
+      // Ignore missing/invalid legacy file. DB remains source of truth.
+    }
+  }
+
+  async listInstances(): Promise<PersistedInstance[]> {
+    try {
+      return await this.instanceStore.list();
     } catch {
       return [];
     }
@@ -962,14 +1054,66 @@ export class ProvisionService {
         version: req.version,
         url: `https://${req.domain}`,
         domain: req.domain,
-        database: { name: req.database.name, user: req.database.user },
+        database: {
+          name: req.database.name,
+          user: req.database.user,
+          host: req.database.host,
+          port: req.database.port,
+          password: req.database.password,
+          existing: req.database.existing,
+        },
         resources: req.resources,
+        tomcatVersion: req.tomcatVersion,
+        proxyOverride: req.proxyOverride,
+        restore:
+          req.restore && typeof req.restore === 'object'
+            ? (req.restore as Record<string, unknown>)
+            : undefined,
+        proxySettings: req.proxySettings
+          ? {
+              mode: req.proxySettings.mode,
+              baseDomain: req.proxySettings.baseDomain,
+              pathPrefix: req.proxySettings.pathPrefix,
+              host: req.proxySettings.host,
+              sshPort: req.proxySettings.sshPort,
+              sshUser: req.proxySettings.sshUser,
+              sshKeyPath: req.proxySettings.sshKeyPath,
+              nginxConfigPath: req.proxySettings.nginxConfigPath,
+              nginxReloadCommand: req.proxySettings.nginxReloadCommand,
+              sslProvider: req.proxySettings.sslProvider,
+              letsencryptEmail: req.proxySettings.letsencryptEmail,
+              sslCertPath: req.proxySettings.sslCertPath,
+              sslKeyPath: req.proxySettings.sslKeyPath,
+              forceHttps: req.proxySettings.forceHttps,
+              enableHsts: req.proxySettings.enableHsts,
+              upstreamPort: req.proxySettings.upstreamPort,
+            }
+          : undefined,
+        // Intentionally skip postgresAdminPassword when persisting this
+        // snapshot; keep only non-secret defaults useful for later edits.
+        dhis2Settings: req.dhis2Settings
+          ? {
+              defaultVersion: req.dhis2Settings.defaultVersion,
+              javaHeap: req.dhis2Settings.javaHeap,
+              tomcatPort: req.dhis2Settings.tomcatPort,
+              defaultCpu: req.dhis2Settings.defaultCpu,
+              defaultMemoryMb: req.dhis2Settings.defaultMemoryMb,
+              defaultStorageGb: req.dhis2Settings.defaultStorageGb,
+              postgresHost: req.dhis2Settings.postgresHost,
+              postgresPort: req.dhis2Settings.postgresPort,
+              postgresAdminUser: req.dhis2Settings.postgresAdminUser,
+              backupEnabled: req.dhis2Settings.backupEnabled,
+              backupSchedule: req.dhis2Settings.backupSchedule,
+              backupRetentionDays: req.dhis2Settings.backupRetentionDays,
+              backupBucket: req.dhis2Settings.backupBucket,
+            }
+          : undefined,
         created: job.startedAt,
         updated: job.finishedAt,
       };
       job.instance = inst;
       appendLine(job, `[backend] provision-instance.sh exited 0`);
-      await appendInstanceToState(cfg, inst, this.logger);
+      await appendInstanceToState(this.instanceStore, inst, this.logger);
       // Best-effort: tag the new LXC so reconciliation can verify it
       // belongs to this plugin. Non-fatal — a tagging failure only loses
       // the secondary marker, the registry entry is already persisted.
@@ -1061,7 +1205,11 @@ export class ProvisionService {
       // Remove the instance from the persisted state file. Best-effort —
       // a missing or unreadable state file is not fatal.
       try {
-        await removeInstanceFromState(cfg, req.instanceId, this.logger);
+        await removeInstanceFromState(
+          this.instanceStore,
+          req.instanceId,
+          this.logger,
+        );
         appendLine(
           job,
           `[backend] Removed instance ${req.instanceId} from registry`,
@@ -1156,7 +1304,7 @@ export class ProvisionService {
       appendLine(job, `[backend] edit-instance.sh exited 0`);
       try {
         const updated = await updateInstanceInState(
-          cfg,
+          this.instanceStore,
           req.instanceId,
           {
             name: req.name,
@@ -1165,6 +1313,9 @@ export class ProvisionService {
             database: {
               name: req.database.name,
               user: req.database.user,
+              host: req.database.host,
+              port: req.database.port,
+              password: req.database.password,
             },
           },
           this.logger,
@@ -1374,7 +1525,9 @@ function resolveProxyAccess(
     ? o.sshPort
     : cfg.port || 22;
   const user = (o.sshUser && o.sshUser.trim()) || cfg.user || 'root';
-  const keyPath = (o.sshKeyPath && o.sshKeyPath.trim()) || cfg.privateKeyFile;
+  const keyPath =
+    normalizeSshPrivateKeyPath(o.sshKeyPath) ||
+    normalizeSshPrivateKeyPath(cfg.privateKeyFile);
   return { host, port, user, keyPath: keyPath || undefined };
 }
 

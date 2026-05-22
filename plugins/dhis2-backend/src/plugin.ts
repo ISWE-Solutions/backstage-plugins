@@ -13,6 +13,7 @@ import {
 } from './service/provisionService';
 import { DatabaseTransferService } from './service/databaseTransferService';
 import { InstanceRegistryService } from './service/instanceRegistryService';
+import { InstanceStore } from './service/instanceStore';
 
 /**
  * When the Backstage backend IS the orchestrator host (host=localhost), pick
@@ -87,8 +88,9 @@ export const dhis2Plugin = createBackendPlugin({
         config: coreServices.rootConfig,
         httpRouter: coreServices.httpRouter,
         httpAuth: coreServices.httpAuth,
+        database: coreServices.database,
       },
-      async init({ logger, config, httpRouter, httpAuth }) {
+      async init({ logger, config, httpRouter, httpAuth, database }) {
         let orchestrator: OrchestratorConfig | null = null;
         try {
           // Pull the sub-config if present, but never *require* it: a single-
@@ -211,7 +213,15 @@ export const dhis2Plugin = createBackendPlugin({
           );
           orchestrator = null;
         }
-        const provisionService = new ProvisionService(logger, orchestrator);
+        const db = await database.getClient();
+        const instanceStore = new InstanceStore(db, logger);
+        await instanceStore.init();
+        const provisionService = new ProvisionService(
+          logger,
+          orchestrator,
+          instanceStore,
+        );
+        await provisionService.importLegacyStateFile();
         const databaseTransferService = new DatabaseTransferService(
           logger,
           provisionService,
