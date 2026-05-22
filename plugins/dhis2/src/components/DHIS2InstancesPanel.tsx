@@ -822,6 +822,7 @@ export const DHIS2InstancesPanel = ({
     const isBusy = (action: string) => busy.has(`${action}:${instance.id}`);
     const isProxyBusy = (action: string) =>
       proxyBusy === `${action}:${instance.domain}`;
+    const drift = driftChipFor(instance.driftStatus);
     const proxyScheme = proxyDefaults.forceHttps ? 'https' : 'http';
     const publicUrl =
       proxyDefaults.mode === 'subdomain'
@@ -843,57 +844,6 @@ export const DHIS2InstancesPanel = ({
                 <Box>
                   <Typography variant="h5" gutterBottom>
                     {instance.name}
-                    <Chip
-                      label={instance.status}
-                      color={getInstanceStatusColor(instance.status)}
-                      size="small"
-                      className={classes.statusChip}
-                    />
-                    {(() => {
-                      const drift = driftChipFor(instance.driftStatus);
-                      if (!drift) return null;
-                      return (
-                        <Tooltip title={drift.tooltip}>
-                          <Chip
-                            label={drift.label}
-                            color={drift.color}
-                            size="small"
-                            variant="outlined"
-                            className={classes.statusChip}
-                          />
-                        </Tooltip>
-                      );
-                    })()}
-                    <Chip
-                      label={proxyDefaults.mode === 'subdomain' ? 'subdomain' : 'path'}
-                      size="small"
-                      variant="outlined"
-                      className={classes.statusChip}
-                    />
-                    {proxyDefaults.forceHttps && (
-                      <Chip
-                        label="HTTPS"
-                        color="primary"
-                        size="small"
-                        className={classes.statusChip}
-                      />
-                    )}
-                    {proxyDefaults.enableHsts && (
-                      <Chip
-                        label="HSTS"
-                        size="small"
-                        variant="outlined"
-                        className={classes.statusChip}
-                      />
-                    )}
-                    {disabledSites[instance.domain] && (
-                      <Chip
-                        label="PROXY DISABLED"
-                        size="small"
-                        color="secondary"
-                        className={classes.statusChip}
-                      />
-                    )}
                   </Typography>
                   <Typography variant="body2" color="textSecondary">
                     <strong>Version:</strong> {instance.version} |{' '}
@@ -957,7 +907,57 @@ export const DHIS2InstancesPanel = ({
                   </Typography>
                 </Box>
               </Box>
-              <Box className={classes.actionButtons}>
+              <Box display="flex" flexDirection="column" alignItems="flex-end">
+                <Box display="flex" alignItems="center" flexWrap="wrap" justifyContent="flex-end">
+                  <Chip
+                    label={instance.status}
+                    color={getInstanceStatusColor(instance.status)}
+                    size="small"
+                    className={classes.statusChip}
+                  />
+                  {drift && (
+                    <Tooltip title={drift.tooltip}>
+                      <Chip
+                        label={drift.label}
+                        color={drift.color}
+                        size="small"
+                        variant="outlined"
+                        className={classes.statusChip}
+                      />
+                    </Tooltip>
+                  )}
+                  <Chip
+                    label={proxyDefaults.mode === 'subdomain' ? 'subdomain' : 'path'}
+                    size="small"
+                    variant="outlined"
+                    className={classes.statusChip}
+                  />
+                  {proxyDefaults.forceHttps && (
+                    <Chip
+                      label="HTTPS"
+                      color="primary"
+                      size="small"
+                      className={classes.statusChip}
+                    />
+                  )}
+                  {proxyDefaults.enableHsts && (
+                    <Chip
+                      label="HSTS"
+                      size="small"
+                      variant="outlined"
+                      className={classes.statusChip}
+                    />
+                  )}
+                  {disabledSites[instance.domain] && (
+                    <Chip
+                      label="PROXY DISABLED"
+                      size="small"
+                      color="secondary"
+                      className={classes.statusChip}
+                    />
+                  )}
+                </Box>
+                <Box className={classes.actionButtons} style={{ marginTop: 8 }}>
                 <Tooltip title="Open DHIS2 in new tab">
                   <IconButton
                     onClick={() =>
@@ -1124,6 +1124,7 @@ export const DHIS2InstancesPanel = ({
                     <DeleteIcon />
                   </IconButton>
                 </Tooltip>
+                </Box>
               </Box>
             </Box>
           </CardContent>
