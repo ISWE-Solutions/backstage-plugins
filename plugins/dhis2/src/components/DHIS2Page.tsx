@@ -184,6 +184,10 @@ const classifyPhase = (line: string, prev: LogPhase): LogPhase => {
     if (/Pre-?flight/i.test(name)) return 'Preflight';
     if (/Phase 3\b|stage restore/i.test(name)) return 'Restore';
     if (/Phase 4\b|provision DHIS2/i.test(name)) return 'Common';
+    // Phase 5a registers the proxy host (add_host) and Phase 5b runs the
+    // proxy role to write nginx config + request the TLS cert. Both should
+    // appear under the Nginx section header in the activity log.
+    if (/Phase 5[ab]?\b|central Nginx|reverse proxy/i.test(name)) return 'Nginx';
     return prev;
   }
 
@@ -197,7 +201,7 @@ const classifyPhase = (line: string, prev: LogPhase): LogPhase => {
     if (role === 'common') return 'Common';
     if (role === 'postgres' || role === 'postgresql') return 'PostgreSQL';
     if (role === 'dhis2') return 'DHIS2';
-    if (role === 'nginx') return 'Nginx';
+    if (role === 'nginx' || role === 'proxy') return 'Nginx';
     return prev;
   }
 

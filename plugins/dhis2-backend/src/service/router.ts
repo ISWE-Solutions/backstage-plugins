@@ -260,7 +260,30 @@ export async function createRouter(
       hostname: String(b.hostname),
       email: String(b.email),
       resources: { cpu: r.cpu, memory: r.memory, storage: r.storage },
-      database: { name: d.name, user: d.user, password: d.password },
+      database: {
+        name: d.name,
+        user: d.user,
+        password: d.password,
+        host:
+          typeof d.host === 'string' && d.host.trim() !== ''
+            ? d.host.trim()
+            : undefined,
+        port:
+          typeof d.port === 'number' && Number.isInteger(d.port) && d.port > 0
+            ? d.port
+            : undefined,
+        existing: d.existing === true ? true : undefined,
+      },
+      databaseAdmin:
+        b.databaseAdmin &&
+        typeof b.databaseAdmin === 'object' &&
+        typeof b.databaseAdmin.user === 'string' &&
+        typeof b.databaseAdmin.password === 'string'
+          ? {
+              user: b.databaseAdmin.user,
+              password: b.databaseAdmin.password,
+            }
+          : undefined,
       adminPassword:
         typeof b.adminPassword === 'string' && b.adminPassword !== ''
           ? b.adminPassword
@@ -307,6 +330,40 @@ export async function createRouter(
               validateApiCerts:
                 typeof b.proxmox.validateApiCerts === 'boolean'
                   ? b.proxmox.validateApiCerts
+                  : undefined,
+            }
+          : undefined,
+      // Optional reverse-proxy server overrides forwarded from the DHIS2
+      // Reverse Proxy panel (or per-instance overrides on the Create
+      // Instance dialog). Without this passthrough Phase 5 always fell
+      // back to the PVE host because the router silently dropped the
+      // `proxy` field from the request body.
+      proxy:
+        b.proxy && typeof b.proxy === 'object'
+          ? {
+              host:
+                typeof b.proxy.host === 'string' ? b.proxy.host : undefined,
+              sshPort:
+                typeof b.proxy.sshPort === 'number' &&
+                Number.isInteger(b.proxy.sshPort) &&
+                b.proxy.sshPort > 0
+                  ? b.proxy.sshPort
+                  : undefined,
+              sshUser:
+                typeof b.proxy.sshUser === 'string'
+                  ? b.proxy.sshUser
+                  : undefined,
+              sshKeyPath:
+                typeof b.proxy.sshKeyPath === 'string'
+                  ? b.proxy.sshKeyPath
+                  : undefined,
+              nginxConfigPath:
+                typeof b.proxy.nginxConfigPath === 'string'
+                  ? b.proxy.nginxConfigPath
+                  : undefined,
+              nginxReloadCommand:
+                typeof b.proxy.nginxReloadCommand === 'string'
+                  ? b.proxy.nginxReloadCommand
                   : undefined,
             }
           : undefined,
