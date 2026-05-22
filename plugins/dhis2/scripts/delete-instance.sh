@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# decommission-instance.sh — tear down a previously-provisioned DHIS2
+# delete-instance.sh — tear down a previously-provisioned DHIS2
 # instance. Runs Phase 5 (remove central nginx vhost via
 # configure-host-proxy.sh --remove) and Phase 1/3 (Ansible: destroy LXC
 # and optionally drop a remote PostgreSQL database).
@@ -15,12 +15,12 @@ umask 077
 
 usage() {
     cat <<'EOF'
-Usage: decommission-instance.sh [options]
+Usage: delete-instance.sh [options]
 
 Required:
   --vmid <int>              Proxmox VMID to destroy
   --node <name>             Proxmox node name
-  --domain <fqdn[/segment]> Same form used by provision-instance.sh
+    --domain <fqdn[/segment]> Same form used by create-instance.sh
 
 Optional (central Nginx):
   --proxy-host <host>       SSH target running the central Nginx
@@ -117,12 +117,19 @@ done
 PROXMOX_VALIDATE_CERTS="${PROXMOX_VALIDATE_CERTS:-false}"
 
 # Strip a leading "user@realm!" prefix from PROXMOX_TOKEN_ID if present —
-# same defence as provision-instance.sh.
+# same defence as create-instance.sh.
 if [[ "${PROXMOX_TOKEN_ID}" == *"!"* ]]; then
     _orig_token_id="${PROXMOX_TOKEN_ID}"
     PROXMOX_TOKEN_ID="${PROXMOX_TOKEN_ID##*!}"
     echo "[decommission] stripped user prefix from PROXMOX_TOKEN_ID: ${_orig_token_id} -> ${PROXMOX_TOKEN_ID}" >&2
     unset _orig_token_id
+fi
+
+# Match create-instance.sh: use the orchestrator venv so localhost plays
+# can import proxmoxer/community.general without depending on system Python.
+if [[ -z "${ANSIBLE_PYTHON_INTERPRETER:-}" \
+      && -x "/opt/backstage/venv/bin/python3" ]]; then
+    export ANSIBLE_PYTHON_INTERPRETER="/opt/backstage/venv/bin/python3"
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -223,13 +230,13 @@ chmod 0600 "${EXTRA_VARS_FILE}"
 # Minimal inventory — playbook only uses hosts: localhost.
 cat > "${INVENTORY_FILE}" <<EOF
 [local]
-localhost ansible_connection=local
+localhost ansible_connection=local ansible_python_interpreter=${ANSIBLE_PYTHON_INTERPRETER:-/usr/bin/python3}
 EOF
 
 # ----------------------------------------------------------------------------
 # Run the ansible decommission playbook
 # ----------------------------------------------------------------------------
-log "running ansible-playbook decommission.yml"
+log "running ansible-playbook delete.yml"
 ANSIBLE_EXTRA_ARGS=()
 if [[ "${DHIS2_DEBUG:-0}" == "1" || "${DHIS2_DEBUG:-}" == "true" ]]; then
     ANSIBLE_EXTRA_ARGS+=(-v)
@@ -240,6 +247,6 @@ ansible-playbook \
     -i "${INVENTORY_FILE}" \
     --extra-vars "@${EXTRA_VARS_FILE}" \
     "${ANSIBLE_EXTRA_ARGS[@]}" \
-    decommission.yml
+    delete.yml
 
 log "decommission complete"

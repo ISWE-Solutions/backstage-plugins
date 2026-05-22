@@ -167,7 +167,7 @@
 # write the per-instance nginx config + base vhost + request a Let's
 # Encrypt cert. This replaces the legacy
 # plugins/dhis2/scripts/configure-host-proxy.sh call from
-# provision-instance.sh's Phase 3.
+# create-instance.sh's Phase 3.
 
 - name: "Phase 5a — register Proxmox host for the central Nginx play"
   hosts: localhost

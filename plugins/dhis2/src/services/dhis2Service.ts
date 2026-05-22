@@ -1191,7 +1191,7 @@ export interface ProvisionInstancePayload {
   deleteIfExists?: boolean;
   /**
    * Major Apache Tomcat version (`'9'` or `'10'`) the orchestrator should
-   * install inside the new LXC. Forwarded to `provision-instance.sh
+  * install inside the new LXC. Forwarded to `create-instance.sh
    * --tomcat-version` and consumed by the Ansible `dhis2` role.
    */
   tomcatVersion?: '9' | '10';

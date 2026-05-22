@@ -2,6 +2,12 @@ import { DHIS2PluginSettings, DEFAULT_SETTINGS } from '../types';
 
 const STORAGE_KEY = 'dhis2-plugin-settings';
 
+function normalizePrivateKeyPath(pathLike?: string): string | undefined {
+  const p = (pathLike ?? '').trim();
+  if (!p) return undefined;
+  return p.endsWith('.pub') ? p.slice(0, -4) : p;
+}
+
 /**
  * Frontend persistence for the DHIS2 plugin settings.
  *
@@ -23,6 +29,9 @@ export class SettingsService {
         proxy: { ...DEFAULT_SETTINGS.proxy, ...(parsed.proxy ?? {}) },
         dhis2: { ...DEFAULT_SETTINGS.dhis2, ...(parsed.dhis2 ?? {}) },
       };
+      merged.proxy.sshKeyPath =
+        normalizePrivateKeyPath(merged.proxy.sshKeyPath) ??
+        merged.proxy.sshKeyPath;
       // Migrate stale placeholder values from older builds to the current
       // defaults so the UI reflects the new defaults without forcing users
       // to clear localStorage manually.
@@ -71,7 +80,16 @@ export class SettingsService {
 
   save(settings: DHIS2PluginSettings): void {
     if (typeof window === 'undefined') return;
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    const normalized: DHIS2PluginSettings = {
+      ...settings,
+      proxy: {
+        ...settings.proxy,
+        sshKeyPath:
+          normalizePrivateKeyPath(settings.proxy.sshKeyPath) ??
+          settings.proxy.sshKeyPath,
+      },
+    };
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
   }
 
   reset(): DHIS2PluginSettings {

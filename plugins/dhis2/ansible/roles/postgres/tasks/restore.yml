@@ -15,7 +15,7 @@
 #                  upload/url/instance)
 #   local_staging_path: absolute path where the dump should land for
 #                       processing. For 'upload'/'instance'/'vzdump' the
-#                       orchestrator (provision-instance.sh) pre-populates
+#                       orchestrator (create-instance.sh) pre-populates
 #                       this — in remote mode it points to the file on the
 #                       orchestrator; in local mode the stage_restore role
 #                       has copied it into the LXC.

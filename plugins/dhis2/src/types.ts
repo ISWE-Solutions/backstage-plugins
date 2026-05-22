@@ -530,7 +530,7 @@ export const DEFAULT_SETTINGS: DHIS2PluginSettings = {
     sshPort: 22,
     sshUser: 'root',
     authMethod: 'ssh-key',
-    sshKeyPath: '/root/.ssh/id_ed25519.pub',
+    sshKeyPath: '/root/.ssh/id_ed25519',
     sshPassword: '',
     nginxConfigPath: '/etc/nginx/upstream',
     nginxReloadCommand: 'sudo systemctl reload nginx',

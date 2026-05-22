@@ -4,7 +4,7 @@
 # Runs on the Proxmox host (where the central Nginx terminates TLS and
 # reverse-proxies to the per-instance LXC container's Tomcat:8080).
 #
-# Extracted verbatim-ish from the original provision-instance.sh steps 7-8
+# Extracted verbatim-ish from the original create-instance.sh steps 7-8
 # but with flag-based args and an unwind path on failure.
 
 set -euo pipefail

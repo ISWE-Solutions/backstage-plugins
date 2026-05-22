@@ -47,7 +47,7 @@ export interface ProvisionParams extends CreateInstanceRequest {
 /**
  * Frontend service that drives the hybrid Bash + Ansible provisioning flow.
  *
- * The actual orchestration lives in `plugins/dhis2/scripts/provision-instance.sh`
+ * The actual orchestration lives in `plugins/dhis2/scripts/create-instance.sh`
  * which is invoked by a (forthcoming) `dhis2-backend` plugin via
  * `child_process.spawn`. This frontend class is a thin REST client that
  * posts a provision request to that backend and streams progress back.
@@ -68,7 +68,7 @@ export class AnsibleService {
    * Backend contract (when implemented):
    *   POST {baseUrl}/provision
    *   body: ProvisionParams (secrets ARE in the body; the backend forwards
-   *         them via env vars to provision-instance.sh — they never appear
+  *         them via env vars to create-instance.sh — they never appear
    *         in `ps`).
    *   200 : AnsibleTask
    */
@@ -98,7 +98,7 @@ export class AnsibleService {
   }
 
   /**
-   * Stream stdout/stderr from the running provision-instance.sh as
+  * Stream stdout/stderr from the running create-instance.sh as
    * structured log lines (one per Server-Sent-Event / newline-delimited JSON).
    *
    * Backend contract:

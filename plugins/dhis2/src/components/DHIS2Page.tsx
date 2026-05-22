@@ -53,7 +53,6 @@ import { DHIS2LogsPanel } from './DHIS2LogsPanel';
 import { ProxmoxClusterPanel } from './ProxmoxClusterPanel';
 import { RestoreInstanceDialog } from './RestoreInstanceDialog';
 import { DHIS2InstancesPanel } from './DHIS2InstancesPanel';
-import { DHIS2ProxyPanel } from './DHIS2ProxyPanel';
 import {
   CreateInstanceDialog,
   CreateInstanceSubmitPayload,
@@ -205,7 +204,7 @@ const classifyPhase = (line: string, prev: LogPhase): LogPhase => {
     return prev;
   }
 
-  // Wrapper / backend markers from provision-instance.sh and the backend.
+  // Wrapper / backend markers from create-instance.sh and the backend.
   if (/Phase 1 — creating LXC|container IP:/i.test(raw)) return 'Proxmox';
   if (/Phase 2 — rendering inventory|running ansible-playbook/i.test(raw)) {
     return prev === 'Submit' || prev === 'Proxmox' ? 'Bootstrap' : prev;
@@ -444,7 +443,7 @@ export const DHIS2Page = () => {
 
   const wait = (ms: number) => new Promise(res => setTimeout(res, ms));
 
-  // Log-line markers from provision-instance.sh / Ansible output that we use
+  // Log-line markers from create-instance.sh / Ansible output that we use
   // to advance the visible step list. Order matters: later matches "complete"
   // earlier steps.
   const STEP_MARKERS: Array<{ pattern: RegExp; advanceTo: string }> = [
@@ -483,7 +482,7 @@ export const DHIS2Page = () => {
   const handleCreateInstance = async (payload: CreateInstanceSubmitPayload) => {
     const { request, derivedDomain, proxySettings } = payload;
 
-    // Steps modelled on provision-instance.sh / site.yml phases. Postgres
+    // Steps modelled on create-instance.sh / site.yml phases. Postgres
     // runs before DHIS2 in the playbook (roles: [common, postgres, dhis2]),
     // so the progress indicator lists them in execution order.
     const steps: ProvisionStep[] = [
@@ -594,7 +593,7 @@ export const DHIS2Page = () => {
       // SSHes to the dedicated proxy server (host, port, user, key)
       // and writes nginx configs to the operator-chosen directory using
       // the operator-chosen reload command. When a field is blank we
-      // omit it so provision-instance.sh applies its fallback (PVE host
+      // omit it so create-instance.sh applies its fallback (PVE host
       // for single-node setups, /etc/nginx/upstream + `nginx -s reload`
       // for the layout, etc.).
       proxy: (() => {
@@ -1081,7 +1080,7 @@ export const DHIS2Page = () => {
         break;
       }
     } catch (error) {
-      console.error('Failed to edit instance:', error);
+      console.error('Failed to update instance:', error);
       const message = error instanceof Error ? error.message : String(error);
       setProvisionSteps(prev =>
         prev.map(s =>
@@ -1177,7 +1176,6 @@ export const DHIS2Page = () => {
           <Tabs value={tabValue} onChange={(_e, newValue) => setTabValue(newValue)} indicatorColor="primary">
             <Tab label="Proxmox Cluster" />
             <Tab label="DHIS2 Instances" />
-            <Tab label="Proxy" />
             <Tab label="Logs" />
           </Tabs>
         </Paper>
@@ -1280,17 +1278,8 @@ export const DHIS2Page = () => {
             />
           </TabPanel>
 
-          {/* Proxy Tab */}
-          <TabPanel value={tabValue} index={2}>
-            <DHIS2ProxyPanel
-              instances={instances}
-              loading={loading}
-              onViewLogs={handleViewInstanceLogs}
-            />
-          </TabPanel>
-
           {/* Logs Tab */}
-          <TabPanel value={tabValue} index={3}>
+          <TabPanel value={tabValue} index={2}>
             <DHIS2LogsPanel />
           </TabPanel>
         </Paper>

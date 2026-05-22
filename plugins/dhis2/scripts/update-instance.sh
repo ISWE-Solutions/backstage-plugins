@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# edit-instance.sh — apply post-provision changes to an existing DHIS2
-# instance using ansible (edit.yml). Mirrors the wrapper pattern of
-# provision-instance.sh / decommission-instance.sh: renders an
+# update-instance.sh — apply post-provision changes to an existing DHIS2
+# instance using ansible (update.yml). Mirrors the wrapper pattern of
+# create-instance.sh / delete-instance.sh: renders an
 # extra-vars file, drops a minimal inventory, and execs ansible-playbook
 # so the activity-log dialog in the Backstage UI sees the same
 # "PLAY [Phase N — ...]" headers it already classifies for Create.
@@ -13,12 +13,12 @@ umask 077
 
 usage() {
     cat <<'EOF'
-Usage: edit-instance.sh [options]
+Usage: update-instance.sh [options]
 
 Required:
   --vmid <int>              Proxmox VMID of the instance to edit
   --node <name>             Proxmox node hosting the LXC
-  --domain <fqdn[/segment]> Same form used by provision-instance.sh
+    --domain <fqdn[/segment]> Same form used by create-instance.sh
   --cpu <int>               Target vCPU count
   --memory <mb>             Target memory in megabytes
   --storage <gb>            Target rootfs size in gigabytes (grow only)
@@ -105,7 +105,7 @@ done
 PROXMOX_VALIDATE_CERTS="${PROXMOX_VALIDATE_CERTS:-false}"
 
 # Strip a leading "user@realm!" prefix from PROXMOX_TOKEN_ID if present —
-# same defence as provision-instance.sh / decommission-instance.sh.
+# same defence as create-instance.sh / delete-instance.sh.
 if [[ "${PROXMOX_TOKEN_ID}" == *"!"* ]]; then
     _orig_token_id="${PROXMOX_TOKEN_ID}"
     PROXMOX_TOKEN_ID="${PROXMOX_TOKEN_ID##*!}"
@@ -157,7 +157,7 @@ log "rendering extra-vars at ${EXTRA_VARS_FILE}"
 
 cat > "${EXTRA_VARS_FILE}" <<EOF
 ---
-# Rendered by edit-instance.sh — do not edit by hand.
+# Rendered by update-instance.sh — do not edit by hand.
 
 # ---- Proxmox API (consumed by Phase 1) ----
 pve_api_host: $(yaml_escape "${_pve_api_host_port}")
@@ -199,7 +199,7 @@ cat > "${INVENTORY_FILE}" <<EOF
 localhost ansible_connection=local
 EOF
 
-log "running ansible-playbook edit.yml (vmid=${VMID} on ${NODE})"
+log "running ansible-playbook update.yml (vmid=${VMID} on ${NODE})"
 ANSIBLE_EXTRA_ARGS=()
 if [[ "${DHIS2_DEBUG:-0}" == "1" || "${DHIS2_DEBUG:-}" == "true" ]]; then
     ANSIBLE_EXTRA_ARGS+=(-v)
@@ -210,6 +210,6 @@ ansible-playbook \
     -i "${INVENTORY_FILE}" \
     --extra-vars "@${EXTRA_VARS_FILE}" \
     "${ANSIBLE_EXTRA_ARGS[@]}" \
-    edit.yml
+    update.yml
 
 log "edit complete"

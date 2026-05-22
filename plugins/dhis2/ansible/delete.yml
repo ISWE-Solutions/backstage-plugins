@@ -1,7 +1,7 @@
 ---
-# decommission.yml — tear down a previously-provisioned DHIS2 instance.
+# delete.yml — tear down a previously-provisioned DHIS2 instance.
 #
-# Runs AFTER the orchestrator wrapper (scripts/decommission-instance.sh)
+# Runs AFTER the orchestrator wrapper (scripts/delete-instance.sh)
 # has already removed the per-instance nginx vhost via
 # configure-host-proxy.sh --remove. This playbook handles:
 #   - Phase 1: stop + destroy the LXC via the Proxmox REST API
@@ -11,7 +11,7 @@
 # Phase names mirror site.yml so the Backstage activity-log classifier
 # groups output under the familiar "Proxmox" / "PostgreSQL" sections.
 #
-# Required extra-vars (rendered by scripts/decommission-instance.sh):
+# Required extra-vars (rendered by scripts/delete-instance.sh):
 #   pve_api_host, pve_api_user, pve_api_token_id, pve_api_token_secret
 #   pve_validate_certs, pve_node, pve_vmid
 #

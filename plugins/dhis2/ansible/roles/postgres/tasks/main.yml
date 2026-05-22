@@ -2,7 +2,7 @@
 # Provision the DHIS2 PostgreSQL database.
 #
 # Two modes, switched by the `dhis2_db_remote` boolean rendered by
-# provision-instance.sh:
+# create-instance.sh:
 #
 #   * dhis2_db_remote: false  (default)
 #       PostgreSQL is installed inside the LXC and all DB-management tasks

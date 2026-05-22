@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# provision-instance.sh — thin wrapper around the Ansible DHIS2 playbook.
+# create-instance.sh — thin wrapper around the Ansible DHIS2 playbook.
 #
 # All Proxmox interaction (LXC create/start + IP discovery) is now done by
 # the `pve_lxc` Ansible role via the Proxmox REST API (community.general.
@@ -22,7 +22,7 @@ umask 077
 
 usage() {
     cat <<'EOF'
-Usage: provision-instance.sh [options]
+Usage: create-instance.sh [options]
 
 Required:
   --vmid <int>              Proxmox VMID for the new container
@@ -484,7 +484,7 @@ fi
 
 cat > "${EXTRA_VARS_FILE}" <<EOF
 ---
-# Rendered by provision-instance.sh — do not edit by hand.
+# Rendered by create-instance.sh — do not edit by hand.
 
 # ---- Proxmox API credentials (consumed by the pve_lxc role) ----
 # community.general.proxmox's api_host accepts host[:port] (no scheme),

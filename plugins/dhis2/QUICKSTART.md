@@ -335,7 +335,7 @@ plugins/dhis2/
 ├── scripts/
 │   ├── create-container.sh      # Proxmox: pvesh/pct + SSH bootstrap
 │   ├── configure-host-proxy.sh  # central Nginx + certbot (on PVE host)
-│   └── provision-instance.sh    # orchestrator: phases 1 → 2 → 3
+│   └── create-instance.sh       # orchestrator: phases 1 → 2 → 3
 └── ansible/
     ├── ansible.cfg
     ├── site.yml                 # plays the in-tree roles
@@ -366,7 +366,7 @@ export DHIS2_ADMIN_PASS='…'
 export ROOT_PASSWORD='…'
 
 cd plugins/dhis2/scripts
-./provision-instance.sh \
+./create-instance.sh \
   --vmid 200 --node pve1 --hostname dhis2-prod \
   --domain dhis2.example.org --email admin@example.org \
   --dhis2-version 2.42 --db-name dhis2 --db-user dhis2 \

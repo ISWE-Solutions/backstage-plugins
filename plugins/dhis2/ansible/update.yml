@@ -1,5 +1,5 @@
 ---
-# edit.yml — apply post-provision changes to an existing DHIS2 instance.
+# update.yml — apply post-provision changes to an existing DHIS2 instance.
 #
 # Scope of this playbook (deliberately narrow — version upgrade and
 # in-place storage shrink are out of scope):
@@ -16,7 +16,7 @@
 # Backstage activity-log classifier groups output into the same
 # Proxmox / DHIS2 sections as Create Instance.
 #
-# Required extra-vars (rendered by scripts/edit-instance.sh):
+# Required extra-vars (rendered by scripts/update-instance.sh):
 #   pve_api_host, pve_api_user, pve_api_token_id, pve_api_token_secret,
 #   pve_validate_certs, pve_node, pve_vmid,
 #   pve_ssh_host, pve_ssh_user, pve_ssh_port, pve_ssh_key,
@@ -128,7 +128,7 @@
     - name: Stage rendered dhis.conf on PVE host
       ansible.builtin.copy:
         content: |
-          # Rendered by edit.yml — do not edit by hand.
+          # Rendered by update.yml — do not edit by hand.
 
           # Database connection
           connection.dialect = org.hibernate.dialect.PostgreSQLDialect
