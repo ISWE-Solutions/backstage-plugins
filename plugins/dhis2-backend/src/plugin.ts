@@ -96,7 +96,7 @@ export const dhis2Plugin = createBackendPlugin({
           // Pull the sub-config if present, but never *require* it: a single-
           // server install with the plugin scripts deployed alongside should
           // boot with usable defaults (localhost SSH, current user, ~/.ssh
-          // key, bundled provision-instance.sh).
+          // key, bundled create-instance.sh).
           const sub = config.getOptionalConfig('dhis2.orchestrator');
           const host = (sub?.getOptionalString('host') ?? 'localhost').trim();
           const port = sub?.getOptionalNumber('port') ?? 22;
@@ -127,6 +127,9 @@ export const dhis2Plugin = createBackendPlugin({
           // connection — for a local orchestrator we exec the script directly.
           if (!isLocal && !privateKeyFile) missing.push('privateKeyFile');
           if (!scriptPath) missing.push('scriptPath');
+          if (scriptPath && !fileExists(scriptPath)) {
+            missing.push(`scriptPath (file not found: ${scriptPath})`);
+          }
 
           // Proxmox REST API credentials. These are required at runtime
           // (the pve_lxc Ansible role drives the API to create the LXC)
