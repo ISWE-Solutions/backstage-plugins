@@ -57,3 +57,26 @@ dhis2_db_port: 5432
 
 # Server base URL used in dhis.conf.
 dhis2_server_base_url: "https://{{ fqdn }}"
+
+# ---------------------------------------------------------------------------
+# Tomcat context path for DHIS2.
+#
+# - Subdomain routing (e.g. fqdn="ento.dhis2.example.org")  → "" (root context).
+#   WAR is deployed as ROOT.war and served at https://<fqdn>/.
+# - Path-based routing (e.g. fqdn="dhis2.example.org/ento") → "ento".
+#   WAR is deployed as ento.war and Tomcat serves it at /ento, so DHIS2's
+#   in-app redirects (e.g. /dhis-web-login) are emitted with the /ento
+#   prefix and survive the reverse proxy. nginx is configured to forward
+#   /ento/* upstream unchanged (proxy_pass preserves the prefix).
+#
+# Computed from `fqdn`: anything after the first '/' becomes the segment.
+# Override explicitly to force a specific context (or "" for root).
+# ---------------------------------------------------------------------------
+dhis2_context_path: >-
+  {{ (fqdn.split('/', 1)[1] | trim('/'))
+     if (fqdn is defined and '/' in fqdn)
+     else '' }}
+dhis2_war_name: >-
+  {{ (dhis2_context_path ~ '.war')
+     if (dhis2_context_path | length > 0)
+     else 'ROOT.war' }}

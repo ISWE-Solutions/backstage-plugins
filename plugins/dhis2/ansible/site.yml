@@ -90,7 +90,13 @@
       block:
         - name: Wait for DHIS2 web endpoint to respond
           ansible.builtin.uri:
-            url: "http://127.0.0.1:8080/dhis-web-commons/security/login.action"
+            # When dhis2_context_path is non-empty the WAR is deployed as
+            # /<segment>.war and Tomcat serves it at /<segment>; otherwise
+            # it's ROOT.war served at /.
+            url: >-
+              http://127.0.0.1:8080{{ ('/' ~ dhis2_context_path)
+                if (dhis2_context_path | default('', true) | length > 0)
+                else '' }}/dhis-web-commons/security/login.action
             status_code: [200, 302]
             validate_certs: false
           register: dhis2_health

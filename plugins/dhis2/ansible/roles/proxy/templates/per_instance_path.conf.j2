@@ -4,8 +4,15 @@
 # inside the TLS server{} block. Drop a new file in {{ host_proxy_upstream_dir }}
 # to add another instance — no edits to the base vhost are needed.
 # Managed by Ansible (roles/host_proxy). Do not edit by hand.
+#
+# DHIS2 must be deployed inside the LXC with Tomcat context = /{{ host_proxy_path_segment }}
+# (WAR named {{ host_proxy_path_segment }}.war). The dhis2 role does that
+# automatically by reading the path segment from `fqdn`. We forward the
+# request path UNCHANGED upstream (no trailing slash on proxy_pass) so
+# the prefix DHIS2 sees matches the prefix it emits in redirects (e.g.
+# /{{ host_proxy_path_segment }}/dhis-web-login).
 location /{{ host_proxy_path_segment }}/ {
-    proxy_pass http://{{ host_proxy_container_ip }}:8080/;
+    proxy_pass http://{{ host_proxy_container_ip }}:8080;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -20,10 +27,11 @@ location /{{ host_proxy_path_segment }}/ {
 }
 
 location /{{ host_proxy_path_segment }}/dhis-web-commons-stream {
-    proxy_pass http://{{ host_proxy_container_ip }}:8080/dhis-web-commons-stream;
+    proxy_pass http://{{ host_proxy_container_ip }}:8080;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
     proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Prefix /{{ host_proxy_path_segment }};
     proxy_read_timeout 86400;
 }

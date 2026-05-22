@@ -162,7 +162,7 @@
   register: tomcat_stop_result
   failed_when: false
 
-- name: Remove default Tomcat webapps and any previously-exploded ROOT
+- name: Remove default Tomcat webapps and any previously-exploded ROOT/context dirs
   # `ansible.builtin.file: state=absent` walks the entire directory tree and
   # serialises every path into the JSON diff payload (path_content.files +
   # path_content.directories). For a freshly-extracted Tomcat under -vvv that
@@ -170,6 +170,10 @@
   # LXC has been observed to silently stall the SSH/python worker for ~10
   # minutes before ansible-playbook bails with exit 2. A plain `rm -rf` is
   # constant-memory and finishes in <1 s for these directories.
+  #
+  # We also strip any *previous* WAR/exploded directory matching the same
+  # context so that on re-runs (or when switching modes) Tomcat doesn't end
+  # up serving the app under two contexts simultaneously.
   ansible.builtin.command:
     cmd: rm -rf
           "{{ tomcat_webapps_dir }}/ROOT"
@@ -178,10 +182,11 @@
           "{{ tomcat_webapps_dir }}/examples"
           "{{ tomcat_webapps_dir }}/host-manager"
           "{{ tomcat_webapps_dir }}/manager"
+          {% if dhis2_context_path | length > 0 %}"{{ tomcat_webapps_dir }}/{{ dhis2_context_path }}" "{{ tomcat_webapps_dir }}/{{ dhis2_context_path }}.war"{% endif %}
   changed_when: true
   no_log: true
 
-- name: Deploy DHIS2 WAR as ROOT
+- name: Deploy DHIS2 WAR (context="/{{ dhis2_context_path | default('', true) }}" → {{ dhis2_war_name }})
   # We previously used `ansible.builtin.copy` with remote_src=true (reads
   # the full 300 MB into Python on the target to checksum), then tried
   # `cp -f` (still reads + writes 300 MB of data). Both have been observed
@@ -195,15 +200,19 @@
   # destination, so we don't care about preservation. On re-runs the
   # `Download DHIS2 WAR` task above will re-fetch into
   # `{{ dhis2_install_dir }}/dhis.war` because we just moved it away.
+  #
+  # For path-based reverse proxying the WAR is deployed as
+  # `<segment>.war` so Tomcat's servlet context becomes `/<segment>` and
+  # in-app redirects (e.g. /<segment>/dhis-web-login) survive the proxy.
   ansible.builtin.command:
-    cmd: mv -f "{{ dhis2_install_dir }}/dhis.war" "{{ tomcat_webapps_dir }}/ROOT.war"
+    cmd: mv -f "{{ dhis2_install_dir }}/dhis.war" "{{ tomcat_webapps_dir }}/{{ dhis2_war_name }}"
     removes: "{{ dhis2_install_dir }}/dhis.war"
   register: dhis2_root_war_copy
   changed_when: dhis2_root_war_copy.changed | default(true)
 
-- name: Set ownership on deployed ROOT.war
+- name: Set ownership on deployed WAR
   ansible.builtin.file:
-    path: "{{ tomcat_webapps_dir }}/ROOT.war"
+    path: "{{ tomcat_webapps_dir }}/{{ dhis2_war_name }}"
     owner: "{{ tomcat_user }}"
     group: "{{ tomcat_group }}"
     mode: "0640"
