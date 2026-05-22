@@ -1182,11 +1182,11 @@ export class ProvisionService {
     job.status = 'running';
     const decommissionScript = path.join(
       path.dirname(cfg.scriptPath),
-      'decommission-instance.sh',
+      'delete-instance.sh',
     );
     appendLine(
       job,
-      `[backend] Running decommission-instance.sh locally on the Backstage host for instance "${req.name}" (vmid=${req.vmid}, node=${req.node}, domain=${req.domain}).`,
+      `[backend] Running delete-instance.sh locally on the Backstage host for instance "${req.name}" (vmid=${req.vmid}, node=${req.node}, domain=${req.domain}).`,
     );
 
     const command = buildDecommissionCommand(cfg, req, decommissionScript);
@@ -1201,7 +1201,7 @@ export class ProvisionService {
 
     if (exitCode === 0) {
       job.status = 'success';
-      appendLine(job, `[backend] decommission-instance.sh exited 0`);
+      appendLine(job, `[backend] delete-instance.sh exited 0`);
       // Remove the instance from the persisted state file. Best-effort —
       // a missing or unreadable state file is not fatal.
       try {
@@ -1224,7 +1224,7 @@ export class ProvisionService {
       }
     } else {
       job.status = 'failed';
-      job.error = `decommission-instance.sh exited with code ${exitCode}`;
+      job.error = `delete-instance.sh exited with code ${exitCode}`;
       appendLine(job, `[backend] ${job.error}`);
     }
   }
@@ -1419,7 +1419,7 @@ export class ProvisionService {
   // instance upstream snippet (in `proxy.nginxConfigPath`, default
   // /etc/nginx/upstream) and the vhost / "dhis.conf" file. Both live on
   // the central proxy host and are accessed via SSH — the same channel
-  // configure-host-proxy.sh and decommission-instance.sh use.
+  // configure-host-proxy.sh and delete-instance.sh use.
 
   async readProxyFiles(
     instanceId: string,

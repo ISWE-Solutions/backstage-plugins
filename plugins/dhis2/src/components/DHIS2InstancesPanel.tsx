@@ -420,14 +420,6 @@ export const DHIS2InstancesPanel = ({
       nginxService.reloadSite(domain),
     );
 
-  const removeProxySite = (domain: string) => {
-    // eslint-disable-next-line no-alert
-    if (!window.confirm(`Remove nginx site config for ${domain}?`)) return;
-    void runProxyAction(`remove:${domain}`, `Remove ${domain}`, () =>
-      nginxService.removeServer(domain),
-    );
-  };
-
   const renewProxySsl = (domain: string) =>
     runProxyAction(`ssl:${domain}`, `Renew SSL for ${domain}`, () =>
       nginxService.requestCertificate(
@@ -1087,19 +1079,6 @@ export const DHIS2InstancesPanel = ({
                       <CheckCircleIcon />
                     ) : (
                       <SettingsIcon />
-                    )}
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Remove site">
-                  <IconButton
-                    color="secondary"
-                    disabled={isProxyBusy('remove')}
-                    onClick={() => removeProxySite(instance.domain)}
-                  >
-                    {isProxyBusy('remove') ? (
-                      <CircularProgress size={20} />
-                    ) : (
-                      <DeleteIcon />
                     )}
                   </IconButton>
                 </Tooltip>
