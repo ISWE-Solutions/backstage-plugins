@@ -559,6 +559,96 @@ export async function createRouter(
     res.status(202).json({ jobId: job.id, status: job.status });
   });
 
+  // ---------------------------------------------------------------------
+  // Per-instance nginx proxy files (upstream snippet + vhost / dhis.conf)
+  // ---------------------------------------------------------------------
+  function parseProxyAccessOverrides(
+    body: unknown,
+  ): {
+    host?: string;
+    sshPort?: number;
+    sshUser?: string;
+    sshKeyPath?: string;
+    nginxConfigPath?: string;
+    nginxReloadCommand?: string;
+    sitesAvailable?: string;
+  } {
+    if (!body || typeof body !== 'object') return {};
+    const b = body as Record<string, unknown>;
+    const proxy =
+      b.proxy && typeof b.proxy === 'object'
+        ? (b.proxy as Record<string, unknown>)
+        : {};
+    const str = (v: unknown): string | undefined =>
+      typeof v === 'string' && v.trim() ? v.trim() : undefined;
+    const port =
+      typeof proxy.sshPort === 'number' &&
+      Number.isInteger(proxy.sshPort) &&
+      proxy.sshPort > 0
+        ? proxy.sshPort
+        : undefined;
+    return {
+      host: str(proxy.host),
+      sshPort: port,
+      sshUser: str(proxy.sshUser),
+      sshKeyPath: str(proxy.sshKeyPath),
+      nginxConfigPath: str(proxy.nginxConfigPath),
+      nginxReloadCommand: str(proxy.nginxReloadCommand),
+      sitesAvailable: str(proxy.sitesAvailable),
+    };
+  }
+
+  router.post('/instances/:id/proxy-files/read', async (req, res) => {
+    if (!provisionService.isConfigured()) {
+      res.status(503).json({ error: 'DHIS2 orchestrator is not configured.' });
+      return;
+    }
+    try {
+      const result = await provisionService.readProxyFiles(
+        req.params.id,
+        parseProxyAccessOverrides(req.body),
+      );
+      res.json(result);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn(`DHIS2: proxy-files read failed: ${message}`);
+      res.status(400).json({ error: message });
+    }
+  });
+
+  router.post('/instances/:id/proxy-files/write', async (req, res) => {
+    if (!provisionService.isConfigured()) {
+      res.status(503).json({ error: 'DHIS2 orchestrator is not configured.' });
+      return;
+    }
+    const b =
+      req.body && typeof req.body === 'object'
+        ? (req.body as Record<string, unknown>)
+        : {};
+    const upstream =
+      typeof b.upstream === 'string' ? (b.upstream as string) : undefined;
+    const site =
+      typeof b.site === 'string' ? (b.site as string) : undefined;
+    if (upstream === undefined && site === undefined) {
+      res
+        .status(400)
+        .json({ error: 'Provide "upstream" and/or "site" string fields.' });
+      return;
+    }
+    try {
+      const result = await provisionService.writeProxyFiles(
+        req.params.id,
+        parseProxyAccessOverrides(req.body),
+        { upstream, site, reload: b.reload !== false },
+      );
+      res.json(result);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn(`DHIS2: proxy-files write failed: ${message}`);
+      res.status(400).json({ error: message });
+    }
+  });
+
   router.get('/instances', async (_req, res) => {
     const instances = await instanceRegistryService.listEnriched();
     res.json({ instances });

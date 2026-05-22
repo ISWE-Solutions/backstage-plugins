@@ -970,4 +970,243 @@ export class ProvisionService {
       `[backend] Tagged LXC ${req.vmid} on ${req.node}: tags="${applied}"`,
     );
   }
+
+  // ---------------------------------------------------------------------
+  // Proxy file inspection / editing
+  // ---------------------------------------------------------------------
+  // The Edit Settings dialog lets operators read and rewrite the two
+  // nginx config files that drive a single DHIS2 instance: the per-
+  // instance upstream snippet (in `proxy.nginxConfigPath`, default
+  // /etc/nginx/upstream) and the vhost / "dhis.conf" file. Both live on
+  // the central proxy host and are accessed via SSH — the same channel
+  // configure-host-proxy.sh and decommission-instance.sh use.
+
+  async readProxyFiles(
+    instanceId: string,
+    overrides: ProxyAccessOverrides,
+  ): Promise<ProxyFilesResponse> {
+    if (!this.cfg) throw new Error('Orchestrator not configured.');
+    const inst = await this.findInstance(instanceId);
+    if (!inst) throw new Error(`Instance "${instanceId}" not found.`);
+    const access = resolveProxyAccess(this.cfg, overrides);
+    const paths = derivProxyFilePaths(inst, overrides);
+    const upstreamContent = await sshReadFile(access, paths.upstreamFile);
+    const siteContent = await sshReadFile(access, paths.siteFile);
+    return {
+      upstream: { path: paths.upstreamFile, content: upstreamContent.content, exists: upstreamContent.exists },
+      site: { path: paths.siteFile, content: siteContent.content, exists: siteContent.exists },
+    };
+  }
+
+  async writeProxyFiles(
+    instanceId: string,
+    overrides: ProxyAccessOverrides,
+    body: { upstream?: string; site?: string; reload?: boolean },
+  ): Promise<ProxyWriteResult> {
+    if (!this.cfg) throw new Error('Orchestrator not configured.');
+    const inst = await this.findInstance(instanceId);
+    if (!inst) throw new Error(`Instance "${instanceId}" not found.`);
+    const access = resolveProxyAccess(this.cfg, overrides);
+    const paths = derivProxyFilePaths(inst, overrides);
+    const written: string[] = [];
+    if (typeof body.upstream === 'string') {
+      await sshWriteFile(access, paths.upstreamFile, body.upstream);
+      written.push(paths.upstreamFile);
+    }
+    if (typeof body.site === 'string') {
+      await sshWriteFile(access, paths.siteFile, body.site);
+      written.push(paths.siteFile);
+    }
+    let reload: { ok: boolean; output: string } | undefined;
+    if (body.reload && written.length > 0) {
+      const reloadCmd =
+        (overrides.nginxReloadCommand && overrides.nginxReloadCommand.trim()) ||
+        'sudo nginx -t && sudo systemctl reload nginx';
+      const r = await sshExec(access, reloadCmd);
+      reload = { ok: r.code === 0, output: r.stdout + r.stderr };
+      if (!reload.ok) {
+        throw new Error(
+          `nginx reload failed (exit ${r.code}): ${reload.output.trim()}`,
+        );
+      }
+    }
+    return { written, reload };
+  }
+
+  private async findInstance(id: string): Promise<PersistedInstance | null> {
+    const list = await this.listInstances();
+    return list.find(i => i.id === id) ?? null;
+  }
+}
+
+// -------------------------------------------------------------------------
+// Proxy file helpers (SSH-based read/write of the per-instance nginx confs)
+// -------------------------------------------------------------------------
+
+export interface ProxyAccessOverrides {
+  host?: string;
+  sshPort?: number;
+  sshUser?: string;
+  sshKeyPath?: string;
+  nginxConfigPath?: string;
+  nginxReloadCommand?: string;
+  /**
+   * Optional explicit path for the site/vhost file. When omitted, derived
+   * from the instance's routing mode (subdomain vs path-based) using the
+   * same defaults configure-host-proxy.sh applies.
+   */
+  sitesAvailable?: string;
+}
+
+interface ProxyAccess {
+  host: string;
+  port: number;
+  user: string;
+  keyPath?: string;
+}
+
+export interface ProxyFilesResponse {
+  upstream: { path: string; content: string; exists: boolean };
+  site: { path: string; content: string; exists: boolean };
+}
+
+export interface ProxyWriteResult {
+  written: string[];
+  reload?: { ok: boolean; output: string };
+}
+
+function resolveProxyAccess(
+  cfg: OrchestratorConfig,
+  o: ProxyAccessOverrides,
+): ProxyAccess {
+  const host = (o.host && o.host.trim()) || cfg.pveHost || cfg.host;
+  if (!host) throw new Error('Proxy host is not configured.');
+  const port = o.sshPort && Number.isInteger(o.sshPort) && o.sshPort > 0
+    ? o.sshPort
+    : cfg.port || 22;
+  const user = (o.sshUser && o.sshUser.trim()) || cfg.user || 'root';
+  const keyPath = (o.sshKeyPath && o.sshKeyPath.trim()) || cfg.privateKeyFile;
+  return { host, port, user, keyPath: keyPath || undefined };
+}
+
+function derivProxyFilePaths(
+  inst: PersistedInstance,
+  o: ProxyAccessOverrides,
+): { upstreamFile: string; siteFile: string } {
+  const upstreamDir =
+    (o.nginxConfigPath && o.nginxConfigPath.trim()) || '/etc/nginx/upstream';
+  const domain = inst.domain;
+  if (domain.includes('/')) {
+    // Path-based routing: <fqdn>/<instance>
+    const baseDomain = domain.split('/')[0];
+    let instanceName = domain.slice(domain.indexOf('/') + 1);
+    instanceName = instanceName.replace(/^\/+|\/+$/g, '');
+    if (!baseDomain || !instanceName) {
+      throw new Error(`Malformed domain for path mode: "${domain}"`);
+    }
+    if (!/^[A-Za-z0-9._-]+$/.test(instanceName)) {
+      throw new Error(
+        `Instance segment "${instanceName}" contains characters unsafe for a filename.`,
+      );
+    }
+    const sitesAvailable =
+      (o.sitesAvailable && o.sitesAvailable.trim()) ||
+      '/etc/nginx/sites-available';
+    return {
+      upstreamFile: `${upstreamDir}/${instanceName}.conf`,
+      siteFile: `${sitesAvailable}/${baseDomain}.conf`,
+    };
+  }
+  // Subdomain mode — one .conf per FQDN, files live in conf.d by default.
+  const sitesAvailable =
+    (o.sitesAvailable && o.sitesAvailable.trim()) || '/etc/nginx/conf.d';
+  return {
+    upstreamFile: `${upstreamDir}/dhis2-${inst.vmid}.conf`,
+    siteFile: `${sitesAvailable}/dhis2-${domain}.conf`,
+  };
+}
+
+function sshBaseArgs(a: ProxyAccess): string[] {
+  const args: string[] = [
+    '-o', 'StrictHostKeyChecking=accept-new',
+    '-o', 'BatchMode=yes',
+    '-p', String(a.port),
+  ];
+  if (a.keyPath) {
+    args.push('-i', a.keyPath);
+  }
+  args.push(`${a.user}@${a.host}`);
+  return args;
+}
+
+function execCapture(
+  cmd: string,
+  args: string[],
+  stdin?: string,
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  return new Promise(resolve => {
+    const child = spawn(cmd, args, { stdio: 'pipe' });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', d => (stdout += d.toString('utf8')));
+    child.stderr.on('data', d => (stderr += d.toString('utf8')));
+    child.on('close', code => resolve({ code: code ?? -1, stdout, stderr }));
+    child.on('error', err => resolve({ code: -1, stdout, stderr: stderr + String(err) }));
+    if (stdin !== undefined) {
+      child.stdin.end(stdin);
+    } else {
+      child.stdin.end();
+    }
+  });
+}
+
+async function sshReadFile(
+  a: ProxyAccess,
+  remotePath: string,
+): Promise<{ content: string; exists: boolean }> {
+  // Print a sentinel when the file doesn't exist so we can distinguish
+  // "missing" from "empty file" without a second round-trip.
+  const remoteCmd =
+    `if [ -f ${shellQuote(remotePath)} ]; then cat ${shellQuote(remotePath)}; ` +
+    `else echo __DHIS2_PROXY_FILE_MISSING__; fi`;
+  const r = await execCapture('ssh', [...sshBaseArgs(a), remoteCmd]);
+  if (r.code !== 0) {
+    throw new Error(
+      `ssh ${a.user}@${a.host} read ${remotePath} failed (exit ${r.code}): ${r.stderr.trim()}`,
+    );
+  }
+  if (r.stdout.trim() === '__DHIS2_PROXY_FILE_MISSING__') {
+    return { content: '', exists: false };
+  }
+  return { content: r.stdout, exists: true };
+}
+
+async function sshWriteFile(
+  a: ProxyAccess,
+  remotePath: string,
+  content: string,
+): Promise<void> {
+  // tee with sudo so we can write into /etc/nginx without being root over
+  // SSH. The dir is created defensively so brand-new layouts work.
+  const dir = remotePath.replace(/\/[^/]+$/, '') || '/';
+  const remoteCmd =
+    `set -e; sudo mkdir -p ${shellQuote(dir)}; ` +
+    `sudo tee ${shellQuote(remotePath)} > /dev/null`;
+  const r = await execCapture(
+    'ssh',
+    [...sshBaseArgs(a), remoteCmd],
+    content,
+  );
+  if (r.code !== 0) {
+    throw new Error(
+      `ssh ${a.user}@${a.host} write ${remotePath} failed (exit ${r.code}): ${r.stderr.trim()}`,
+    );
+  }
+}
+
+async function sshExec(
+  a: ProxyAccess,
+  remoteCmd: string,
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  return await execCapture('ssh', [...sshBaseArgs(a), remoteCmd]);
 }

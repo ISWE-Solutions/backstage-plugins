@@ -920,6 +920,83 @@ export class DHIS2Service {
   }
 
   /**
+   * Read the per-instance nginx upstream + vhost ("dhis.conf") files from
+   * the central proxy host. The backend SSHes into the proxy using the
+   * settings supplied in `payload.proxy` (host/sshUser/sshKeyPath/etc.).
+   */
+  async readProxyFiles(
+    baseUrl: string,
+    instanceId: string,
+    payload: { proxy?: ProxyAccessPayload },
+    fetchFn: typeof fetch = (...args) => fetch(...args),
+  ): Promise<ProxyFilesSnapshot> {
+    const res = await fetchWithLifecycleRetry(
+      fetchFn,
+      `${baseUrl}/instances/${encodeURIComponent(instanceId)}/proxy-files/read`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload ?? {}),
+      },
+    );
+    if (!res.ok) {
+      let msg = `Failed to read proxy files (HTTP ${res.status})`;
+      try {
+        const body = await res.json();
+        if (typeof body?.error === 'string') msg = body.error;
+        else if (typeof body?.error?.message === 'string')
+          msg = body.error.message;
+      } catch {
+        // ignore
+      }
+      throw new Error(msg);
+    }
+    return (await res.json()) as ProxyFilesSnapshot;
+  }
+
+  /**
+   * Write either or both proxy files back to the proxy host, then
+   * `nginx -t && systemctl reload nginx` (unless `reload: false`).
+   */
+  async writeProxyFiles(
+    baseUrl: string,
+    instanceId: string,
+    payload: {
+      proxy?: ProxyAccessPayload;
+      upstream?: string;
+      site?: string;
+      reload?: boolean;
+    },
+    fetchFn: typeof fetch = (...args) => fetch(...args),
+  ): Promise<{ written: string[]; reload?: { ok: boolean; output: string } }> {
+    const res = await fetchWithLifecycleRetry(
+      fetchFn,
+      `${baseUrl}/instances/${encodeURIComponent(instanceId)}/proxy-files/write`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload ?? {}),
+      },
+    );
+    if (!res.ok) {
+      let msg = `Failed to write proxy files (HTTP ${res.status})`;
+      try {
+        const body = await res.json();
+        if (typeof body?.error === 'string') msg = body.error;
+        else if (typeof body?.error?.message === 'string')
+          msg = body.error.message;
+      } catch {
+        // ignore
+      }
+      throw new Error(msg);
+    }
+    return (await res.json()) as {
+      written: string[];
+      reload?: { ok: boolean; output: string };
+    };
+  }
+
+  /**
    * Snapshot a running or completed provisioning job.
    */
   async getProvisionJob(
@@ -1091,6 +1168,28 @@ export interface ProvisionInstancePayload {
 }
 
 export type ProvisionJobStatus = 'queued' | 'running' | 'success' | 'failed';
+
+/**
+ * Subset of the proxy server settings the backend needs to SSH into the
+ * proxy host (for reading/writing the per-instance nginx files).
+ */
+export interface ProxyAccessPayload {
+  host?: string;
+  sshPort?: number;
+  sshUser?: string;
+  sshKeyPath?: string;
+  nginxConfigPath?: string;
+  nginxReloadCommand?: string;
+  /** Optional override for the vhost dir (defaults differ by routing mode). */
+  sitesAvailable?: string;
+}
+
+/** Response shape of POST /instances/:id/proxy-files/read. */
+export interface ProxyFilesSnapshot {
+  upstream: { path: string; content: string; exists: boolean };
+  site: { path: string; content: string; exists: boolean };
+}
+
 
 /**
  * Payload sent to POST /api/dhis2/instances/:id/decommission.

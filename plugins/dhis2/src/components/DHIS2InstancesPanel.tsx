@@ -38,6 +38,11 @@ import { DHIS2Instance } from '../types';
 import { dhis2Service } from '../services/dhis2Service';
 import { settingsService } from '../services/settingsService';
 import { TransferDatabaseDialog } from './TransferDatabaseDialog';
+import {
+  discoveryApiRef,
+  fetchApiRef,
+  useApi,
+} from '@backstage/core-plugin-api';
 
 const useStyles = makeStyles(theme => ({
   toolbar: {
@@ -218,6 +223,32 @@ export const DHIS2InstancesPanel = ({
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
   const [versions, setVersions] = useState<string[]>([]);
 
+  // Per-instance nginx proxy files (upstream + vhost / "dhis.conf").
+  // Loaded on demand inside the Edit dialog and edited in two textareas.
+  const [proxyFilesState, setProxyFilesState] = useState<{
+    loading: boolean;
+    error: string | null;
+    upstreamPath: string;
+    upstreamContent: string;
+    upstreamExists: boolean;
+    sitePath: string;
+    siteContent: string;
+    siteExists: boolean;
+    saving: boolean;
+  }>({
+    loading: false,
+    error: null,
+    upstreamPath: '',
+    upstreamContent: '',
+    upstreamExists: false,
+    sitePath: '',
+    siteContent: '',
+    siteExists: false,
+    saving: false,
+  });
+  const discoveryApi = useApi(discoveryApiRef);
+  const { fetch: backstageFetch } = useApi(fetchApiRef);
+
   const [transferTarget, setTransferTarget] = useState<DHIS2Instance | null>(
     null,
   );
@@ -356,8 +387,54 @@ export const DHIS2InstancesPanel = ({
       onChanged?.();
     });
 
+  const proxyPayloadFromSettings = () => {
+    const s = settingsService.load();
+    return {
+      proxy: {
+        host: s.proxy.host || undefined,
+        sshPort: s.proxy.sshPort || undefined,
+        sshUser: s.proxy.sshUser || undefined,
+        sshKeyPath: s.proxy.sshKeyPath || undefined,
+        nginxConfigPath: s.proxy.nginxConfigPath || undefined,
+        nginxReloadCommand: s.proxy.nginxReloadCommand || undefined,
+      },
+    };
+  };
+
+  const loadProxyFiles = async (instance: DHIS2Instance) => {
+    setProxyFilesState(prev => ({ ...prev, loading: true, error: null }));
+    try {
+      const baseUrl = await discoveryApi.getBaseUrl('dhis2');
+      const snap = await dhis2Service.readProxyFiles(
+        baseUrl,
+        instance.id,
+        proxyPayloadFromSettings(),
+        backstageFetch,
+      );
+      setProxyFilesState({
+        loading: false,
+        error: null,
+        upstreamPath: snap.upstream.path,
+        upstreamContent: snap.upstream.content,
+        upstreamExists: snap.upstream.exists,
+        sitePath: snap.site.path,
+        siteContent: snap.site.content,
+        siteExists: snap.site.exists,
+        saving: false,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setProxyFilesState(prev => ({
+        ...prev,
+        loading: false,
+        error: message,
+      }));
+    }
+  };
+
   const handleOpenEdit = (instance: DHIS2Instance) => {
     setEditTarget(instance);
+    const globalSettings = settingsService.load();
     setEditDraft({
       name: instance.name,
       version: instance.version,
@@ -366,10 +443,66 @@ export const DHIS2InstancesPanel = ({
       storageGb: instance.resources.storage,
       dbName: instance.database.name,
       dbUser: instance.database.user,
-      dbHost: instance.database.host ?? '',
-      dbPort: instance.database.port ?? DEFAULT_PG_PORT,
+      // Fall back to the global "Database Configurations" host that was
+      // used at Create-Instance time — older instance records were
+      // persisted without the per-instance `database.host` field.
+      dbHost: instance.database.host ?? globalSettings.dhis2.postgresHost ?? '',
+      dbPort:
+        instance.database.port ??
+        globalSettings.dhis2.postgresPort ??
+        DEFAULT_PG_PORT,
       dbPassword: instance.database.password ?? '',
     });
+    setProxyFilesState({
+      loading: false,
+      error: null,
+      upstreamPath: '',
+      upstreamContent: '',
+      upstreamExists: false,
+      sitePath: '',
+      siteContent: '',
+      siteExists: false,
+      saving: false,
+    });
+    // Best-effort load — failures surface inline in the proxy-files block.
+    void loadProxyFiles(instance);
+  };
+
+  const handleSaveProxyFiles = async () => {
+    if (!editTarget) return;
+    setProxyFilesState(prev => ({ ...prev, saving: true, error: null }));
+    try {
+      const baseUrl = await discoveryApi.getBaseUrl('dhis2');
+      await dhis2Service.writeProxyFiles(
+        baseUrl,
+        editTarget.id,
+        {
+          ...proxyPayloadFromSettings(),
+          upstream: proxyFilesState.upstreamContent,
+          site: proxyFilesState.siteContent,
+          reload: true,
+        },
+        backstageFetch,
+      );
+      setProxyFilesState(prev => ({
+        ...prev,
+        saving: false,
+        upstreamExists: true,
+        siteExists: true,
+      }));
+      setToast({
+        open: true,
+        severity: 'success',
+        message: `Proxy files saved and nginx reloaded for ${editTarget.name}.`,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setProxyFilesState(prev => ({
+        ...prev,
+        saving: false,
+        error: message,
+      }));
+    }
   };
 
   const handleSaveEdit = async () => {
@@ -990,6 +1123,100 @@ export const DHIS2InstancesPanel = ({
                 </>
               );
             })()}
+            <Grid item xs={12}>
+              <Typography variant="subtitle2" style={{ marginTop: 16 }}>
+                Proxy configuration files
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                These are the per-instance nginx files on the central
+                proxy host: the upstream snippet
+                ({proxyFilesState.upstreamPath || '<computed at load>'})
+                and the vhost / dhis.conf
+                ({proxyFilesState.sitePath || '<computed at load>'}).
+                Saving writes both files via SSH and runs
+                {' '}<code>nginx -t &amp;&amp; systemctl reload nginx</code>.
+              </Typography>
+            </Grid>
+            {proxyFilesState.error && (
+              <Grid item xs={12}>
+                <Alert severity="error">{proxyFilesState.error}</Alert>
+              </Grid>
+            )}
+            <Grid item xs={12}>
+              <TextField
+                label={`Upstream (${
+                  proxyFilesState.upstreamExists ? 'editing' : 'new file'
+                })`}
+                fullWidth
+                multiline
+                minRows={6}
+                maxRows={20}
+                value={proxyFilesState.upstreamContent}
+                onChange={e =>
+                  setProxyFilesState(prev => ({
+                    ...prev,
+                    upstreamContent: e.target.value,
+                  }))
+                }
+                disabled={proxyFilesState.loading || proxyFilesState.saving}
+                helperText={proxyFilesState.upstreamPath}
+                InputProps={{
+                  style: {
+                    fontFamily:
+                      'ui-monospace, SFMono-Regular, Menlo, monospace',
+                    fontSize: 12,
+                  },
+                }}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                label={`dhis.conf / vhost (${
+                  proxyFilesState.siteExists ? 'editing' : 'new file'
+                })`}
+                fullWidth
+                multiline
+                minRows={8}
+                maxRows={30}
+                value={proxyFilesState.siteContent}
+                onChange={e =>
+                  setProxyFilesState(prev => ({
+                    ...prev,
+                    siteContent: e.target.value,
+                  }))
+                }
+                disabled={proxyFilesState.loading || proxyFilesState.saving}
+                helperText={proxyFilesState.sitePath}
+                InputProps={{
+                  style: {
+                    fontFamily:
+                      'ui-monospace, SFMono-Regular, Menlo, monospace',
+                    fontSize: 12,
+                  },
+                }}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <Box display="flex" style={{ gap: 8 }}>
+                <Button
+                  variant="outlined"
+                  disabled={proxyFilesState.loading || proxyFilesState.saving}
+                  onClick={() => editTarget && loadProxyFiles(editTarget)}
+                >
+                  {proxyFilesState.loading ? 'Loading…' : 'Reload from server'}
+                </Button>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  disabled={proxyFilesState.loading || proxyFilesState.saving}
+                  onClick={handleSaveProxyFiles}
+                >
+                  {proxyFilesState.saving
+                    ? 'Saving…'
+                    : 'Save & reload nginx'}
+                </Button>
+              </Box>
+            </Grid>
           </Grid>
         )}
       </DialogContent>
