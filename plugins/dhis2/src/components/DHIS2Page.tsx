@@ -815,7 +815,7 @@ export const DHIS2Page = () => {
         <Paper style={{ marginBottom: 24 }}>
           <Tabs value={tabValue} onChange={(_e, newValue) => setTabValue(newValue)} indicatorColor="primary">
             <Tab label="Proxmox Cluster" />
-            <Tab label="Instances" />
+            <Tab label="DHIS2 Instances" />
             <Tab label="Proxy" />
             <Tab label="Logs" />
           </Tabs>
