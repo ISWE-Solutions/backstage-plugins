@@ -7,6 +7,7 @@ import {
   ProvisionService,
   ProvisionRequest,
   DecommissionRequest,
+  EditRequest,
 } from './provisionService';
 import { InstanceRegistryService } from './instanceRegistryService';
 import {
@@ -555,6 +556,160 @@ export async function createRouter(
     const job = provisionService.startDecommissionJob(payload);
     logger.info(
       `DHIS2: decommission job ${job.id} started for ${payload.name} (vmid=${payload.vmid}, node=${payload.node})`,
+    );
+    res.status(202).json({ jobId: job.id, status: job.status });
+  });
+
+  // ---------------------------------------------------------------------
+  // Instance edit (apply changes) — Ansible-backed, streamed log
+  // ---------------------------------------------------------------------
+  function parseEditRequest(
+    instanceId: string,
+    body: unknown,
+    instance: {
+      name: string;
+      vmid: string;
+      node: string;
+      domain: string;
+      version: string;
+      database: { name: string; user: string };
+      resources: { cpu: number; memory: number; storage: number };
+    },
+  ): EditRequest {
+    const b = (body && typeof body === 'object' ? body : {}) as Record<
+      string,
+      any
+    >;
+    const vmidNum = Number(instance.vmid);
+    if (!Number.isInteger(vmidNum) || vmidNum <= 0) {
+      throw new InputError(
+        `Persisted instance has invalid vmid "${instance.vmid}"`,
+      );
+    }
+
+    const str = (v: unknown): string | undefined =>
+      typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined;
+    const num = (v: unknown): number | undefined => {
+      if (typeof v === 'number' && Number.isFinite(v)) return v;
+      if (typeof v === 'string' && v.trim() !== '') {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : undefined;
+      }
+      return undefined;
+    };
+
+    const resObj =
+      b.resources && typeof b.resources === 'object'
+        ? (b.resources as Record<string, any>)
+        : {};
+    const cpu = num(resObj.cpu) ?? instance.resources.cpu;
+    const memory = num(resObj.memory) ?? instance.resources.memory;
+    const storage = num(resObj.storage) ?? instance.resources.storage;
+    for (const [k, v] of [
+      ['cpu', cpu],
+      ['memory', memory],
+      ['storage', storage],
+    ] as const) {
+      if (!Number.isInteger(v) || v <= 0) {
+        throw new InputError(`Invalid resource value for ${k}: ${v}`);
+      }
+    }
+
+    const dbObj =
+      b.database && typeof b.database === 'object'
+        ? (b.database as Record<string, any>)
+        : {};
+    const dbPassword = typeof dbObj.password === 'string' ? dbObj.password : '';
+    if (dbPassword.length === 0) {
+      throw new InputError(
+        'database.password is required so dhis.conf can be re-rendered with the correct credential.',
+      );
+    }
+
+    const proxy =
+      b.proxy && typeof b.proxy === 'object'
+        ? (b.proxy as Record<string, any>)
+        : {};
+    const proxmox =
+      b.proxmox && typeof b.proxmox === 'object'
+        ? (b.proxmox as Record<string, any>)
+        : {};
+
+    const restartTomcat =
+      typeof b.restartTomcat === 'boolean' ? b.restartTomcat : true;
+
+    return {
+      instanceId,
+      vmid: vmidNum,
+      node: instance.node,
+      domain: instance.domain,
+      name: str(b.name) ?? instance.name,
+      version: str(b.version) ?? instance.version,
+      resources: { cpu, memory, storage },
+      database: {
+        name: str(dbObj.name) ?? instance.database.name,
+        user: str(dbObj.user) ?? instance.database.user,
+        host: str(dbObj.host),
+        port: num(dbObj.port),
+        password: dbPassword,
+      },
+      restartTomcat,
+      proxy: {
+        host: str(proxy.host),
+        sshPort: num(proxy.sshPort),
+        sshUser: str(proxy.sshUser),
+        sshKeyPath: str(proxy.sshKeyPath),
+      },
+      proxmox: {
+        apiUrl: str(proxmox.apiUrl),
+        apiUser: str(proxmox.apiUser),
+        apiTokenId: str(proxmox.apiTokenId),
+        apiTokenSecret:
+          typeof proxmox.apiTokenSecret === 'string'
+            ? proxmox.apiTokenSecret
+            : undefined,
+        validateApiCerts:
+          typeof proxmox.validateApiCerts === 'boolean'
+            ? proxmox.validateApiCerts
+            : undefined,
+      },
+    };
+  }
+
+  router.post('/instances/:id/edit', async (req, res) => {
+    if (!provisionService.isConfigured()) {
+      res.status(503).json({
+        error:
+          'Provisioning orchestrator is not configured. Set dhis2.orchestrator in app-config.yaml.',
+      });
+      return;
+    }
+    const instanceId = req.params.id;
+    const persisted = await provisionService.listInstances();
+    const found = persisted.find(i => i.id === instanceId);
+    if (!found) {
+      res.status(404).json({ error: `Instance ${instanceId} not found` });
+      return;
+    }
+    let payload: EditRequest;
+    try {
+      payload = parseEditRequest(instanceId, req.body, {
+        name: found.name,
+        vmid: found.vmid,
+        node: found.node,
+        domain: found.domain,
+        version: found.version,
+        database: found.database,
+        resources: found.resources,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(400).json({ error: message });
+      return;
+    }
+    const job = provisionService.startEditJob(payload);
+    logger.info(
+      `DHIS2: edit job ${job.id} started for ${payload.name} (vmid=${payload.vmid}, node=${payload.node})`,
     );
     res.status(202).json({ jobId: job.id, status: job.status });
   });

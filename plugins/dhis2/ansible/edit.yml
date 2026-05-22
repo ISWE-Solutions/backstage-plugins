@@ -1,0 +1,206 @@
+---
+# edit.yml — apply post-provision changes to an existing DHIS2 instance.
+#
+# Scope of this playbook (deliberately narrow — version upgrade and
+# in-place storage shrink are out of scope):
+#   Phase 1 (localhost via Proxmox REST API)
+#       - Update LXC resources (cores, memory).
+#       - Grow the LXC rootfs when --storage-gb is larger than current.
+#   Phase 2 (PVE host via SSH, using `pct push` / `pct exec` so we do NOT
+#            need direct SSH access to the LXC):
+#       - Re-render /opt/dhis2/dhis.conf with the new DB connection +
+#         server.base.url derived from the persisted FQDN.
+#       - Restart Tomcat so the new dhis.conf is picked up.
+#
+# Phase headers ("PLAY [Phase N — ...]") are written verbatim so the
+# Backstage activity-log classifier groups output into the same
+# Proxmox / DHIS2 sections as Create Instance.
+#
+# Required extra-vars (rendered by scripts/edit-instance.sh):
+#   pve_api_host, pve_api_user, pve_api_token_id, pve_api_token_secret,
+#   pve_validate_certs, pve_node, pve_vmid,
+#   pve_ssh_host, pve_ssh_user, pve_ssh_port, pve_ssh_key,
+#   dhis2_cores, dhis2_memory_mb, dhis2_storage_gb,
+#   dhis2_db_host, dhis2_db_port, dhis2_db_name, dhis2_db_user,
+#   dhis2_db_password,
+#   dhis2_server_base_url,
+#   dhis2_files_dir (default /opt/dhis2/files),
+#   restart_tomcat (bool; defaults true)
+
+# ---------------------------------------------------------------------------
+# Phase 1 — resize LXC via Proxmox REST API
+# ---------------------------------------------------------------------------
+- name: "Phase 1 — update LXC resources via Proxmox API"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    _pve_api_base: "https://{{ pve_api_host }}/api2/json"
+    _pve_auth: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+  tasks:
+    - name: "Update LXC {{ pve_vmid }} cores/memory"
+      ansible.builtin.uri:
+        url: "{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/config"
+        method: PUT
+        headers:
+          Authorization: "{{ _pve_auth }}"
+        body_format: form-urlencoded
+        body:
+          cores: "{{ dhis2_cores | int }}"
+          memory: "{{ dhis2_memory_mb | int }}"
+        validate_certs: "{{ pve_validate_certs | default(false) }}"
+        status_code: [200]
+      register: _cfg_update
+      changed_when: true
+
+    - name: Show cores/memory update
+      ansible.builtin.debug:
+        msg: >-
+          LXC {{ pve_vmid }} on {{ pve_node }}: cores={{ dhis2_cores }},
+          memory={{ dhis2_memory_mb }}MB.
+
+    # Disk resize is an explicit /resize endpoint. Proxmox only supports
+    # GROWING the rootfs; if the requested size is smaller than the
+    # current one the API returns 500 with "cannot shrink disk size".
+    # We treat that as informational rather than failing the play so
+    # operators can lower the storage value in the UI without breaking
+    # the rest of the edit flow.
+    - name: "Resize rootfs to {{ dhis2_storage_gb }}G (grow only)"
+      ansible.builtin.uri:
+        url: "{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/resize"
+        method: PUT
+        headers:
+          Authorization: "{{ _pve_auth }}"
+        body_format: form-urlencoded
+        body:
+          disk: rootfs
+          size: "{{ dhis2_storage_gb | int }}G"
+        validate_certs: "{{ pve_validate_certs | default(false) }}"
+        status_code: [200, 400, 500]
+      register: _disk_resize
+      when:
+        - dhis2_storage_gb is defined
+        - (dhis2_storage_gb | int) > 0
+      changed_when: _disk_resize.status == 200
+      failed_when: false
+
+    - name: Show rootfs resize result
+      ansible.builtin.debug:
+        msg: >-
+          rootfs resize: status={{ _disk_resize.status | default('skipped') }}
+          {% if _disk_resize.status is defined and _disk_resize.status != 200 %}
+          (informational: Proxmox does not support shrinking LXC disks)
+          {% endif %}
+      when: dhis2_storage_gb is defined and (dhis2_storage_gb | int) > 0
+
+# ---------------------------------------------------------------------------
+# Phase 2a — register the PVE host for the pct-based config update
+# ---------------------------------------------------------------------------
+- name: "Phase 2a — register PVE host for pct push/exec"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Add PVE host to pve_hosts group
+      ansible.builtin.add_host:
+        name: "{{ pve_ssh_host }}"
+        groups:
+          - pve_hosts
+        ansible_host: "{{ pve_ssh_host }}"
+        ansible_port: "{{ pve_ssh_port | default(22) }}"
+        ansible_user: "{{ pve_ssh_user | default('root') }}"
+        ansible_ssh_private_key_file: "{{ pve_ssh_key | default(omit, true) }}"
+        ansible_python_interpreter: /usr/bin/python3
+      changed_when: false
+
+# ---------------------------------------------------------------------------
+# Phase 2b — re-render dhis.conf inside the LXC and restart Tomcat
+# ---------------------------------------------------------------------------
+- name: "Phase 2 — apply DHIS2 config changes inside LXC"
+  hosts: pve_hosts
+  gather_facts: false
+  become: false
+  vars:
+    _dhis_conf_path: "/opt/dhis2/dhis.conf"
+    _files_dir: "{{ dhis2_files_dir | default('/opt/dhis2/files') }}"
+    _stage_path: "/tmp/dhis2-{{ pve_vmid }}-dhis.conf"
+  tasks:
+    - name: Stage rendered dhis.conf on PVE host
+      ansible.builtin.copy:
+        content: |
+          # Rendered by edit.yml — do not edit by hand.
+
+          # Database connection
+          connection.dialect = org.hibernate.dialect.PostgreSQLDialect
+          connection.driver_class = org.postgresql.Driver
+          connection.url = jdbc:postgresql://{{ dhis2_db_host }}:{{ dhis2_db_port | int }}/{{ dhis2_db_name }}
+          connection.username = {{ dhis2_db_user }}
+          connection.password = {{ dhis2_db_password }}
+
+          # Database pool
+          connection.pool.max_size = 80
+          connection.pool.min_size = 10
+
+          # Server configuration
+          server.base.url = {{ dhis2_server_base_url }}
+
+          # File storage
+          filestore.provider = filesystem
+          filestore.container = {{ _files_dir | basename }}
+          filestore.location = {{ _files_dir | dirname }}
+
+          # Analytics
+          analytics.cache.expiration = 3600
+
+          # System monitoring
+          system.monitoring.url =
+          system.monitoring.username =
+          system.monitoring.password =
+        dest: "{{ _stage_path }}"
+        mode: "0600"
+
+    - name: "Ensure /opt/dhis2 exists inside LXC {{ pve_vmid }}"
+      ansible.builtin.command:
+        cmd: "pct exec {{ pve_vmid }} -- mkdir -p /opt/dhis2"
+      become: true
+      changed_when: false
+
+    - name: "Push dhis.conf into LXC {{ pve_vmid }}"
+      ansible.builtin.command:
+        cmd: "pct push {{ pve_vmid }} {{ _stage_path }} {{ _dhis_conf_path }} --perms 600"
+      become: true
+
+    - name: "Fix dhis.conf ownership inside LXC {{ pve_vmid }}"
+      ansible.builtin.command:
+        cmd: "pct exec {{ pve_vmid }} -- chown tomcat:tomcat {{ _dhis_conf_path }}"
+      become: true
+      changed_when: false
+
+    - name: Remove staged dhis.conf from PVE host
+      ansible.builtin.file:
+        path: "{{ _stage_path }}"
+        state: absent
+
+    - name: "Restart Tomcat inside LXC {{ pve_vmid }} to apply new config"
+      ansible.builtin.command:
+        cmd: "pct exec {{ pve_vmid }} -- systemctl restart tomcat"
+      become: true
+      when: restart_tomcat | default(true) | bool
+
+    - name: Report DHIS2 endpoint health (best-effort)
+      ansible.builtin.command:
+        cmd: >-
+          pct exec {{ pve_vmid }} -- bash -lc
+          "curl -fsS -o /dev/null -w '%{http_code}'
+          http://127.0.0.1:8080/dhis-web-commons/security/login.action || true"
+      become: true
+      register: _health
+      changed_when: false
+      failed_when: false
+
+    - name: Show DHIS2 endpoint status code
+      ansible.builtin.debug:
+        msg: >-
+          DHIS2 endpoint inside LXC {{ pve_vmid }} responded with HTTP
+          {{ _health.stdout | default('?') }} (200/302 = healthy; other
+          values mean Tomcat is still starting after the restart).

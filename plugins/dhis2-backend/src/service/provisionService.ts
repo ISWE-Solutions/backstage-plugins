@@ -243,6 +243,56 @@ export interface DecommissionRequest {
 }
 
 /**
+ * Shape the frontend sends to POST /instances/:id/edit.
+ *
+ * Mirrors the subset of `ProvisionRequest` that an Edit dialog can
+ * legitimately change after the instance exists. The instance id from
+ * the URL is the primary key; the rest of the payload feeds the
+ * `edit-instance.sh` wrapper which renders extra-vars and runs the
+ * Ansible `edit.yml` playbook.
+ *
+ * Only resources (CPU/memory/storage), the per-instance DB connection
+ * fields rendered into `dhis.conf`, and the display `name` are touched
+ * by the playbook; `version` is currently a registry-only field
+ * (binary upgrade is a separate flow).
+ */
+export interface EditRequest {
+  instanceId: string;
+  vmid: number;
+  node: string;
+  /** Same form used by provision-instance.sh: '<fqdn>' or '<fqdn>/<segment>'. */
+  domain: string;
+  /** Human-readable instance name — applied to the persisted registry record. */
+  name: string;
+  /** New DHIS2 version label. Stored in the registry; no WAR redeploy. */
+  version: string;
+  resources: { cpu: number; memory: number; storage: number };
+  database: {
+    name: string;
+    user: string;
+    host?: string;
+    port?: number;
+    /** Required for re-rendering dhis.conf. */
+    password: string;
+  };
+  /** When false, skip the Tomcat restart after writing dhis.conf. */
+  restartTomcat?: boolean;
+  proxy?: {
+    host?: string;
+    sshPort?: number;
+    sshUser?: string;
+    sshKeyPath?: string;
+  };
+  proxmox?: {
+    apiUrl?: string;
+    apiUser?: string;
+    apiTokenId?: string;
+    apiTokenSecret?: string;
+    validateApiCerts?: boolean;
+  };
+}
+
+/**
  * Normalize Proxmox API credentials so the orchestrator (and the bash
  * script / Ansible role downstream) always receive `PROXMOX_USER` =
  * `user@realm` and `PROXMOX_TOKEN_ID` = the token name (the part AFTER
@@ -554,6 +604,130 @@ async function removeInstanceFromState(
       }`,
     );
   }
+}
+
+/**
+ * Apply a partial update to the persisted instance record. Best-effort:
+ * a missing or unreadable state file is treated as a no-op (the live
+ * Proxmox reconciliation will catch the drift on the next poll).
+ */
+async function updateInstanceInState(
+  cfg: OrchestratorConfig,
+  instanceId: string,
+  patch: Partial<PersistedInstance>,
+  logger: LoggerService,
+): Promise<PersistedInstance | null> {
+  if (!cfg.stateFile) return null;
+  try {
+    const raw = await fs.readFile(cfg.stateFile, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    const existing = parsed as PersistedInstance[];
+    const idx = existing.findIndex(e => e.id === instanceId);
+    if (idx < 0) return null;
+    const merged: PersistedInstance = {
+      ...existing[idx],
+      ...patch,
+      // Nested objects need a manual merge so callers can patch only
+      // some sub-fields without nuking the rest.
+      database: { ...existing[idx].database, ...(patch.database ?? {}) },
+      resources: { ...existing[idx].resources, ...(patch.resources ?? {}) },
+      updated: new Date().toISOString(),
+    };
+    existing[idx] = merged;
+    await fs.writeFile(cfg.stateFile, JSON.stringify(existing, null, 2), {
+      mode: 0o600,
+    });
+    return merged;
+  } catch (err) {
+    logger.warn(
+      `DHIS2: failed to update instance ${instanceId} in ${cfg.stateFile}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    return null;
+  }
+}
+
+function buildEditCommand(
+  cfg: OrchestratorConfig,
+  req: EditRequest,
+  scriptPath: string,
+): string {
+  const args: string[] = [
+    scriptPath,
+    '--vmid', String(req.vmid),
+    '--node', req.node,
+    '--domain', req.domain,
+    '--cpu', String(req.resources.cpu),
+    '--memory', String(req.resources.memory),
+    '--storage', String(req.resources.storage),
+    '--db-name', req.database.name,
+    '--db-user', req.database.user,
+  ];
+  if (req.database.host && req.database.host.trim() !== '') {
+    args.push('--db-host', req.database.host.trim());
+    if (req.database.port && Number.isInteger(req.database.port)) {
+      args.push('--db-port', String(req.database.port));
+    }
+  }
+  if (req.restartTomcat === false) {
+    args.push('--no-restart-tomcat');
+  }
+  // SSH details for the PVE host that runs `pct push` / `pct exec`. The
+  // edit playbook does not touch the central proxy host (no nginx config
+  // changes), so only the Proxmox-side SSH fields are forwarded.
+  const proxy = req.proxy ?? {};
+  if (proxy.host && proxy.host.trim() !== '') {
+    args.push('--pve-host', proxy.host.trim());
+  }
+  if (proxy.sshPort && Number.isInteger(proxy.sshPort)) {
+    args.push('--pve-port', String(proxy.sshPort));
+  }
+  if (proxy.sshUser && proxy.sshUser.trim() !== '') {
+    args.push('--pve-user', proxy.sshUser.trim());
+  }
+  if (proxy.sshKeyPath && proxy.sshKeyPath.trim() !== '') {
+    args.push('--pve-ssh-key', proxy.sshKeyPath.trim());
+  } else if (cfg.privateKeyFile) {
+    args.push('--pve-ssh-key', cfg.privateKeyFile);
+  }
+
+  const reqPm = req.proxmox ?? {};
+  const effectiveApiUrl =
+    (reqPm.apiUrl && reqPm.apiUrl.trim()) || cfg.apiUrl;
+  const { apiUser: effectiveApiUser, apiTokenId: effectiveApiTokenId } =
+    normalizeProxmoxCreds(
+      (reqPm.apiUser && reqPm.apiUser.trim()) || cfg.apiUser,
+      (reqPm.apiTokenId && reqPm.apiTokenId.trim()) || cfg.apiTokenId,
+    );
+  const effectiveApiTokenSecret =
+    (reqPm.apiTokenSecret && reqPm.apiTokenSecret.trim()) ||
+    cfg.apiTokenSecret;
+  const cfgValidate = Boolean(cfg.validateApiCerts);
+  const reqValidate =
+    typeof reqPm.validateApiCerts === 'boolean'
+      ? reqPm.validateApiCerts
+      : cfgValidate;
+  const effectiveValidateCerts = cfgValidate && reqValidate;
+
+  const env: Record<string, string> = {
+    PROXMOX_API_URL: effectiveApiUrl,
+    PROXMOX_USER: effectiveApiUser,
+    PROXMOX_TOKEN_ID: effectiveApiTokenId,
+    PROXMOX_TOKEN_SECRET: effectiveApiTokenSecret,
+    PROXMOX_VALIDATE_CERTS: effectiveValidateCerts ? 'true' : 'false',
+    DHIS2_DB_PASS: req.database.password,
+  };
+  const debugFlag = process.env.DHIS2_DEBUG;
+  if (debugFlag && debugFlag !== '0' && debugFlag.toLowerCase() !== 'false') {
+    env.DHIS2_DEBUG = '1';
+  }
+  const envPrefix = Object.entries(env)
+    .map(([k, v]) => `${k}=${shellQuote(v)}`)
+    .join(' ');
+  const quotedArgs = args.map(shellQuote).join(' ');
+  return `${envPrefix} bash -lc ${shellQuote(quotedArgs)}`;
 }
 
 function buildDecommissionCommand(
@@ -903,6 +1077,121 @@ export class ProvisionService {
     } else {
       job.status = 'failed';
       job.error = `decommission-instance.sh exited with code ${exitCode}`;
+      appendLine(job, `[backend] ${job.error}`);
+    }
+  }
+
+  /**
+   * Start an edit job. Returns the job id immediately; the wrapper
+   * script runs asynchronously and streams stdout/stderr into the job's
+   * log buffer (same pattern as `startJob` / `startDecommissionJob`).
+   * On success the persisted instance record is updated to reflect the
+   * applied changes.
+   */
+  startEditJob(req: EditRequest): JobSnapshot {
+    if (!this.cfg) {
+      throw new Error(
+        'Edit is not configured. Set dhis2.orchestrator in app-config.yaml.',
+      );
+    }
+    const cfg = this.cfg;
+    const id = randomUUID();
+    const job: JobSnapshot = {
+      id,
+      status: 'queued',
+      startedAt: new Date().toISOString(),
+      lines: [],
+      request: {
+        name: req.name,
+        domain: req.domain,
+        version: req.version,
+        node: req.node,
+        vmid: req.vmid,
+      },
+    };
+    jobs.set(id, job);
+
+    this.runEditJob(job, cfg, req).catch(err => {
+      job.status = 'failed';
+      job.error = err instanceof Error ? err.message : String(err);
+      job.finishedAt = new Date().toISOString();
+      appendLine(job, `[backend] FATAL: ${job.error}`);
+      this.logger.error(`DHIS2: edit job ${id} crashed: ${job.error}`);
+    });
+
+    return snapshot(job);
+  }
+
+  private async runEditJob(
+    job: JobSnapshot,
+    cfg: OrchestratorConfig,
+    req: EditRequest,
+  ): Promise<void> {
+    job.status = 'running';
+    const editScript = path.join(
+      path.dirname(cfg.scriptPath),
+      'edit-instance.sh',
+    );
+    appendLine(
+      job,
+      `[backend] Running edit-instance.sh locally on the Backstage host for instance "${req.name}" (vmid=${req.vmid}, node=${req.node}, domain=${req.domain}).`,
+    );
+    appendLine(
+      job,
+      `[backend] Target resources: cpu=${req.resources.cpu}, memory=${req.resources.memory}MB, storage=${req.resources.storage}GB. DB: ${req.database.user}@${req.database.host || 'localhost'}:${req.database.port ?? 5432}/${req.database.name}.`,
+    );
+
+    const command = buildEditCommand(cfg, req, editScript);
+    appendLine(
+      job,
+      `[backend] Executing: ${editScript} --vmid ${req.vmid} --node ${req.node} --domain ${req.domain} --cpu ${req.resources.cpu} --memory ${req.resources.memory} --storage ${req.resources.storage} (secrets via env)`,
+    );
+
+    const exitCode = await runLocal(job, command);
+    job.exitCode = exitCode;
+    job.finishedAt = new Date().toISOString();
+
+    if (exitCode === 0) {
+      job.status = 'success';
+      appendLine(job, `[backend] edit-instance.sh exited 0`);
+      try {
+        const updated = await updateInstanceInState(
+          cfg,
+          req.instanceId,
+          {
+            name: req.name,
+            version: req.version,
+            resources: req.resources,
+            database: {
+              name: req.database.name,
+              user: req.database.user,
+            },
+          },
+          this.logger,
+        );
+        if (updated) {
+          job.instance = updated;
+          appendLine(
+            job,
+            `[backend] Updated instance ${req.instanceId} in registry.`,
+          );
+        } else {
+          appendLine(
+            job,
+            `[backend] WARN: instance ${req.instanceId} not found in registry; live changes applied but registry untouched.`,
+          );
+        }
+      } catch (err) {
+        appendLine(
+          job,
+          `[backend] WARN: failed to update registry: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    } else {
+      job.status = 'failed';
+      job.error = `edit-instance.sh exited with code ${exitCode}`;
       appendLine(job, `[backend] ${job.error}`);
     }
   }

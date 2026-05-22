@@ -449,11 +449,15 @@ export const DHIS2Page = () => {
   // earlier steps.
   const STEP_MARKERS: Array<{ pattern: RegExp; advanceTo: string }> = [
     { pattern: /Phase 1 — creating LXC container/i, advanceTo: 'container' },
+    { pattern: /Phase 1 — update LXC resources|PLAY \[Phase 1 — update LXC/i, advanceTo: 'resize' },
     { pattern: /container IP:/i, advanceTo: 'bootstrap' },
     { pattern: /PLAY \[Phase 2\b|TASK \[lxc_bootstrap\s*:/i, advanceTo: 'bootstrap' },
+    { pattern: /Phase 2a — register PVE host|PLAY \[Phase 2a/i, advanceTo: 'dhis2config' },
+    { pattern: /Phase 2 — apply DHIS2 config changes inside LXC|PLAY \[Phase 2 — apply DHIS2 config changes/i, advanceTo: 'dhis2config' },
     { pattern: /Phase 2 — rendering inventory|running ansible-playbook/i, advanceTo: 'bootstrap' },
     { pattern: /TASK \[postgres\s*:/i, advanceTo: 'postgres' },
     { pattern: /TASK \[dhis2\s*:/i, advanceTo: 'dhis2' },
+    { pattern: /systemctl restart tomcat/i, advanceTo: 'restart' },
     // Phase 5 became an Ansible play (roles/proxy) instead of a shell-out
     // to configure-host-proxy.sh. Match the new play/task headers so the
     // UI advances to the 'proxy' step when Ansible reaches them; keep the
@@ -911,6 +915,182 @@ export const DHIS2Page = () => {
     }
   };
 
+  const handleEditInstance = async (
+    instance: DHIS2Instance,
+    draft: {
+      name: string;
+      version: string;
+      cpu: number;
+      memoryMb: number;
+      storageGb: number;
+      dbName: string;
+      dbUser: string;
+      dbHost: string;
+      dbPort: number;
+      dbPassword: string;
+    },
+  ) => {
+    const steps: ProvisionStep[] = [
+      { key: 'submit', label: 'Submitting edit job to backend', status: 'pending' },
+      { key: 'connect', label: 'Connecting to orchestrator host', status: 'pending' },
+      { key: 'resize', label: `Phase 1 — resize LXC ${instance.vmid} on ${instance.node}`, status: 'pending' },
+      { key: 'dhis2config', label: 'Phase 2 — re-render dhis.conf in LXC', status: 'pending' },
+      { key: 'restart', label: 'Phase 2 — restart Tomcat', status: 'pending' },
+      { key: 'finalize', label: 'Finalizing edit', status: 'pending' },
+    ];
+    setProvisionInstanceName(`${instance.name} (edit)`);
+    setProvisionSteps(steps);
+    setProvisionLog([]);
+    setProvisionError(null);
+    setProvisionDone(false);
+    setProvisionOpen(true);
+    setReplayActive(false);
+    setReplayPlaying(false);
+    setReplayIndex(0);
+    setAutoScroll(true);
+    appendProvisionLog(`Starting edit for "${instance.name}".`);
+
+    const settings = settingsService.load();
+    const pm = settings.proxmox;
+    const p = settings.proxy;
+    const dbHost = draft.dbHost?.trim() || (settings.dhis2.postgresHost ?? '').trim() || 'localhost';
+    const dbPort = Number.isInteger(draft.dbPort) && draft.dbPort > 0
+      ? draft.dbPort
+      : settings.dhis2.postgresPort || 5432;
+
+    const payload = {
+      name: draft.name,
+      version: draft.version,
+      resources: {
+        cpu: draft.cpu,
+        memory: draft.memoryMb,
+        storage: draft.storageGb,
+      },
+      database: {
+        name: draft.dbName,
+        user: draft.dbUser,
+        host: dbHost,
+        port: dbPort,
+        password: draft.dbPassword,
+      },
+      restartTomcat: true,
+      proxy: (() => {
+        const fields: {
+          host?: string;
+          sshPort?: number;
+          sshUser?: string;
+          sshKeyPath?: string;
+        } = {};
+        const host = (p.host ?? '').trim();
+        const sshUser = (p.sshUser ?? '').trim();
+        const sshKeyPath = (p.sshKeyPath ?? '').trim();
+        if (host) fields.host = host;
+        if (Number.isInteger(p.sshPort) && p.sshPort > 0) {
+          fields.sshPort = p.sshPort;
+        }
+        if (sshUser) fields.sshUser = sshUser;
+        if (sshKeyPath) fields.sshKeyPath = sshKeyPath;
+        return Object.keys(fields).length > 0 ? fields : undefined;
+      })(),
+      proxmox: (() => {
+        const apiUrl = (pm.apiUrl ?? '').trim();
+        const tokenId = (pm.tokenId ?? '').trim();
+        const tokenSecret = (pm.tokenSecret ?? '').trim();
+        const username = (pm.username ?? '').trim();
+        const fields: {
+          apiUrl?: string;
+          apiUser?: string;
+          apiTokenId?: string;
+          apiTokenSecret?: string;
+          validateApiCerts?: boolean;
+        } = {};
+        if (apiUrl) fields.apiUrl = apiUrl;
+        if (pm.authMethod === 'token') {
+          if (tokenId) fields.apiTokenId = tokenId;
+          if (tokenSecret) fields.apiTokenSecret = tokenSecret;
+          if (!tokenId.includes('!') && username) fields.apiUser = username;
+        }
+        fields.validateApiCerts = Boolean(pm.verifyTls);
+        return Object.keys(fields).length > 0 ? fields : undefined;
+      })(),
+    };
+
+    try {
+      updateStep('submit', 'running');
+      const baseUrl = await discoveryApi.getBaseUrl('dhis2');
+      const { jobId } = await dhis2Service.startEditJob(
+        baseUrl,
+        instance.id,
+        payload,
+        backstageFetch,
+      );
+      updateStep('submit', 'done');
+      updateStep('connect', 'running');
+      appendProvisionLog(`Backend accepted job ${jobId}. Streaming progress…`);
+
+      let lastLineCount = 0;
+      const deadline = Date.now() + 30 * 60 * 1000;
+      while (Date.now() < deadline) {
+        await wait(1500);
+        const job = await dhis2Service.getProvisionJob(
+          baseUrl,
+          jobId,
+          backstageFetch,
+        );
+        if (job.lines.length > lastLineCount) {
+          for (let i = lastLineCount; i < job.lines.length; i++) {
+            const line = job.lines[i];
+            appendProvisionLog(line);
+            for (const m of STEP_MARKERS) {
+              if (m.pattern.test(line)) advanceSteps(m.advanceTo);
+            }
+          }
+          lastLineCount = job.lines.length;
+        }
+        if (job.status === 'running' || job.status === 'queued') {
+          if (job.lines.length > 0) advanceSteps('resize');
+          continue;
+        }
+        if (job.status === 'success') {
+          setProvisionSteps(prev =>
+            prev.map(s =>
+              s.status === 'error' ? s : { ...s, status: 'done' },
+            ),
+          );
+          setProvisionDone(true);
+          appendProvisionLog(
+            `Instance "${draft.name}" edited successfully (exit 0).`,
+          );
+          loadInstances();
+          break;
+        }
+        const message = job.error ?? `Edit failed (exit ${job.exitCode ?? '?'})`;
+        setProvisionSteps(prev =>
+          prev.map(s =>
+            s.status === 'running'
+              ? { ...s, status: 'error', detail: message }
+              : s,
+          ),
+        );
+        setProvisionError(message);
+        appendProvisionLog(`ERROR: ${message}`);
+        break;
+      }
+    } catch (error) {
+      console.error('Failed to edit instance:', error);
+      const message = error instanceof Error ? error.message : String(error);
+      setProvisionSteps(prev =>
+        prev.map(s =>
+          s.status === 'running'
+            ? { ...s, status: 'error', detail: message }
+            : s,
+        ),
+      );
+      setProvisionError(message);
+      appendProvisionLog(`ERROR: ${message}`);
+    }
+  };
+
   const handleViewInstanceLogs = async (instance: DHIS2Instance) => {
     setLogsDialog({ open: true, instance, lines: [], loading: true });
     try {
@@ -1012,6 +1192,7 @@ export const DHIS2Page = () => {
               onViewLogs={handleViewInstanceLogs}
               onRestore={instance => setRestoreDialog({ open: true, instance })}
               onDelete={handleDeleteInstance}
+              onEdit={handleEditInstance}
               onChanged={loadInstances}
               unmanagedContainers={unmanagedContainers}
               reconcileWarning={reconcileWarning}

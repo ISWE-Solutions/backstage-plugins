@@ -920,6 +920,50 @@ export class DHIS2Service {
   }
 
   /**
+   * Kick off an ansible-driven edit job on the backend. Returns the job
+   * id immediately; the caller polls `/instances/jobs/:id` to stream the
+   * activity log (same pattern as provision/decommission).
+   */
+  async startEditJob(
+    baseUrl: string,
+    instanceId: string,
+    payload: EditInstancePayload,
+    fetchFn: typeof fetch = (...args) => fetch(...args),
+  ): Promise<{ jobId: string; status: string }> {
+    const res = await fetchWithLifecycleRetry(
+      fetchFn,
+      `${baseUrl}/instances/${encodeURIComponent(instanceId)}/edit`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload ?? {}),
+      },
+    );
+    if (!res.ok) {
+      let msg = `Edit request failed (HTTP ${res.status})`;
+      try {
+        const body = await res.json();
+        const err = body?.error;
+        if (typeof err === 'string' && err.trim()) {
+          msg = err;
+        } else if (err && typeof err === 'object') {
+          if (typeof err.message === 'string' && err.message.trim()) {
+            msg = err.message;
+          } else if (typeof err.name === 'string' && err.name.trim()) {
+            msg = err.name;
+          }
+        } else if (typeof body?.message === 'string' && body.message.trim()) {
+          msg = body.message;
+        }
+      } catch {
+        // ignore body parse failure
+      }
+      throw new Error(msg);
+    }
+    return (await res.json()) as { jobId: string; status: string };
+  }
+
+  /**
    * Read the per-instance nginx upstream + vhost ("dhis.conf") files from
    * the central proxy host. The backend SSHes into the proxy using the
    * settings supplied in `payload.proxy` (host/sshUser/sshKeyPath/etc.).
@@ -1255,6 +1299,51 @@ export interface ProvisionJobSnapshot {
     vmid: number;
   };
   instance?: DHIS2Instance;
+}
+
+/**
+ * Payload sent to POST /api/dhis2/instances/:id/edit. All numeric
+ * fields are the *target* values to apply.
+ */
+export interface EditInstancePayload {
+  /** New display name for the instance record (registry only). */
+  name?: string;
+  /**
+   * New DHIS2 version label. Registry-only — no WAR redeploy. Use a
+   * dedicated upgrade flow when changing the running binary.
+   */
+  version?: string;
+  /** Target resources to apply via the Proxmox REST API (Phase 1). */
+  resources?: { cpu: number; memory: number; storage: number };
+  /**
+   * Target DB connection rendered into /opt/dhis2/dhis.conf inside the
+   * LXC (Phase 2). `password` is required — without it the playbook
+   * would write an unusable dhis.conf.
+   */
+  database: {
+    name?: string;
+    user?: string;
+    host?: string;
+    port?: number;
+    password: string;
+  };
+  /** When false, render dhis.conf but skip restarting Tomcat. */
+  restartTomcat?: boolean;
+  /** SSH details for the PVE host (used for pct push / pct exec). */
+  proxy?: {
+    host?: string;
+    sshPort?: number;
+    sshUser?: string;
+    sshKeyPath?: string;
+  };
+  /** Per-job Proxmox credential override. */
+  proxmox?: {
+    apiUrl?: string;
+    apiUser?: string;
+    apiTokenId?: string;
+    apiTokenSecret?: string;
+    validateApiCerts?: boolean;
+  };
 }
 
 export const dhis2Service = new DHIS2Service();

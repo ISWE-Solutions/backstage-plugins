@@ -105,6 +105,11 @@ export interface DHIS2InstancesPanelProps {
   onRestore: (instance: DHIS2Instance) => void;
   onDelete: (id: string) => void;
   /**
+   * Optional Edit handler owned by the page so it can reuse the same
+   * streaming activity-log dialog as Create / Delete.
+   */
+  onEdit?: (instance: DHIS2Instance, draft: EditDraft) => Promise<void> | void;
+  /**
    * Called after the panel mutates an instance (edit, backup, refresh) so
    * the parent can re-load its instance list.
    */
@@ -202,6 +207,7 @@ export const DHIS2InstancesPanel = ({
   onViewLogs,
   onRestore,
   onDelete,
+  onEdit,
   onChanged,
   unmanagedContainers = [],
   reconcileWarning = null,
@@ -512,22 +518,9 @@ export const DHIS2InstancesPanel = ({
     setEditTarget(null);
     setEditDraft(null);
     await runAction(`edit:${target.id}`, `Update ${target.name}`, async () => {
-      await dhis2Service.updateInstance(target.id, {
-        name: draft.name,
-        version: draft.version,
-        resources: {
-          cpu: draft.cpu,
-          memory: draft.memoryMb,
-          storage: draft.storageGb,
-        },
-        database: {
-          name: draft.dbName,
-          user: draft.dbUser,
-          host: draft.dbHost,
-          port: draft.dbPort,
-          password: draft.dbPassword,
-        },
-      });
+      if (onEdit) {
+        await onEdit(target, draft);
+      }
       onChanged?.();
     });
   };
