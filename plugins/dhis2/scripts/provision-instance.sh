@@ -211,6 +211,28 @@ PROXY_PORT="${PROXY_PORT:-22}"
 PROXY_USER="${PROXY_USER:-${PVE_USER}}"
 PROXY_SSH_KEY="${PROXY_SSH_KEY:-${PVE_SSH_KEY}}"
 
+# Surface the resolved reverse-proxy target on stdout so the activity
+# panel makes it obvious whether Phase 5 will SSH to the dedicated
+# proxy server (panel-configured) or fall back to the PVE host. This
+# was added after a deployment kept hitting the PVE node because the
+# frontend's proxy panel settings weren't being forwarded; seeing the
+# resolved values here is the fastest way to confirm the wiring on a
+# live run.
+printf '[provision] PVE host:    %s@%s\n' "${PVE_USER}" "${PVE_HOST}"
+printf '[provision] proxy host:  %s@%s:%s\n' \
+    "${PROXY_USER}" "${PROXY_HOST}" "${PROXY_PORT}"
+if [[ -n "${PROXY_NGINX_DIR}" ]]; then
+    printf '[provision] proxy nginx dir:    %s\n' "${PROXY_NGINX_DIR}"
+fi
+if [[ -n "${PROXY_NGINX_RELOAD}" ]]; then
+    printf '[provision] proxy nginx reload: %s\n' "${PROXY_NGINX_RELOAD}"
+fi
+if [[ "${PROXY_HOST}" == "${PVE_HOST}" ]]; then
+    printf '[provision] WARNING: proxy host equals PVE host — Phase 5 will SSH to the PVE node.\n' >&2
+    printf '[provision]          Set host (and optionally ssh user/port/key) on the Reverse Proxy panel\n' >&2
+    printf '[provision]          to route central-nginx work to a dedicated server.\n' >&2
+fi
+
 # Locate paths.
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 PLUGIN_DIR="$(cd -- "${SCRIPT_DIR}/.." &>/dev/null && pwd)"
