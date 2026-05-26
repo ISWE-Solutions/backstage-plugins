@@ -55,6 +55,9 @@ Optional:
   --delete-if-exists        Stop + purge any existing LXC at VMID (and its
                             nginx vhost) before creating the new one.
                             Destructive — recreates from scratch.
+  --delete-if-name-exists   Stop + purge any LXC in the cluster whose hostname
+                            matches --hostname (regardless of VMID) before
+                            creating the new one. Destructive.
   --rollback-on-failure     Destroy the container if anything fails
   --keep-vars-file          Don't delete the rendered vars.yml on exit
                             (debugging only)
@@ -106,6 +109,7 @@ DB_HOST=""
 DB_PORT=""
 EXISTING_DB=0
 DELETE_IF_EXISTS=0
+DELETE_IF_NAME_EXISTS=0
 
 # Reverse-proxy server overrides forwarded from the DHIS2 Reverse Proxy
 # panel (or per-instance overrides on the Create Instance dialog). When
@@ -151,6 +155,7 @@ while [[ $# -gt 0 ]]; do
         --db-port) DB_PORT="$2"; shift 2;;
         --existing-db) EXISTING_DB=1; shift;;
         --delete-if-exists) DELETE_IF_EXISTS=1; shift;;
+        --delete-if-name-exists) DELETE_IF_NAME_EXISTS=1; shift;;
         # Back-compat: accept and ignore the old PVE-SSH flags so callers
         # that still pass them don't break. The API-based flow doesn't
         # need them (configure-proxy.sh has its own --pve-host).
@@ -578,6 +583,50 @@ if [[ "${DELETE_IF_EXISTS}" == "1" ]]; then
         --pve-ssh-key "${PVE_SSH_KEY}" 2>/dev/null || true
     # Give Proxmox a moment to release the VMID before the create call.
     sleep 2
+fi
+
+# ----------------------------------------------------------------------------
+# Phase 1.6 (optional): destructive wipe of any existing LXC matching --hostname
+# ----------------------------------------------------------------------------
+# When --delete-if-name-exists is passed, query the Proxmox cluster
+# resources endpoint for every LXC and stop + purge each whose name
+# (== hostname) matches --hostname, regardless of VMID. The current
+# target VMID is skipped here because --delete-if-exists already
+# handles it; if both flags are set the VMID branch ran first.
+if [[ "${DELETE_IF_NAME_EXISTS}" == "1" ]]; then
+    log "--delete-if-name-exists set — scanning cluster for LXCs with hostname='${HOSTNAME}'"
+    if ! command -v jq >/dev/null; then
+        echo "jq is required when --delete-if-name-exists is used" >&2
+        exit 2
+    fi
+    _auth_hdr="Authorization: PVEAPIToken=${PROXMOX_USER}!${PROXMOX_TOKEN_ID}=${PROXMOX_TOKEN_SECRET}"
+    _curl_opts=(-sk -H "${_auth_hdr}")
+    [[ "${PROXMOX_VALIDATE_CERTS:-false}" == "true" ]] && _curl_opts=(-s -H "${_auth_hdr}")
+    # Each row: "<vmid>\t<node>". Skip the target VMID (handled above).
+    _matches="$(
+        curl "${_curl_opts[@]}" \
+            "${PROXMOX_API_URL%/}/api2/json/cluster/resources?type=vm" \
+        | jq -r --arg name "${HOSTNAME}" --arg vmid "${VMID}" \
+            '.data[] | select(.type=="lxc" and .name==$name and (.vmid|tostring)!=$vmid) | "\(.vmid)\t\(.node)"'
+    )" || _matches=""
+    if [[ -z "${_matches}" ]]; then
+        log "no other LXCs in the cluster match hostname='${HOSTNAME}' — nothing to delete"
+    else
+        while IFS=$'\t' read -r _m_vmid _m_node; do
+            [[ -z "${_m_vmid}" ]] && continue
+            log "wiping matching LXC vmid=${_m_vmid} node=${_m_node} (hostname=${HOSTNAME})"
+            _api="${PROXMOX_API_URL%/}/api2/json/nodes/${_m_node}/lxc/${_m_vmid}"
+            curl "${_curl_opts[@]}" -X POST "${_api}/status/stop" >/dev/null 2>&1 || true
+            sleep 3
+            curl "${_curl_opts[@]}" -X DELETE "${_api}?purge=1" >/dev/null 2>&1 || true
+            "${SCRIPT_DIR}/configure-proxy.sh" \
+                --remove --vmid "${_m_vmid}" --domain "${DOMAIN}" \
+                --pve-host "${PVE_HOST}" --pve-user "${PVE_USER}" \
+                --pve-ssh-key "${PVE_SSH_KEY}" 2>/dev/null || true
+        done <<< "${_matches}"
+        # Brief settle to let the cluster release resources before create.
+        sleep 2
+    fi
 fi
 
 # ----------------------------------------------------------------------------

@@ -579,6 +579,7 @@ export const DHIS2Page = () => {
       rootPassword: request.rootPassword,
       newDbAccount: request.newDbAccount,
       deleteIfExists: request.deleteIfExists,
+      deleteIfNameExists: request.deleteIfNameExists,
       tomcatVersion: request.tomcatVersion,
       proxyOverride: request.proxyOverride,
       restore: request.restore,

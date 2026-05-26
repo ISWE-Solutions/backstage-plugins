@@ -200,6 +200,14 @@ export interface CreateInstanceRequest {
    */
   deleteIfExists?: boolean;
   /**
+   * When true, the orchestrator will scan the Proxmox cluster for any
+   * existing LXC container whose hostname matches the new instance name
+   * (regardless of VMID) and stop + delete each match before provisioning.
+   * Destructive — gated behind an explicit confirmation in the Create
+   * dialog, the same prompt used by `deleteIfExists`.
+   */
+  deleteIfNameExists?: boolean;
+  /**
    * Major Apache Tomcat version to install inside the new LXC. The
    * Ansible `dhis2` role downloads the matching upstream archive from
    * `archive.apache.org`. DHIS2 2.40/2.41 need `'9'` (javax namespace);

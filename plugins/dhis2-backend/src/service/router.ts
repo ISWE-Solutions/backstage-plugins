@@ -379,6 +379,7 @@ export async function createRouter(
           : undefined,
       skipCertbot: b.skipCertbot === true,
       deleteIfExists: b.deleteIfExists === true,
+      deleteIfNameExists: b.deleteIfNameExists === true,
       tomcatVersion:
         typeof b.tomcatVersion === 'string' && b.tomcatVersion !== ''
           ? b.tomcatVersion

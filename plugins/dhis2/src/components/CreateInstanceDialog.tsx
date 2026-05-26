@@ -214,6 +214,11 @@ export const CreateInstanceDialog = ({
   // default — enabling it triggers a confirmation prompt on submit since
   // the action is destructive (the existing LXC + DB are wiped).
   const [deleteIfExists, setDeleteIfExists] = useState(false);
+  // Companion option: also stop + purge any LXC whose hostname matches
+  // the new instance name, regardless of VMID. Useful when re-running a
+  // provision that previously landed on a different VMID under the same
+  // logical name. Gated behind the same confirmation prompt.
+  const [deleteIfNameExists, setDeleteIfNameExists] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   // Initialise default node/version from props when they arrive.
@@ -350,7 +355,7 @@ export const CreateInstanceDialog = ({
   };
 
   const handleSubmit = () => {
-    if (deleteIfExists) {
+    if (deleteIfExists || deleteIfNameExists) {
       setConfirmDeleteOpen(true);
       return;
     }
@@ -420,6 +425,7 @@ export const CreateInstanceDialog = ({
           ? dhisConfTemplate
           : undefined,
       deleteIfExists: deleteIfExists || undefined,
+      deleteIfNameExists: deleteIfNameExists || undefined,
       proxySettings,
       dhis2Settings: effectiveDhis2Settings,
     };
@@ -559,6 +565,27 @@ export const CreateInstanceDialog = ({
                 Destructive — stops and removes the existing LXC container
                 (and its database) before provisioning the new one. Useful
                 when re-running a failed install.
+              </Typography>
+            </Box>
+          }
+        />
+        <FormControlLabel
+          control={
+            <Checkbox
+              checked={deleteIfNameExists}
+              onChange={e => setDeleteIfNameExists(e.target.checked)}
+              color="secondary"
+            />
+          }
+          label={
+            <Box>
+              <Typography variant="body2">
+                Delete existing instance with the same Name first
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                Destructive — scans the Proxmox cluster for any LXC whose
+                hostname matches this instance name (regardless of VMID)
+                and purges each match before provisioning.
               </Typography>
             </Box>
           }

@@ -222,12 +222,12 @@ export interface ProvisionRequest {
    */
   deleteIfExists?: boolean;
   /**
-   * Major Apache Tomcat version to install inside the LXC (`'9'` or
-   * `'10'`). Forwarded to `provision-instance.sh --tomcat-version` and
-   * then to the Ansible `dhis2` role as `tomcat_version`. When omitted
-   * the script defaults to `9` (matches DHIS2 2.40/2.41).
+   * When true, the bash orchestrator scans the Proxmox cluster for any
+   * LXC with a matching hostname (regardless of VMID) and purges each
+   * before invoking the create-LXC step. The frontend gates this behind
+   * the same confirmation prompt used by `deleteIfExists`.
    */
-  tomcatVersion?: string;
+  deleteIfNameExists?: boolean;
   /** Optional per-instance routing override from Create dialog. */
   proxyOverride?: {
     mode?: string;
@@ -526,6 +526,9 @@ function buildCommand(
   }
   if (req.deleteIfExists) {
     args.push('--delete-if-exists');
+  }
+  if (req.deleteIfNameExists) {
+    args.push('--delete-if-name-exists');
   }
   if (req.tomcatVersion && req.tomcatVersion.trim() !== '') {
     args.push('--tomcat-version', req.tomcatVersion.trim());
