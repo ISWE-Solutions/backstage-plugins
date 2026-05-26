@@ -298,6 +298,8 @@ export const CreateInstanceDialog = ({
         return 'PostgreSQL admin user is required when using a remote PostgreSQL server.';
       if (!dhis2Settings.postgresAdminPassword)
         return 'PostgreSQL admin password is required when using a remote PostgreSQL server.';
+    }
+    if (useExistingDb || createDbAccount) {
       if (!newInstance.database.user.trim())
         return 'DHIS2 role username is required.';
       if (!newInstance.database.password)
@@ -351,25 +353,22 @@ export const CreateInstanceDialog = ({
       database: {
         ...newInstance.database,
         name: dbName,
-        existing: useRemoteDb && useExistingDb ? true : undefined,
+        existing: useExistingDb ? true : undefined,
         host:
           useRemoteDb && useExistingDb ? dhis2Settings.postgresHost : undefined,
         port:
           useRemoteDb && useExistingDb ? dhis2Settings.postgresPort : undefined,
       },
       restore: restoreEnabled ? restoreSource : undefined,
-      // "Create a new database account" is only meaningful when connecting
-      // to an existing database: it tells the orchestrator to additionally
-      // provision the DHIS2 role on the shared host and grant it ownership
-      // of the picked database. The credentials reuse the upper "DHIS2 role"
-      // fields so there is a single source of truth.
-      newDbAccount:
-        createDbAccount && useRemoteDb && useExistingDb
-          ? {
-              user: newInstance.database.user,
-              password: newInstance.database.password,
-            }
-          : undefined,
+      // "Create a new database account" provisions an additional DHIS2 role
+      // on the shared host using the credentials above and grants it
+      // ownership of the database.
+      newDbAccount: createDbAccount
+        ? {
+            user: newInstance.database.user,
+            password: newInstance.database.password,
+          }
+        : undefined,
       dhisConfTemplate:
         customizeDhisConf && dhisConfTemplate !== DEFAULT_DHIS_CONF_TEMPLATE
           ? dhisConfTemplate
@@ -727,9 +726,8 @@ export const CreateInstanceDialog = ({
           color="textSecondary"
           style={{ marginBottom: 8 }}
         >
-          {useExistingDb
-            ? 'DHIS2 will connect to the PostgreSQL server below using the admin credentials. Pick an existing database from the list and supply the DHIS2 role used at runtime.'
-            : 'The PostgreSQL admin role below will create a new per-instance database on the shared host and provision the DHIS2 role with the credentials provided.'}
+          DHIS2 will connect to the PostgreSQL server below using the admin
+          credentials.
         </Typography>
         <Grid container spacing={2} style={{ marginTop: 16 }}>
           <Grid item xs={12} sm={8} md={6}>
@@ -816,119 +814,49 @@ export const CreateInstanceDialog = ({
               }}
             />
           </Grid>
-          <Grid item xs={6} sm={6} md={4}>
-            <TextField
-              fullWidth
-              label="DHIS2 role username"
-              value={newInstance.database.user}
-              onChange={e =>
-                setNewInstance({
-                  ...newInstance,
-                  database: {
-                    ...newInstance.database,
-                    user: e.target.value,
-                  },
-                })
-              }
-              className={classes.formField}
-              required={useRemoteDb}
-              helperText={
-                useExistingDb
-                  ? 'PostgreSQL role DHIS2 will authenticate as at runtime (must already exist unless you tick "Create a new database account" below).'
-                  : 'PostgreSQL role to be created on the shared host and used by DHIS2 at runtime.'
-              }
-            />
-          </Grid>
-          <Grid item xs={12} sm={6} md={6}>
-            <TextField
-              fullWidth
-              type={showDbPassword ? 'text' : 'password'}
-              label="DHIS2 role password"
-              value={newInstance.database.password}
-              onChange={e =>
-                setNewInstance({
-                  ...newInstance,
-                  database: {
-                    ...newInstance.database,
-                    password: e.target.value,
-                  },
-                })
-              }
-              className={classes.formField}
-              required={useRemoteDb}
-              InputProps={{
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <Tooltip
-                      title={
-                        showDbPassword ? 'Hide password' : 'Show password'
-                      }
-                    >
-                      <IconButton
-                        size="small"
-                        onClick={() => setShowDbPassword(s => !s)}
-                      >
-                        {showDbPassword ? (
-                          <VisibilityOffIcon fontSize="small" />
-                        ) : (
-                          <VisibilityIcon fontSize="small" />
-                        )}
-                      </IconButton>
-                    </Tooltip>
-                  </InputAdornment>
-                ),
-              }}
-            />
-          </Grid>
-          <Grid
-            item
-            xs={12}
-            sm={6}
-            md={6}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: 8,
-            }}
-          >
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={useExistingDb}
-                  onChange={e => {
-                    const next = e.target.checked;
-                    setUseExistingDb(next);
-                    if (next) {
-                      // Connecting to an existing DB defaults to using the
-                      // role as-is (no provisioning). Operator can tick the
-                      // checkbox below to also create the role.
-                      setCreateDbAccount(false);
-                    } else {
-                      setAvailableDatabases([]);
-                      setDatabasesError(null);
-                      setDbTestResult(null);
-                      setCreateDbAccount(false);
-                    }
-                  }}
-                  color="primary"
-                />
-              }
-              label="Connect to an existing database"
-            />
-            <Button
-              variant="outlined"
-              size="small"
-              onClick={() => fetchExistingDatabases()}
-              disabled={loadingDatabases}
-              startIcon={
-                loadingDatabases ? <CircularProgress size={16} /> : undefined
-              }
-            >
-              Test connection
-            </Button>
-          </Grid>
         </Grid>
+          </>
+        )}
+        <Box
+          mt={1}
+          mb={1}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 8,
+          }}
+        >
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={useExistingDb}
+                onChange={e => {
+                  const next = e.target.checked;
+                  setUseExistingDb(next);
+                  if (!next) {
+                    setAvailableDatabases([]);
+                    setDatabasesError(null);
+                    setDbTestResult(null);
+                  }
+                }}
+                color="primary"
+              />
+            }
+            label="Connect to an existing database"
+          />
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={() => fetchExistingDatabases()}
+            disabled={loadingDatabases}
+            startIcon={
+              loadingDatabases ? <CircularProgress size={16} /> : undefined
+            }
+          >
+            Test connection
+          </Button>
+        </Box>
         {dbTestResult && (
           <Alert
             severity={dbTestResult.ok ? 'success' : 'error'}
@@ -938,9 +866,7 @@ export const CreateInstanceDialog = ({
             {dbTestResult.message}
           </Alert>
         )}
-          </>
-        )}
-        {useRemoteDb && useExistingDb ? (
+        {useExistingDb ? (
           <FormControl
             fullWidth
             className={classes.formField}
@@ -1024,7 +950,6 @@ export const CreateInstanceDialog = ({
           control={
             <Checkbox
               checked={createDbAccount}
-              disabled={!useRemoteDb || !useExistingDb}
               onChange={e => setCreateDbAccount(e.target.checked)}
               color="primary"
             />
@@ -1037,10 +962,80 @@ export const CreateInstanceDialog = ({
           component="div"
           style={{ marginBottom: 8 }}
         >
-          {useRemoteDb && useExistingDb
-            ? 'Tick to create a new PostgreSQL role using the credentials above. The new role will be granted ownership of the selected database.'
-            : 'Only applies when connecting to an existing remote database — the DHIS2 role above is provisioned automatically in other modes.'}
+          Tick to create a new PostgreSQL role in addition to using the
+          credentials above. The new role will be granted ownership of the
+          database.
         </Typography>
+        {(useExistingDb || createDbAccount) && (
+          <Grid container spacing={2}>
+            <Grid item xs={6} sm={6} md={4}>
+              <TextField
+                fullWidth
+                label="DHIS2 role username"
+                value={newInstance.database.user}
+                onChange={e =>
+                  setNewInstance({
+                    ...newInstance,
+                    database: {
+                      ...newInstance.database,
+                      user: e.target.value,
+                    },
+                  })
+                }
+                className={classes.formField}
+                required
+                helperText={
+                  createDbAccount
+                    ? 'PostgreSQL role to be created on the shared host and used by DHIS2 at runtime.'
+                    : 'PostgreSQL role DHIS2 will authenticate as at runtime (must already exist unless you tick "Create a new database account" above).'
+                }
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={6}>
+              <TextField
+                fullWidth
+                type={showDbPassword ? 'text' : 'password'}
+                label="DHIS2 role password"
+                value={newInstance.database.password}
+                onChange={e =>
+                  setNewInstance({
+                    ...newInstance,
+                    database: {
+                      ...newInstance.database,
+                      password: e.target.value,
+                    },
+                  })
+                }
+                className={classes.formField}
+                required
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <Tooltip
+                        title={
+                          showDbPassword
+                            ? 'Hide password'
+                            : 'Show password'
+                        }
+                      >
+                        <IconButton
+                          size="small"
+                          onClick={() => setShowDbPassword(s => !s)}
+                        >
+                          {showDbPassword ? (
+                            <VisibilityOffIcon fontSize="small" />
+                          ) : (
+                            <VisibilityIcon fontSize="small" />
+                          )}
+                        </IconButton>
+                      </Tooltip>
+                    </InputAdornment>
+                  ),
+                }}
+              />
+            </Grid>
+          </Grid>
+        )}
         <Typography variant="h6" gutterBottom style={{ marginTop: 16 }}>
           Initial Data
         </Typography>
