@@ -16,15 +16,12 @@ import CloudUploadIcon from '@material-ui/icons/CloudUpload';
 import {
   DHIS2Instance,
   DumpFormat,
-  ProxmoxStorage,
   RestoreSource,
 } from '../types';
 import {
   detectDumpFormat,
   restoreService,
-  VzdumpBackup,
 } from '../services/restoreService';
-import { dhis2Service } from '../services/dhis2Service';
 import { settingsService } from '../services/settingsService';
 
 const useStyles = makeStyles(theme => ({
@@ -51,8 +48,6 @@ const KIND_OPTIONS: { value: RestoreSourceKind; label: string }[] = [
   { value: 'url', label: 'Fetch from URL (HTTP/HTTPS)' },
   { value: 's3', label: 'Download from S3 / S3-compatible' },
   { value: 'instance', label: 'Clone from existing instance' },
-  { value: 'vzdump', label: 'Restore from Proxmox backup (vzdump)' },
-  { value: 'local', label: 'Local path on Proxmox host' },
 ];
 
 const FORMAT_OPTIONS: { value: DumpFormat; label: string }[] = [
@@ -102,10 +97,6 @@ function defaultForKind(kind: RestoreSourceKind): RestoreSource {
     }
     case 'instance':
       return { kind: 'instance', sourceInstanceId: '', includeFiles: false };
-    case 'vzdump':
-      return { kind: 'vzdump', node: '', storage: '', volid: '' };
-    case 'local':
-      return { kind: 'local', node: '', path: '', format: 'custom' };
     default:
       return { kind: 'url', url: '', format: 'custom' };
   }
@@ -113,7 +104,7 @@ function defaultForKind(kind: RestoreSourceKind): RestoreSource {
 
 export const RestoreSourcePicker = (props: RestoreSourcePickerProps) => {
   const classes = useStyles();
-  const { value, onChange, nodes = [] } = props;
+  const { value, onChange } = props;
 
   const kind: RestoreSourceKind = value?.kind ?? 'upload';
 
@@ -151,12 +142,6 @@ export const RestoreSourcePicker = (props: RestoreSourcePickerProps) => {
       {value?.kind === 's3' && <S3Source value={value} onChange={onChange} />}
       {value?.kind === 'instance' && (
         <InstanceSource value={value} onChange={onChange} />
-      )}
-      {value?.kind === 'vzdump' && (
-        <VzdumpSource value={value} onChange={onChange} nodes={nodes} />
-      )}
-      {value?.kind === 'local' && (
-        <LocalSource value={value} onChange={onChange} nodes={nodes} />
       )}
     </Box>
   );
@@ -507,206 +492,6 @@ const InstanceSource = ({ value, onChange }: SubProps<'instance'>) => {
           />
         }
         label="Also copy the DHIS2 files dir (uploaded resources)"
-      />
-    </Box>
-  );
-};
-
-interface NodeAwareProps<K extends 'vzdump' | 'local'> extends SubProps<K> {
-  nodes: { node: string }[];
-}
-
-const VzdumpSource = ({ value, onChange, nodes }: NodeAwareProps<'vzdump'>) => {
-  const classes = useStyles();
-  const [storages, setStorages] = useState<ProxmoxStorage[]>([]);
-  const [backups, setBackups] = useState<VzdumpBackup[]>([]);
-  const [loadingStorages, setLoadingStorages] = useState(false);
-  const [loadingBackups, setLoadingBackups] = useState(false);
-
-  useEffect(() => {
-    if (!value.node) {
-      setStorages([]);
-      return;
-    }
-    let cancelled = false;
-    setLoadingStorages(true);
-    dhis2Service
-      .fetchNodeStorage(value.node)
-      .then(list => {
-        if (!cancelled) {
-          // Only storages that hold backups
-          setStorages(
-            list.filter(s => (s.content ?? '').split(',').includes('backup')),
-          );
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingStorages(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [value.node]);
-
-  useEffect(() => {
-    if (!value.node || !value.storage) {
-      setBackups([]);
-      return;
-    }
-    let cancelled = false;
-    setLoadingBackups(true);
-    restoreService
-      .listVzdumpBackups(value.node, value.storage)
-      .then(list => {
-        if (!cancelled) setBackups(list);
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingBackups(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [value.node, value.storage]);
-
-  const formatVolid = (b: VzdumpBackup) => {
-    const date = b.ctime ? new Date(b.ctime * 1000).toISOString().slice(0, 16).replace('T', ' ') : '';
-    const size = b.size ? `${(b.size / 1024 ** 3).toFixed(1)} GB` : '';
-    return [b.volid, b.vmid ? `vmid=${b.vmid}` : '', date, size]
-      .filter(Boolean)
-      .join('  ·  ');
-  };
-
-  return (
-    <Box>
-      <Grid container spacing={2}>
-        <Grid item xs={12} md={6}>
-          <TextField
-            fullWidth
-            select
-            label="Proxmox node"
-            value={value.node}
-            onChange={e =>
-              onChange({ ...value, node: e.target.value, storage: '', volid: '' })
-            }
-            className={classes.field}
-            required
-          >
-            {nodes.length === 0 ? (
-              <MenuItem value="" disabled>
-                No nodes available
-              </MenuItem>
-            ) : (
-              nodes.map(n => (
-                <MenuItem key={n.node} value={n.node}>
-                  {n.node}
-                </MenuItem>
-              ))
-            )}
-          </TextField>
-        </Grid>
-        <Grid item xs={12} md={6}>
-          <TextField
-            fullWidth
-            select
-            label="Backup storage"
-            value={value.storage}
-            onChange={e =>
-              onChange({ ...value, storage: e.target.value, volid: '' })
-            }
-            className={classes.field}
-            required
-            disabled={!value.node || loadingStorages}
-            helperText={loadingStorages ? 'Loading storages…' : undefined}
-          >
-            {storages.length === 0 ? (
-              <MenuItem value="" disabled>
-                No backup-capable storage on this node
-              </MenuItem>
-            ) : (
-              storages.map(s => (
-                <MenuItem key={s.storage} value={s.storage}>
-                  {s.storage} ({s.type})
-                </MenuItem>
-              ))
-            )}
-          </TextField>
-        </Grid>
-      </Grid>
-      <TextField
-        fullWidth
-        select
-        label="Backup archive"
-        value={value.volid}
-        onChange={e => onChange({ ...value, volid: e.target.value })}
-        className={classes.field}
-        required
-        disabled={!value.storage || loadingBackups}
-        helperText={loadingBackups ? 'Loading backups…' : 'Pick a DHIS2 vzdump archive.'}
-      >
-        {backups.length === 0 ? (
-          <MenuItem value="" disabled>
-            No backups found
-          </MenuItem>
-        ) : (
-          backups.map(b => (
-            <MenuItem key={b.volid} value={b.volid}>
-              {formatVolid(b)}
-            </MenuItem>
-          ))
-        )}
-      </TextField>
-    </Box>
-  );
-};
-
-const LocalSource = ({ value, onChange, nodes }: NodeAwareProps<'local'>) => {
-  const classes = useStyles();
-  return (
-    <Box>
-      <Grid container spacing={2}>
-        <Grid item xs={12} md={4}>
-          <TextField
-            fullWidth
-            select
-            label="Proxmox node"
-            value={value.node}
-            onChange={e => onChange({ ...value, node: e.target.value })}
-            className={classes.field}
-            required
-          >
-            {nodes.length === 0 ? (
-              <MenuItem value="" disabled>
-                No nodes available
-              </MenuItem>
-            ) : (
-              nodes.map(n => (
-                <MenuItem key={n.node} value={n.node}>
-                  {n.node}
-                </MenuItem>
-              ))
-            )}
-          </TextField>
-        </Grid>
-        <Grid item xs={12} md={8}>
-          <TextField
-            fullWidth
-            label="Absolute path on host"
-            value={value.path}
-            onChange={e => {
-              const path = e.target.value;
-              const fmt = path ? detectDumpFormat(path) : value.format;
-              onChange({ ...value, path, format: fmt });
-            }}
-            className={classes.field}
-            helperText="e.g. /var/backups/dhis2/dhis2-2026-05-01.dump"
-            required
-          />
-        </Grid>
-      </Grid>
-      <FormatSelect
-        value={value.format}
-        onChange={fmt => onChange({ ...value, format: fmt })}
-        className={classes.field}
       />
     </Box>
   );

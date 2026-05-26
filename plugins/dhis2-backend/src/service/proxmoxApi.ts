@@ -118,6 +118,18 @@ export async function listClusterResources(
   );
 }
 
+/** Ask Proxmox for the next available VMID (`/cluster/nextid`). */
+export async function getNextClusterVmid(
+  c: ProxmoxApiCredentials,
+): Promise<number> {
+  const raw = await request<number | string>(c, 'GET', '/cluster/nextid');
+  const vmid = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isInteger(vmid) || vmid <= 0) {
+    throw new Error(`Proxmox returned invalid next VMID: ${String(raw)}`);
+  }
+  return vmid;
+}
+
 /** Read the configuration of a single LXC (used to read current tags). */
 export async function getLxcConfig(
   c: ProxmoxApiCredentials,

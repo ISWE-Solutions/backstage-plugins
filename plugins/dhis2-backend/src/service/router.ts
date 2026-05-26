@@ -156,6 +156,41 @@ export async function createRouter(
     }
   });
 
+  // ---------------------------------------------------------------------
+  // POST /restore/upload — stage a DHIS2 database dump for restore.
+  //
+  // The frontend posts the raw file bytes as `application/octet-stream`
+  // with an `X-Filename` header carrying the original name. The body
+  // streams straight to a per-token file under the staging directory;
+  // `express.json()` (above) is a no-op for non-JSON content types so
+  // the request body remains available as a Node stream on `req`.
+  // ---------------------------------------------------------------------
+  router.post('/restore/upload', async (req, res, next) => {
+    try {
+      if (!provisionService.isConfigured()) {
+        res.status(503).json({
+          error:
+            'Provisioning orchestrator is not configured. Set dhis2.orchestrator in app-config.yaml.',
+        });
+        return;
+      }
+      const rawName =
+        (typeof req.header('x-filename') === 'string'
+          ? (req.header('x-filename') as string)
+          : '') || 'upload.bin';
+      const filename = rawName.replace(/[\r\n\0]/g, '').slice(-256);
+      const result = await provisionService.stageRestoreUpload(req, filename);
+      res.status(200).json(result);
+    } catch (err) {
+      logger.error(
+        `DHIS2: restore upload failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      next(err);
+    }
+  });
+
   router.post('/databases/test', async (req, res) => {
     const creds = parseCredentials(req.body);
     const started = Date.now();
@@ -211,6 +246,45 @@ export async function createRouter(
   // ---------------------------------------------------------------------
   // Instance provisioning
   // ---------------------------------------------------------------------
+
+  router.post('/instances/next-vmid', async (req, res) => {
+    if (!provisionService.isConfigured()) {
+      res.status(503).json({
+        error:
+          'Provisioning orchestrator is not configured. Set dhis2.orchestrator in app-config.yaml (host defaults to localhost; user, privateKeyFile, scriptPath default for localhost; apiUrl, apiUser, apiTokenId, apiTokenSecret must be supplied).',
+      });
+      return;
+    }
+    const b =
+      req.body && typeof req.body === 'object'
+        ? (req.body as Record<string, any>)
+        : {};
+    const pm =
+      b.proxmox && typeof b.proxmox === 'object'
+        ? (b.proxmox as Record<string, any>)
+        : {};
+    try {
+      const vmid = await provisionService.getNextVmid({
+        apiUrl: typeof pm.apiUrl === 'string' ? pm.apiUrl.trim() : undefined,
+        apiUser: typeof pm.apiUser === 'string' ? pm.apiUser.trim() : undefined,
+        apiTokenId:
+          typeof pm.apiTokenId === 'string' ? pm.apiTokenId.trim() : undefined,
+        apiTokenSecret:
+          typeof pm.apiTokenSecret === 'string'
+            ? pm.apiTokenSecret
+            : undefined,
+        validateApiCerts:
+          typeof pm.validateApiCerts === 'boolean'
+            ? pm.validateApiCerts
+            : undefined,
+      });
+      res.json({ vmid });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn(`DHIS2: next-vmid failed: ${message}`);
+      res.status(502).json({ error: message });
+    }
+  });
 
   function parseProvisionRequest(body: unknown): ProvisionRequest {
     if (!body || typeof body !== 'object') {

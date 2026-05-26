@@ -1,14 +1,25 @@
 import { LoggerService } from '@backstage/backend-plugin-api';
 import { spawn } from 'child_process';
-import { promises as fs } from 'fs';
+import { createWriteStream, promises as fs } from 'fs';
+import { Readable } from 'stream';
+import * as os from 'os';
 import * as path from 'path';
 import { randomUUID, randomBytes } from 'crypto';
 import {
   DHIS2_TAGS,
   ProxmoxApiCredentials,
+  getNextClusterVmid,
   ensureLxcTags,
 } from './proxmoxApi';
 import { InstanceStore } from './instanceStore';
+
+type ProxmoxOverride = {
+  apiUrl?: string;
+  apiUser?: string;
+  apiTokenId?: string;
+  apiTokenSecret?: string;
+  validateApiCerts?: boolean;
+};
 
 /**
  * Configuration for the host that runs provision-instance.sh.
@@ -61,6 +72,14 @@ export interface OrchestratorConfig {
   apiTokenSecret: string;
   /** Validate the Proxmox API TLS cert. Default: false. */
   validateApiCerts?: boolean;
+
+  /**
+   * Absolute directory on the orchestrator host used to stage uploaded
+   * DHIS2 database dumps (`POST /restore/upload`). Each upload is written
+   * to a uuid-named file under this directory and referenced by an
+   * opaque upload token. Defaults to `${os.tmpdir()}/dhis2-restore-staging`.
+   */
+  restoreStagingDir?: string;
 }
 
 export type JobStatus = 'queued' | 'running' | 'success' | 'failed';
@@ -468,6 +487,7 @@ function generateSecurePassword(): string {
 function buildCommand(
   cfg: OrchestratorConfig,
   req: ProvisionRequest,
+  restoreSpecPath?: string,
 ): string {
   const args: string[] = [
     cfg.scriptPath,
@@ -484,6 +504,9 @@ function buildCommand(
     '--memory', String(req.resources.memory),
     '--storage', String(req.resources.storage),
   ];
+  if (restoreSpecPath) {
+    args.push('--restore-spec', restoreSpecPath);
+  }
   if (req.newDbAccount?.user) {
     args.push('--new-db-user', req.newDbAccount.user);
   }
@@ -890,6 +913,16 @@ function buildDecommissionCommand(
 }
 
 export class ProvisionService {
+  /**
+   * In-memory registry of staged dump uploads, keyed by opaque token.
+   * Entries are written to `cfg.restoreStagingDir` and removed after a
+   * successful provisioning consumes them (or via TTL on next list).
+   */
+  private readonly uploads = new Map<
+    string,
+    { stagedPath: string; sizeBytes: number; originalFilename: string; expiresAt: number }
+  >();
+
   constructor(
     private readonly logger: LoggerService,
     private readonly cfg: OrchestratorConfig | null,
@@ -1023,7 +1056,43 @@ export class ProvisionService {
       `[backend] Running ${provisionScriptName} locally on the Backstage host. Proxmox API: ${cfg.apiUser}@${cfg.apiUrl} (LXC lifecycle via REST; nginx via SSH to ${resolvePveHost(cfg, req) || 'localhost'}).`,
     );
 
-    const command = buildCommand(cfg, req);
+    // -------------------------------------------------------------------
+    // Restore spec materialisation: translate req.restore into the JSON
+    // shape consumed by create-instance.sh --restore-spec, write to a
+    // tempfile, and pass the path on argv. The temp file (and any staged
+    // upload it references) is cleaned up after the job exits.
+    // -------------------------------------------------------------------
+    let restoreSpecPath: string | undefined;
+    let uploadTokenToConsume: string | undefined;
+    try {
+      const translated = await this.translateRestoreSource(req.restore);
+      if (translated) {
+        const stagingDir = await this.resolveRestoreStagingDir();
+        restoreSpecPath = path.join(stagingDir, `restore-spec-${job.id}.json`);
+        await fs.writeFile(restoreSpecPath, JSON.stringify(translated), {
+          mode: 0o600,
+        });
+        appendLine(
+          job,
+          `[backend] Restore source kind=${translated.kind} prepared at ${restoreSpecPath}`,
+        );
+        if (translated.kind === 'upload' && req.restore) {
+          uploadTokenToConsume = String(
+            (req.restore as any).uploadToken ?? '',
+          );
+        }
+      }
+    } catch (err) {
+      job.status = 'failed';
+      job.error = `restore-spec preparation failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+      job.finishedAt = new Date().toISOString();
+      appendLine(job, `[backend] FATAL: ${job.error}`);
+      return;
+    }
+
+    const command = buildCommand(cfg, req, restoreSpecPath);
     // Surface the effective TLS validation policy so operators can see
     // when a stale browser setting was clamped by the app-config ceiling.
     const cfgValidate = Boolean(cfg.validateApiCerts);
@@ -1118,7 +1187,7 @@ export class ProvisionService {
       // Best-effort: tag the new LXC so reconciliation can verify it
       // belongs to this plugin. Non-fatal — a tagging failure only loses
       // the secondary marker, the registry entry is already persisted.
-      await this.tagInstance(job, cfg, req).catch(err => {
+      await this.tagInstance(job, req).catch(err => {
         appendLine(
           job,
           `[backend] WARN: failed to tag LXC ${req.vmid} on ${req.node}: ${
@@ -1131,6 +1200,14 @@ export class ProvisionService {
       job.error = `${provisionScriptName} exited with code ${exitCode}`;
       appendLine(job, `[backend] ${job.error}`);
     }
+
+    // Clean up the rendered restore spec + any consumed upload token,
+    // regardless of job outcome. Best-effort; never let cleanup mask the
+    // real job result.
+    if (restoreSpecPath) {
+      await fs.unlink(restoreSpecPath).catch(() => {});
+    }
+    await this.consumeUploadToken(uploadTokenToConsume);
   }
 
   /**
@@ -1372,35 +1449,55 @@ export class ProvisionService {
     };
   }
 
-  private async tagInstance(
-    job: JobSnapshot,
-    cfg: OrchestratorConfig,
-    req: ProvisionRequest,
-  ): Promise<void> {
-    // Resolve effective per-job Proxmox creds (request can override config).
-    const reqPm = req.proxmox ?? {};
+  async getNextVmid(overrides?: ProxmoxOverride): Promise<number> {
+    const creds = this.resolveEffectiveProxmoxCredentials(overrides);
+    if (!creds) {
+      throw new Error(
+        'Proxmox API credentials are not configured. Set dhis2.orchestrator.{apiUrl,apiUser,apiTokenId,apiTokenSecret}.',
+      );
+    }
+    return await getNextClusterVmid(creds);
+  }
+
+  private resolveEffectiveProxmoxCredentials(
+    overrides?: ProxmoxOverride,
+  ): ProxmoxApiCredentials | null {
+    if (!this.cfg) return null;
+    const cfg = this.cfg;
+    const reqPm = overrides ?? {};
     const apiUrl = (reqPm.apiUrl && reqPm.apiUrl.trim()) || cfg.apiUrl;
-    const apiUser =
-      (reqPm.apiUser && reqPm.apiUser.trim()) || cfg.apiUser;
-    const apiTokenId =
-      (reqPm.apiTokenId && reqPm.apiTokenId.trim()) || cfg.apiTokenId;
+    const { apiUser, apiTokenId } = normalizeProxmoxCreds(
+      (reqPm.apiUser && reqPm.apiUser.trim()) || cfg.apiUser,
+      (reqPm.apiTokenId && reqPm.apiTokenId.trim()) || cfg.apiTokenId,
+    );
     const apiTokenSecret =
       (reqPm.apiTokenSecret && reqPm.apiTokenSecret.trim()) ||
       cfg.apiTokenSecret;
     if (!apiUrl || !apiUser || !apiTokenId || !apiTokenSecret) {
+      return null;
+    }
+    const validateCerts =
+      typeof reqPm.validateApiCerts === 'boolean'
+        ? reqPm.validateApiCerts && Boolean(cfg.validateApiCerts)
+        : Boolean(cfg.validateApiCerts);
+    return { apiUrl, apiUser, apiTokenId, apiTokenSecret, validateCerts };
+  }
+
+  private async tagInstance(
+    job: JobSnapshot,
+    req: ProvisionRequest,
+  ): Promise<void> {
+    const creds = this.resolveEffectiveProxmoxCredentials(req.proxmox);
+    if (!creds) {
       appendLine(
         job,
         `[backend] Skipping Proxmox tag step: API credentials not configured.`,
       );
       return;
     }
-    const validateCerts =
-      typeof reqPm.validateApiCerts === 'boolean'
-        ? reqPm.validateApiCerts && Boolean(cfg.validateApiCerts)
-        : Boolean(cfg.validateApiCerts);
     const tags = DHIS2_TAGS.split(';');
     const applied = await ensureLxcTags(
-      { apiUrl, apiUser, apiTokenId, apiTokenSecret, validateCerts },
+      creds,
       req.node,
       req.vmid,
       tags,
@@ -1477,6 +1574,201 @@ export class ProvisionService {
   private async findInstance(id: string): Promise<PersistedInstance | null> {
     const list = await this.listInstances();
     return list.find(i => i.id === id) ?? null;
+  }
+
+  // -----------------------------------------------------------------------
+  // Restore upload staging
+  // -----------------------------------------------------------------------
+
+  /** Resolve the on-disk staging directory, creating it on first use. */
+  private async resolveRestoreStagingDir(): Promise<string> {
+    const dir =
+      (this.cfg?.restoreStagingDir && this.cfg.restoreStagingDir.trim()) ||
+      path.join(os.tmpdir(), 'dhis2-restore-staging');
+    await fs.mkdir(dir, { recursive: true, mode: 0o700 }).catch(() => {});
+    return dir;
+  }
+
+  /** TTL for upload tokens before the staging file is garbage-collected. */
+  private static readonly UPLOAD_TTL_MS = 24 * 60 * 60 * 1000;
+
+  /** Drop tokens whose staging files have expired (best-effort). */
+  private async sweepExpiredUploads(): Promise<void> {
+    const now = Date.now();
+    const expired: string[] = [];
+    for (const [token, entry] of this.uploads) {
+      if (entry.expiresAt <= now) expired.push(token);
+    }
+    for (const token of expired) {
+      const entry = this.uploads.get(token);
+      this.uploads.delete(token);
+      if (entry) {
+        await fs.unlink(entry.stagedPath).catch(() => {});
+      }
+    }
+  }
+
+  /**
+   * Stream an uploaded dump file to the staging directory and return an
+   * opaque token the frontend uses when submitting `RestoreSource` of
+   * kind `upload`.
+   */
+  async stageRestoreUpload(
+    body: Readable,
+    originalFilename: string,
+  ): Promise<{ uploadToken: string; sizeBytes: number; expiresAt: string }> {
+    await this.sweepExpiredUploads();
+    const dir = await this.resolveRestoreStagingDir();
+    const safeBase = originalFilename
+      .replace(/[^A-Za-z0-9._-]/g, '_')
+      .slice(-128) || 'upload.bin';
+    const token = randomUUID();
+    const stagedPath = path.join(dir, `${token}__${safeBase}`);
+    const sink = createWriteStream(stagedPath, { mode: 0o600 });
+    let sizeBytes = 0;
+    body.on('data', (chunk: Buffer) => {
+      sizeBytes += chunk.length;
+    });
+    await new Promise<void>((resolve, reject) => {
+      body.on('error', reject);
+      sink.on('error', reject);
+      sink.on('close', resolve);
+      body.pipe(sink);
+    });
+    const expiresAtMs = Date.now() + ProvisionService.UPLOAD_TTL_MS;
+    this.uploads.set(token, {
+      stagedPath,
+      sizeBytes,
+      originalFilename,
+      expiresAt: expiresAtMs,
+    });
+    this.logger.info(
+      `DHIS2: staged restore upload token=${token} size=${sizeBytes} path=${stagedPath}`,
+    );
+    return {
+      uploadToken: token,
+      sizeBytes,
+      expiresAt: new Date(expiresAtMs).toISOString(),
+    };
+  }
+
+  /**
+   * Translate the frontend `RestoreSource` (already wire-typed as a
+   * `Record<string, unknown>` on `ProvisionRequest.restore`) into the
+   * JSON spec consumed by `create-instance.sh --restore-spec` and then
+   * forwarded verbatim (with a few rename/synthesis rules) to the
+   * Ansible `dhis2_restore` extra-var.
+   *
+   * Returns `null` when the source is missing/unrecognised so the caller
+   * can simply skip writing a spec file.
+   *
+   * Throws `Error` with a human-readable message when the source is
+   * present but unusable (e.g. unknown upload token, missing source
+   * instance for `kind: instance`).
+   */
+  async translateRestoreSource(
+    source: Record<string, unknown> | undefined,
+  ): Promise<Record<string, unknown> | null> {
+    if (!source || typeof source !== 'object') return null;
+    const kind = String((source as any).kind ?? '').trim();
+    if (!kind) return null;
+    const fmt =
+      typeof (source as any).format === 'string'
+        ? ((source as any).format as string)
+        : undefined;
+    switch (kind) {
+      case 'upload': {
+        const token = String((source as any).uploadToken ?? '').trim();
+        if (!token) throw new Error('restore.upload: uploadToken is required.');
+        await this.sweepExpiredUploads();
+        const entry = this.uploads.get(token);
+        if (!entry) {
+          throw new Error(
+            `restore.upload: unknown or expired uploadToken=${token}. Re-upload the dump file and retry.`,
+          );
+        }
+        return {
+          kind: 'upload',
+          staged_path: entry.stagedPath,
+          dump_format: fmt,
+          original_filename: entry.originalFilename,
+        };
+      }
+      case 'url': {
+        const url = String((source as any).url ?? '').trim();
+        if (!url) throw new Error('restore.url: url is required.');
+        return {
+          kind: 'url',
+          url,
+          headers: (source as any).headers ?? undefined,
+          dump_format: fmt,
+        };
+      }
+      case 's3': {
+        const bucket = String((source as any).bucket ?? '').trim();
+        const key = String((source as any).key ?? '').trim();
+        if (!bucket) throw new Error('restore.s3: bucket is required.');
+        if (!key) throw new Error('restore.s3: key is required.');
+        return {
+          kind: 's3',
+          bucket,
+          key,
+          region: (source as any).region || undefined,
+          endpoint: (source as any).endpoint || undefined,
+          access_key: (source as any).accessKeyId || undefined,
+          secret_key: (source as any).secretAccessKey || undefined,
+          dump_format: fmt,
+        };
+      }
+      case 'instance': {
+        const srcId = String((source as any).sourceInstanceId ?? '').trim();
+        if (!srcId)
+          throw new Error('restore.instance: sourceInstanceId is required.');
+        const src = await this.findInstance(srcId);
+        if (!src) {
+          throw new Error(
+            `restore.instance: source instance ${srcId} is not in the registry.`,
+          );
+        }
+        const srcHost =
+          src.database.host && src.database.host.trim() !== ''
+            ? src.database.host.trim()
+            : src.domain.split('/')[0];
+        if (!srcHost) {
+          throw new Error(
+            `restore.instance: cannot determine database host for ${srcId}.`,
+          );
+        }
+        if (!src.database.password) {
+          throw new Error(
+            `restore.instance: no stored password for source instance ${srcId} -- cannot pg_dump.`,
+          );
+        }
+        return {
+          kind: 'instance',
+          source_host: srcHost,
+          source_db: src.database.name,
+          source_user: src.database.user,
+          source_password: src.database.password,
+          source_port: src.database.port ?? 5432,
+        };
+      }
+      default:
+        throw new Error(`restore: unsupported kind=${kind}.`);
+    }
+  }
+
+  /**
+   * Consume (delete + forget) the staged upload referenced by a token,
+   * if any. Called after a provisioning job finishes (success or
+   * failure) so dumps don't accumulate on disk.
+   */
+  private async consumeUploadToken(token: string | undefined): Promise<void> {
+    if (!token) return;
+    const entry = this.uploads.get(token);
+    if (!entry) return;
+    this.uploads.delete(token);
+    await fs.unlink(entry.stagedPath).catch(() => {});
   }
 }
 

@@ -193,6 +193,8 @@ export const dhis2Plugin = createBackendPlugin({
               apiTokenId,
               apiTokenSecret,
               validateApiCerts,
+              restoreStagingDir:
+                sub?.getOptionalString('restoreStagingDir') || undefined,
             };
             const usingDefaults: string[] = [];
             if (!configuredUser) usingDefaults.push('user');

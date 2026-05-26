@@ -180,6 +180,7 @@ export const CreateInstanceDialog = ({
   // "Create new database account" option.
   const [createDbAccount, setCreateDbAccount] = useState(false);
   const [showDbPassword, setShowDbPassword] = useState(false);
+  const [showAdminDbPassword, setShowAdminDbPassword] = useState(false);
   const [newDbUser, setNewDbUser] = useState('');
   const [newDbPassword, setNewDbPassword] = useState('');
   const [showNewDbPassword, setShowNewDbPassword] = useState(false);
@@ -231,11 +232,17 @@ export const CreateInstanceDialog = ({
 
     // Validate inputs before hitting the backend so users see clear,
     // actionable errors in the dialog instead of a vague network failure.
+    // "Test connection" authenticates as the PostgreSQL ADMIN role — that
+    // is the identity the provisioner will use to create per-instance
+    // roles/databases (or, in the existing-DB sub-case, to enumerate
+    // candidate databases). The per-instance role username/password
+    // intentionally are NOT tested here because they may not exist yet.
     const missing: string[] = [];
     if (!dhis2Settings.postgresHost) missing.push('Postgres host');
     if (!dhis2Settings.postgresPort) missing.push('Postgres port');
-    if (!newInstance.database.user) missing.push('Database username');
-    if (!newInstance.database.password) missing.push('Database password');
+    if (!dhis2Settings.postgresAdminUser) missing.push('PostgreSQL admin user');
+    if (!dhis2Settings.postgresAdminPassword)
+      missing.push('PostgreSQL admin password');
     if (missing.length > 0) {
       const message = `Provide ${missing.join(', ')} before testing the connection.`;
       setDatabasesError(message);
@@ -250,8 +257,8 @@ export const CreateInstanceDialog = ({
       const creds = {
         host: dhis2Settings.postgresHost,
         port: dhis2Settings.postgresPort,
-        user: newInstance.database.user,
-        password: newInstance.database.password,
+        user: dhis2Settings.postgresAdminUser,
+        password: dhis2Settings.postgresAdminPassword,
       };
       const test = await dhis2Service.testDatabaseConnection(
         creds,
@@ -302,6 +309,14 @@ export const CreateInstanceDialog = ({
     if (!newInstance.name.trim()) return 'Instance name is required.';
     if (!newInstance.version) return 'DHIS2 version is required.';
     if (!newInstance.node) return 'Proxmox node is required.';
+    if (useRemoteDb) {
+      if (!dhis2Settings.postgresHost.trim())
+        return 'Shared Postgres host is required when using a remote PostgreSQL server.';
+      if (!dhis2Settings.postgresAdminUser.trim())
+        return 'PostgreSQL admin user is required when using a remote PostgreSQL server.';
+      if (!dhis2Settings.postgresAdminPassword)
+        return 'PostgreSQL admin password is required when using a remote PostgreSQL server.';
+    }
     return null;
   })();
 
@@ -723,8 +738,8 @@ export const CreateInstanceDialog = ({
           style={{ marginBottom: 8 }}
         >
           {useExistingDb
-            ? 'DHIS2 will connect to the PostgreSQL server below using the provided credentials. Pick an existing database from the list.'
-            : 'Provide credentials for an existing PostgreSQL role with privileges on the database below.'}
+            ? 'DHIS2 will connect to the PostgreSQL server below using the admin credentials. Pick an existing database from the list and supply the per-instance role used by DHIS2.'
+            : 'The PostgreSQL admin role below will create a new per-instance database and role on the shared host.'}
         </Typography>
         <Grid container spacing={2} style={{ marginTop: 16 }}>
           <Grid item xs={12} sm={8} md={6}>
@@ -739,6 +754,7 @@ export const CreateInstanceDialog = ({
                 })
               }
               className={classes.formField}
+              required
             />
           </Grid>
           <Grid item xs={6} sm={4} md={2}>
@@ -759,7 +775,65 @@ export const CreateInstanceDialog = ({
           <Grid item xs={6} sm={6} md={4}>
             <TextField
               fullWidth
-              label="Database Username"
+              label="PostgreSQL admin user"
+              value={dhis2Settings.postgresAdminUser}
+              onChange={e =>
+                setDhis2Settings({
+                  ...dhis2Settings,
+                  postgresAdminUser: e.target.value,
+                })
+              }
+              className={classes.formField}
+              required
+              helperText="Existing PostgreSQL role used to create/inspect databases on the shared host (commonly 'postgres')."
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={6}>
+            <TextField
+              fullWidth
+              type={showAdminDbPassword ? 'text' : 'password'}
+              label="PostgreSQL admin password"
+              value={dhis2Settings.postgresAdminPassword}
+              onChange={e =>
+                setDhis2Settings({
+                  ...dhis2Settings,
+                  postgresAdminPassword: e.target.value,
+                })
+              }
+              className={classes.formField}
+              required
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <Tooltip
+                      title={
+                        showAdminDbPassword ? 'Hide password' : 'Show password'
+                      }
+                    >
+                      <IconButton
+                        size="small"
+                        onClick={() => setShowAdminDbPassword(s => !s)}
+                      >
+                        {showAdminDbPassword ? (
+                          <VisibilityOffIcon fontSize="small" />
+                        ) : (
+                          <VisibilityIcon fontSize="small" />
+                        )}
+                      </IconButton>
+                    </Tooltip>
+                  </InputAdornment>
+                ),
+              }}
+            />
+          </Grid>
+          <Grid item xs={6} sm={6} md={4}>
+            <TextField
+              fullWidth
+              label={
+                useExistingDb
+                  ? 'Existing DHIS2 role username'
+                  : 'New DHIS2 role username'
+              }
               value={newInstance.database.user}
               onChange={e =>
                 setNewInstance({
@@ -772,13 +846,22 @@ export const CreateInstanceDialog = ({
               }
               className={classes.formField}
               required
+              helperText={
+                useExistingDb
+                  ? 'PostgreSQL role DHIS2 will authenticate as at runtime (must already exist on the shared host).'
+                  : 'PostgreSQL role to be created on the shared host and used by DHIS2 at runtime.'
+              }
             />
           </Grid>
           <Grid item xs={12} sm={6} md={6}>
             <TextField
               fullWidth
               type={showDbPassword ? 'text' : 'password'}
-              label="Database Password"
+              label={
+                useExistingDb
+                  ? 'Existing DHIS2 role password'
+                  : 'New DHIS2 role password'
+              }
               value={newInstance.database.password}
               onChange={e =>
                 setNewInstance({
@@ -924,7 +1007,7 @@ export const CreateInstanceDialog = ({
             <FormHelperText>
               {databasesError
                 ? databasesError
-                : `Listed from ${dhis2Settings.postgresHost || '<host>'}:${dhis2Settings.postgresPort} as ${newInstance.database.user || '<user>'}`}
+                : `Listed from ${dhis2Settings.postgresHost || '<host>'}:${dhis2Settings.postgresPort} as ${dhis2Settings.postgresAdminUser || '<admin>'}`}
             </FormHelperText>
           </FormControl>
         ) : (

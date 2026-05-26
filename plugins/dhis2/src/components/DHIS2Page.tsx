@@ -509,10 +509,36 @@ export const DHIS2Page = () => {
     setAutoScroll(true);
     appendProvisionLog(`Starting provisioning for "${request.name}".`);
 
-    // VMID and email come from saved settings — the script requires both.
+    // Email comes from saved settings; VMID is allocated by backend via
+    // Proxmox /cluster/nextid at submit time.
     const settings = settingsService.load();
-    const vmid = settings.proxmox.vmidStart || 200;
     const email = proxySettings.letsencryptEmail || settings.proxy.letsencryptEmail || 'admin@example.com';
+    const proxmoxOverrides = (() => {
+      const pm = settings.proxmox;
+      const apiUrl = (pm.apiUrl ?? '').trim();
+      const tokenId = (pm.tokenId ?? '').trim();
+      const tokenSecret = (pm.tokenSecret ?? '').trim();
+      const username = (pm.username ?? '').trim();
+      const fields: {
+        apiUrl?: string;
+        apiUser?: string;
+        apiTokenId?: string;
+        apiTokenSecret?: string;
+        validateApiCerts?: boolean;
+      } = {};
+      if (apiUrl) fields.apiUrl = apiUrl;
+      if (pm.authMethod === 'token') {
+        if (tokenId) fields.apiTokenId = tokenId;
+        if (tokenSecret) fields.apiTokenSecret = tokenSecret;
+        // If tokenId already encodes the user (root@pam!backstage), the
+        // backend extracts the user from it. Otherwise fall back to the
+        // explicit username field when set.
+        if (!tokenId.includes('!') && username) fields.apiUser = username;
+      }
+      // Always forward TLS preference so it tracks the panel toggle.
+      fields.validateApiCerts = Boolean(pm.verifyTls);
+      return Object.keys(fields).length > 0 ? fields : undefined;
+    })();
 
     // If the operator has configured a shared/external PostgreSQL host in
     // Database Configurations, route the new instance's database there. The
@@ -527,7 +553,7 @@ export const DHIS2Page = () => {
       domain: derivedDomain,
       version: request.version,
       node: request.node,
-      vmid,
+      vmid: 0,
       hostname: request.name,
       email,
       resources: request.resources,
@@ -563,32 +589,7 @@ export const DHIS2Page = () => {
       // (PROXMOX_API_URL / PROXMOX_USER / PROXMOX_TOKEN_ID /
       // PROXMOX_TOKEN_SECRET) per-job. Only non-empty fields are sent —
       // anything blank falls back to the backend config / env vars.
-      proxmox: (() => {
-        const pm = settings.proxmox;
-        const apiUrl = (pm.apiUrl ?? '').trim();
-        const tokenId = (pm.tokenId ?? '').trim();
-        const tokenSecret = (pm.tokenSecret ?? '').trim();
-        const username = (pm.username ?? '').trim();
-        const fields: {
-          apiUrl?: string;
-          apiUser?: string;
-          apiTokenId?: string;
-          apiTokenSecret?: string;
-          validateApiCerts?: boolean;
-        } = {};
-        if (apiUrl) fields.apiUrl = apiUrl;
-        if (pm.authMethod === 'token') {
-          if (tokenId) fields.apiTokenId = tokenId;
-          if (tokenSecret) fields.apiTokenSecret = tokenSecret;
-          // If tokenId already encodes the user (root@pam!backstage), the
-          // backend extracts the user from it. Otherwise fall back to the
-          // explicit username field when set.
-          if (!tokenId.includes('!') && username) fields.apiUser = username;
-        }
-        // Always forward TLS preference so it tracks the panel toggle.
-        fields.validateApiCerts = Boolean(pm.verifyTls);
-        return Object.keys(fields).length > 0 ? fields : undefined;
-      })(),
+      proxmox: proxmoxOverrides,
       // Forward Reverse-Proxy panel settings so Phase 5's `proxy` role
       // SSHes to the dedicated proxy server (host, port, user, key)
       // and writes nginx configs to the operator-chosen directory using
@@ -628,6 +629,12 @@ export const DHIS2Page = () => {
     try {
       updateStep('submit', 'running');
       const baseUrl = await discoveryApi.getBaseUrl('dhis2');
+      const vmid = await dhis2Service.getNextVmid(
+        baseUrl,
+        proxmoxOverrides,
+        backstageFetch,
+      );
+      provisionPayload.vmid = vmid;
       const { jobId } = await dhis2Service.startProvisionJob(
         baseUrl,
         provisionPayload,

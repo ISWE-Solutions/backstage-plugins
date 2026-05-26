@@ -109,10 +109,28 @@
   become: "{{ not _dhis2_restore_remote }}"
   when: dhis2_restore.kind == 'local'
 
-# For kinds 'upload', 'vzdump', and 'instance' the orchestrator script has
-# already placed the dump at `local_staging_path` on the work host (the LXC
-# in local mode via stage_restore, the orchestrator filesystem in remote
-# mode). Just verify it exists.
+- name: Restore | pg_dump from source DHIS2 instance (runs on work host)
+  ansible.builtin.command:
+    cmd: >-
+      pg_dump
+      -h {{ dhis2_restore.source_host }}
+      -p {{ dhis2_restore.source_port | default(5432) }}
+      -U {{ dhis2_restore.source_user }}
+      -d {{ dhis2_restore.source_db }}
+      -Fc --no-owner --no-privileges
+      -f {{ _dhis2_restore_staged }}
+  environment:
+    PGPASSWORD: "{{ dhis2_restore.source_password | default('') }}"
+  delegate_to: "{{ _dhis2_restore_workhost }}"
+  become: "{{ not _dhis2_restore_remote }}"
+  become_user: "{{ omit if _dhis2_restore_remote else 'postgres' }}"
+  when: dhis2_restore.kind == 'instance'
+  no_log: true
+
+# For kinds 'upload' and 'vzdump' the orchestrator has placed the dump at
+# `local_staging_path` on the work host (the LXC in local mode via
+# stage_restore, the orchestrator filesystem in remote mode). For
+# 'instance' the pg_dump task above just created it. Just verify it exists.
 
 - name: Restore | verify staged dump exists
   ansible.builtin.stat:
@@ -124,7 +142,7 @@
 
 - name: Restore | fail if staged dump missing
   ansible.builtin.fail:
-    msg: "Expected pre-staged dump at {{ _dhis2_restore_staged }} on {{ _dhis2_restore_workhost }} but it was not found."
+    msg: "Expected staged dump at {{ _dhis2_restore_staged }} on {{ _dhis2_restore_workhost }} but it was not found."
   when:
     - dhis2_restore.kind in ['upload', 'vzdump', 'instance']
     - not _dhis2_restore_stat.stat.exists

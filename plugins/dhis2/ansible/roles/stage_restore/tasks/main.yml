@@ -8,8 +8,8 @@
 # Supported dhis2_restore.kind values handled here:
 #   upload    — file already exists on the controller at .controller_path;
 #               we copy it into the container at .local_staging_path.
-#   instance  — controller did a pg_dump and the result lives at
-#               .controller_path; copy into container same as upload.
+#   instance  — pg_dump runs in-container (postgres role) against the
+#               source DHIS2 instance; nothing to stage here.
 #   url|s3    — nothing to do (downloaded inside the dhis2 role).
 #   local     — file on a Proxmox host; not yet supported in API-only mode.
 #   vzdump    — vzdump archive on a Proxmox host; not yet supported in
@@ -36,11 +36,11 @@
       instead, or open an issue to add SSH-to-PVE delegation for this kind.
   when: dhis2_restore.kind in ['local', 'vzdump']
 
-- name: No staging needed for url/s3 (handled inside the container)
+- name: No staging needed for url/s3/instance (handled in-container by postgres role)
   ansible.builtin.meta: end_play
-  when: dhis2_restore.kind in ['url', 's3']
+  when: dhis2_restore.kind in ['url', 's3', 'instance']
 
-- name: Validate upload/instance staging spec
+- name: Validate upload staging spec
   ansible.builtin.assert:
     that:
       - dhis2_restore.controller_path is defined

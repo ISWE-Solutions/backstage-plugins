@@ -876,6 +876,45 @@ export class DHIS2Service {
   }
 
   /**
+   * Ask the backend to allocate the next available Proxmox VMID using
+   * `/cluster/nextid`.
+   */
+  async getNextVmid(
+    baseUrl: string,
+    proxmox?: ProvisionInstancePayload['proxmox'],
+    fetchFn: typeof fetch = (...args) => fetch(...args),
+  ): Promise<number> {
+    const res = await fetchWithLifecycleRetry(
+      fetchFn,
+      `${baseUrl}/instances/next-vmid`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ proxmox }),
+      },
+    );
+    if (!res.ok) {
+      let msg = `Next VMID request failed (HTTP ${res.status})`;
+      try {
+        const body = await res.json();
+        const err = body?.error;
+        if (typeof err === 'string' && err.trim()) {
+          msg = err;
+        }
+      } catch {
+        // ignore body parse failure
+      }
+      throw new Error(msg);
+    }
+    const body = (await res.json()) as { vmid?: number | string };
+    const vmid = typeof body.vmid === 'number' ? body.vmid : Number(body.vmid);
+    if (!Number.isInteger(vmid) || vmid <= 0) {
+      throw new Error('Backend returned an invalid VMID');
+    }
+    return vmid;
+  }
+
+  /**
    * Start a decommission job on the backend. Returns the job id; the
    * caller polls `getProvisionJob(jobId)` for progress updates (same
    * endpoint and snapshot shape as a provision job).

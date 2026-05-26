@@ -124,13 +124,17 @@ export class RestoreService {
    * Upload a dump file to the backend staging area. Returns an opaque
    * token that is then included in a `RestoreSource` of kind `upload`.
    *
-   * Backend contract (when implemented):
-   *   POST {baseUrl}/restore/upload   (multipart/form-data, field: "file")
+   * Backend contract:
+   *   POST {baseUrl}/restore/upload
+   *     Content-Type: application/octet-stream
+   *     X-Filename:   <original filename>
+   *     body:         raw bytes of the dump file
    *   200 : UploadResult
    *
    * Uses `XMLHttpRequest` rather than `fetch` so we can surface real
-   * upload progress to the UI. Falls back to a deterministic mock token
-   * when the backend route is not yet wired up.
+   * upload progress to the UI. Streams the raw file bytes rather than
+   * wrapping them in multipart/form-data so the backend can stage to
+   * disk without pulling in a multipart parser dependency.
    */
   async uploadDump(file: File, onProgress?: UploadProgress): Promise<UploadResult> {
     if (file.size > MAX_UPLOAD_BYTES) {
@@ -145,6 +149,8 @@ export class RestoreService {
       const xhr = new XMLHttpRequest();
       const url = `${this.baseUrl}/restore/upload`;
       xhr.open('POST', url, true);
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+      xhr.setRequestHeader('X-Filename', file.name);
 
       xhr.upload.onprogress = ev => {
         if (onProgress && ev.lengthComputable) {
@@ -158,45 +164,29 @@ export class RestoreService {
             const body = JSON.parse(xhr.responseText) as UploadResult;
             resolve(body);
           } catch (e) {
-            reject(new Error(`Upload succeeded but response was not JSON: ${(e as Error).message}`));
+            reject(
+              new Error(
+                `Upload succeeded but response was not JSON: ${(e as Error).message}`,
+              ),
+            );
           }
           return;
         }
-        if (xhr.status === 0 || xhr.status === 404) {
-          // Backend not wired up yet → return a mock token so the UI
-          // can be exercised end-to-end against the stub service.
-          // eslint-disable-next-line no-console
-          console.warn(
-            `[dhis2] ${url} returned ${xhr.status}; using mock upload token. ` +
-              'Wire up the backend to enable real uploads.',
-          );
-          if (onProgress) onProgress(file.size, file.size);
-          resolve({
-            uploadToken: `mock-upload-${Date.now()}`,
-            sizeBytes: file.size,
-            expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-          });
-          return;
+        let detail = `${xhr.status} ${xhr.statusText}`;
+        try {
+          const parsed = JSON.parse(xhr.responseText);
+          if (parsed && typeof parsed.error === 'string') detail = parsed.error;
+        } catch {
+          /* response body wasn't JSON; keep the status line */
         }
-        reject(new Error(`Upload failed: HTTP ${xhr.status} ${xhr.statusText}`));
+        reject(new Error(`Upload failed: ${detail}`));
       };
 
       xhr.onerror = () => {
-        // Network error (typical when backend isn't there yet) — same
-        // graceful fallback as the 404 branch.
-        // eslint-disable-next-line no-console
-        console.warn(`[dhis2] network error uploading to ${url}; using mock token.`);
-        if (onProgress) onProgress(file.size, file.size);
-        resolve({
-          uploadToken: `mock-upload-${Date.now()}`,
-          sizeBytes: file.size,
-          expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-        });
+        reject(new Error(`Network error while uploading to ${url}`));
       };
 
-      const form = new FormData();
-      form.append('file', file, file.name);
-      xhr.send(form);
+      xhr.send(file);
     });
   }
 
@@ -212,31 +202,12 @@ export class RestoreService {
     const url = `${this.baseUrl}/proxmox/${encodeURIComponent(
       node,
     )}/storage/${encodeURIComponent(storage)}/backups`;
-    try {
-      const res = await this.fetchImpl(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const body = (await res.json()) as { data?: VzdumpBackup[] };
-      return body.data ?? [];
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.warn(`[dhis2] failed to list vzdump backups (${(e as Error).message}); returning mock list.`);
-      return [
-        {
-          volid: `${storage}:backup/vzdump-lxc-100-2026_05_01-02_00_00.tar.zst`,
-          vmid: 100,
-          size: 1024 ** 3 * 4,
-          ctime: Math.floor(Date.now() / 1000) - 86_400 * 3,
-          notes: 'dhis2-prod nightly',
-        },
-        {
-          volid: `${storage}:backup/vzdump-lxc-101-2026_05_01-02_05_00.tar.zst`,
-          vmid: 101,
-          size: 1024 ** 3 * 2,
-          ctime: Math.floor(Date.now() / 1000) - 86_400 * 3,
-          notes: 'dhis2-test nightly',
-        },
-      ];
+    const res = await this.fetchImpl(url);
+    if (!res.ok) {
+      throw new Error(`Failed to list vzdump backups: HTTP ${res.status} ${res.statusText}`);
     }
+    const body = (await res.json()) as { data?: VzdumpBackup[] };
+    return body.data ?? [];
   }
 
   /**
@@ -262,26 +233,22 @@ export class RestoreService {
     source: RestoreSource,
   ): Promise<RestoreJob> {
     const url = `${this.baseUrl}/instances/${encodeURIComponent(instanceId)}/restore`;
-    try {
-      const res = await this.fetchImpl(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(source),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-      return (await res.json()) as RestoreJob;
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[dhis2] backend restore endpoint unavailable (${(e as Error).message}); returning mock job.`,
-      );
-      return {
-        jobId: `restore-${Date.now()}`,
-        instanceId,
-        status: 'queued',
-        startedAt: new Date().toISOString(),
-      };
+    const res = await this.fetchImpl(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(source),
+    });
+    if (!res.ok) {
+      let detail = `${res.status} ${res.statusText}`;
+      try {
+        const parsed = await res.json();
+        if (parsed && typeof parsed.error === 'string') detail = parsed.error;
+      } catch {
+        /* keep status line */
+      }
+      throw new Error(`Restore request failed: ${detail}`);
     }
+    return (await res.json()) as RestoreJob;
   }
 }
 

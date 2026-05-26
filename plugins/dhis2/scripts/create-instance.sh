@@ -389,18 +389,15 @@ if [[ -n "${RESTORE_SPEC}" ]]; then
             esac
             ;;
         instance)
-            SRC_HOST="$(jq -r '.source_host' "${RESTORE_SPEC}")"
-            SRC_DB="$(jq -r '.source_db' "${RESTORE_SPEC}")"
-            SRC_USER="$(jq -r '.source_user' "${RESTORE_SPEC}")"
-            SRC_PASS="$(jq -r '.source_password // empty' "${RESTORE_SPEC}")"
-            SRC_PORT="$(jq -r '.source_port // 5432' "${RESTORE_SPEC}")"
-            RESTORE_CONTROLLER_PATH="${WORK_DIR}/instance-dump.dump"
-            log "pg_dump ${SRC_USER}@${SRC_HOST}:${SRC_PORT}/${SRC_DB}"
-            PGPASSWORD="${SRC_PASS}" pg_dump \
-                -h "${SRC_HOST}" -p "${SRC_PORT}" \
-                -U "${SRC_USER}" -d "${SRC_DB}" \
-                -Fc --no-owner --no-privileges \
-                -f "${RESTORE_CONTROLLER_PATH}"
+            # pg_dump runs on the target work host via the postgres role
+            # (delegate_to inventory_hostname in local mode, 127.0.0.1 in
+            # remote-DB mode). The orchestrator only validates the spec
+            # and tells Ansible where to drop the resulting dump.
+            for f in source_host source_db source_user source_password; do
+                v="$(jq -r --arg k "$f" '.[$k] // empty' "${RESTORE_SPEC}")"
+                [[ -n "$v" ]] || { echo "restore spec for kind=instance missing required field: $f" >&2; exit 2; }
+            done
+            RESTORE_CONTROLLER_PATH=""
             RESTORE_STAGED_IN_CT="/var/lib/dhis2-restore/dump.dump"
             ;;
         url|s3)
@@ -415,9 +412,11 @@ if [[ -n "${RESTORE_SPEC}" ]]; then
             echo "unsupported restore kind: ${RESTORE_KIND}" >&2; exit 2 ;;
     esac
 
-    # Render the dhis2_restore YAML block. For staged kinds we inject both
+    # Render the dhis2_restore YAML block. For 'upload' we inject both
     # controller_path (consumed by the stage_restore role) and
     # local_staging_path (consumed by the postgres role's restore tasks).
+    # For 'instance' we only inject local_staging_path — the pg_dump task
+    # in the postgres role writes the dump to that path on the work host.
     #
     # When the operator has configured a shared PostgreSQL host (remote
     # mode), the postgres role runs the restore from the orchestrator and
@@ -426,15 +425,17 @@ if [[ -n "${RESTORE_SPEC}" ]]; then
     # stage_restore role short-circuits in remote mode and never copies
     # the file into the LXC.
     if [[ -n "${DB_HOST}" && "${DB_HOST}" != "localhost" && "${DB_HOST}" != "127.0.0.1" && "${DB_HOST}" != "postgres" ]]; then
-        _staged_for_yaml="${RESTORE_CONTROLLER_PATH}"
+        _staged_for_yaml="${RESTORE_CONTROLLER_PATH:-${WORK_DIR}/dump.dump}"
     else
         _staged_for_yaml="${RESTORE_STAGED_IN_CT}"
     fi
     RESTORE_YAML_BLOCK="$(
         jq -r --arg staged "${_staged_for_yaml}" \
               --arg ctrl "${RESTORE_CONTROLLER_PATH}" '
-          . + (if (.kind == "upload" or .kind == "instance")
+          . + (if .kind == "upload"
                then { local_staging_path: $staged, controller_path: $ctrl }
+               elif .kind == "instance"
+               then { local_staging_path: $staged }
                else {} end)
           | "dhis2_restore:\n" + (
               to_entries
