@@ -28,6 +28,7 @@ import {
 } from '@material-ui/core';
 import RefreshIcon from '@material-ui/icons/Refresh';
 import SettingsBackupRestoreIcon from '@material-ui/icons/SettingsBackupRestore';
+import VpnKeyIcon from '@material-ui/icons/VpnKey';
 import FileCopyIcon from '@material-ui/icons/FileCopy';
 import VisibilityIcon from '@material-ui/icons/Visibility';
 import VisibilityOffIcon from '@material-ui/icons/VisibilityOff';
@@ -48,6 +49,20 @@ import { dhis2Service } from '../services/dhis2Service';
 import { settingsService } from '../services/settingsService';
 import { validateRestoreSource } from '../services/restoreService';
 import { RestoreSourcePicker } from './RestoreSourcePicker';
+
+// Cryptographically strong password generator: characters drawn from a
+// URL-safe alphabet that includes a few symbols Postgres accepts in passwords.
+const PASSWORD_ALPHABET =
+  'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789-_!@#%*';
+function generateStrongPassword(length = 13): string {
+  const bytes = new Uint32Array(length);
+  (globalThis.crypto ?? (window as any).crypto).getRandomValues(bytes);
+  let out = '';
+  for (let i = 0; i < length; i++) {
+    out += PASSWORD_ALPHABET[bytes[i] % PASSWORD_ALPHABET.length];
+  }
+  return out;
+}
 
 const useStyles = makeStyles(theme => ({
   formField: {
@@ -166,6 +181,13 @@ export const CreateInstanceDialog = ({
   const [createDbAccount, setCreateDbAccount] = useState(false);
   const [showDbPassword, setShowDbPassword] = useState(false);
   const [showAdminDbPassword, setShowAdminDbPassword] = useState(false);
+  // Credentials of the per-instance PostgreSQL role that will be created
+  // when "Create a new database account" is ticked. Kept separate from the
+  // "existing database" role credentials (newInstance.database.user/password)
+  // so each section can carry its own values.
+  const [newDbUser, setNewDbUser] = useState('');
+  const [newDbPassword, setNewDbPassword] = useState('');
+  const [showNewDbPassword, setShowNewDbPassword] = useState(false);
 
   // "Connect to an existing database" option.
   const [useExistingDb, setUseExistingDb] = useState(false);
@@ -299,11 +321,17 @@ export const CreateInstanceDialog = ({
       if (!dhis2Settings.postgresAdminPassword)
         return 'PostgreSQL admin password is required when using a remote PostgreSQL server.';
     }
-    if (useExistingDb || createDbAccount) {
+    if (useExistingDb) {
       if (!newInstance.database.user.trim())
         return 'DHIS2 role username is required.';
       if (!newInstance.database.password)
         return 'DHIS2 role password is required.';
+    }
+    if (createDbAccount) {
+      if (!newDbUser.trim())
+        return 'New database account username is required.';
+      if (!newDbPassword)
+        return 'New database account password is required.';
     }
     return null;
   })();
@@ -365,8 +393,8 @@ export const CreateInstanceDialog = ({
       // ownership of the database.
       newDbAccount: createDbAccount
         ? {
-            user: newInstance.database.user,
-            password: newInstance.database.password,
+            user: newDbUser,
+            password: newDbPassword,
           }
         : undefined,
       dhisConfTemplate:
@@ -406,15 +434,31 @@ export const CreateInstanceDialog = ({
             setNewInstance(prev => {
               const dbNameInSync =
                 !prev.database.name || prev.database.name === prev.name;
+              // Keep the existing-DB role username in sync with the instance
+              // name while the operator hasn't customised it (defaults to
+              // 'dhis2' when the name is empty).
+              const dbUserInSync =
+                !prev.database.user ||
+                prev.database.user === prev.name ||
+                prev.database.user === 'dhis2';
               return {
                 ...prev,
                 name: newName,
                 database: {
                   ...prev.database,
                   name: dbNameInSync ? newName : prev.database.name,
+                  user: dbUserInSync
+                    ? newName || 'dhis2'
+                    : prev.database.user,
                 },
               };
             });
+            // Same auto-sync for the new-account username.
+            setNewDbUser(prev =>
+              !prev || prev === newInstance.name || prev === 'dhis2'
+                ? newName || 'dhis2'
+                : prev,
+            );
           }}
           className={classes.formField}
           helperText="Used as the proxy path segment and as the default database name"
@@ -834,7 +878,21 @@ export const CreateInstanceDialog = ({
                 onChange={e => {
                   const next = e.target.checked;
                   setUseExistingDb(next);
-                  if (!next) {
+                  if (next) {
+                    // Seed the existing-DB role username with a sensible
+                    // default if the field is empty.
+                    setNewInstance(prev =>
+                      prev.database.user
+                        ? prev
+                        : {
+                            ...prev,
+                            database: {
+                              ...prev.database,
+                              user: prev.name || 'dhis2',
+                            },
+                          },
+                    );
+                  } else {
                     setAvailableDatabases([]);
                     setDatabasesError(null);
                     setDbTestResult(null);
@@ -849,7 +907,7 @@ export const CreateInstanceDialog = ({
             variant="outlined"
             size="small"
             onClick={() => fetchExistingDatabases()}
-            disabled={loadingDatabases}
+            disabled={!useExistingDb || loadingDatabases}
             startIcon={
               loadingDatabases ? <CircularProgress size={16} /> : undefined
             }
@@ -946,27 +1004,7 @@ export const CreateInstanceDialog = ({
             InputLabelProps={{ shrink: true }}
           />
         )}
-        <FormControlLabel
-          control={
-            <Checkbox
-              checked={createDbAccount}
-              onChange={e => setCreateDbAccount(e.target.checked)}
-              color="primary"
-            />
-          }
-          label="Create a new database account for this instance"
-        />
-        <Typography
-          variant="caption"
-          color="textSecondary"
-          component="div"
-          style={{ marginBottom: 8 }}
-        >
-          Tick to create a new PostgreSQL role in addition to using the
-          credentials above. The new role will be granted ownership of the
-          database.
-        </Typography>
-        {(useExistingDb || createDbAccount) && (
+        {useExistingDb && (
           <Grid container spacing={2}>
             <Grid item xs={6} sm={6} md={4}>
               <TextField
@@ -984,11 +1022,7 @@ export const CreateInstanceDialog = ({
                 }
                 className={classes.formField}
                 required
-                helperText={
-                  createDbAccount
-                    ? 'PostgreSQL role to be created on the shared host and used by DHIS2 at runtime.'
-                    : 'PostgreSQL role DHIS2 will authenticate as at runtime (must already exist unless you tick "Create a new database account" above).'
-                }
+                helperText='PostgreSQL role DHIS2 will authenticate as at runtime (must already exist unless you tick "Create a new database account" below).'
               />
             </Grid>
             <Grid item xs={12} sm={6} md={6}>
@@ -1013,9 +1047,7 @@ export const CreateInstanceDialog = ({
                     <InputAdornment position="end">
                       <Tooltip
                         title={
-                          showDbPassword
-                            ? 'Hide password'
-                            : 'Show password'
+                          showDbPassword ? 'Hide password' : 'Show password'
                         }
                       >
                         <IconButton
@@ -1027,6 +1059,95 @@ export const CreateInstanceDialog = ({
                           ) : (
                             <VisibilityIcon fontSize="small" />
                           )}
+                        </IconButton>
+                      </Tooltip>
+                    </InputAdornment>
+                  ),
+                }}
+              />
+            </Grid>
+          </Grid>
+        )}
+        <FormControlLabel
+          control={
+            <Checkbox
+              checked={createDbAccount}
+              onChange={e => {
+                const next = e.target.checked;
+                setCreateDbAccount(next);
+                if (next) {
+                  // Seed sensible defaults: username from instance name
+                  // (or 'dhis2') and a strong generated password.
+                  setNewDbUser(prev => prev || newInstance.name || 'dhis2');
+                  setNewDbPassword(
+                    prev => prev || generateStrongPassword(),
+                  );
+                }
+              }}
+              color="primary"
+            />
+          }
+          label="Create a new database account for this instance"
+        />
+        <Typography
+          variant="caption"
+          color="textSecondary"
+          component="div"
+          style={{ marginBottom: 8 }}
+        >
+          Tick to create a new PostgreSQL role in addition to using the
+          credentials above. The new role will be granted ownership of the
+          database.
+        </Typography>
+        {createDbAccount && (
+          <Grid container spacing={2}>
+            <Grid item xs={6} sm={6} md={4}>
+              <TextField
+                fullWidth
+                label="New DHIS2 role username"
+                value={newDbUser}
+                onChange={e => setNewDbUser(e.target.value)}
+                className={classes.formField}
+                required
+                helperText="PostgreSQL role to be created on the shared host and granted ownership of the database."
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={6}>
+              <TextField
+                fullWidth
+                type={showNewDbPassword ? 'text' : 'password'}
+                label="New DHIS2 role password"
+                value={newDbPassword}
+                onChange={e => setNewDbPassword(e.target.value)}
+                className={classes.formField}
+                required
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <Tooltip
+                        title={
+                          showNewDbPassword ? 'Hide password' : 'Show password'
+                        }
+                      >
+                        <IconButton
+                          size="small"
+                          onClick={() => setShowNewDbPassword(s => !s)}
+                        >
+                          {showNewDbPassword ? (
+                            <VisibilityOffIcon fontSize="small" />
+                          ) : (
+                            <VisibilityIcon fontSize="small" />
+                          )}
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Generate strong password">
+                        <IconButton
+                          size="small"
+                          onClick={() =>
+                            setNewDbPassword(generateStrongPassword())
+                          }
+                        >
+                          <VpnKeyIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
                     </InputAdornment>
