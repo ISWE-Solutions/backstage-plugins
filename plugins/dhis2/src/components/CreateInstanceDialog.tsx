@@ -321,7 +321,11 @@ export const CreateInstanceDialog = ({
       if (!dhis2Settings.postgresAdminPassword)
         return 'PostgreSQL admin password is required when using a remote PostgreSQL server.';
     }
-    if (useExistingDb) {
+    if (useExistingDb && !useRemoteDb) {
+      // For a remote PostgreSQL server we allow the DHIS2 role to be left
+      // blank and fall back to the admin credentials at runtime. For the
+      // local (in-LXC) flow no such fallback exists, so the role pair is
+      // still required here.
       if (!newInstance.database.user.trim())
         return 'DHIS2 role username is required.';
       if (!newInstance.database.password)
@@ -367,6 +371,18 @@ export const CreateInstanceDialog = ({
       newInstance.database.name && newInstance.database.name.trim() !== ''
         ? newInstance.database.name
         : newInstance.name;
+    // When connecting to an existing database on a remote PostgreSQL server,
+    // allow the DHIS2 role credentials to fall back to the admin user. This
+    // lets operators wire up DHIS2 against a pre-existing database without
+    // first creating a dedicated role.
+    const effectiveDbUser =
+      useExistingDb && useRemoteDb && !newInstance.database.user.trim()
+        ? dhis2Settings.postgresAdminUser
+        : newInstance.database.user;
+    const effectiveDbPassword =
+      useExistingDb && useRemoteDb && !newInstance.database.password
+        ? dhis2Settings.postgresAdminPassword
+        : newInstance.database.password;
     // When the operator has not enabled the "remote PostgreSQL server"
     // toggle, the orchestrator installs PostgreSQL inside the new LXC.
     // Clear any inherited shared-host defaults so the backend doesn't
@@ -381,6 +397,8 @@ export const CreateInstanceDialog = ({
       database: {
         ...newInstance.database,
         name: dbName,
+        user: effectiveDbUser,
+        password: effectiveDbPassword,
         existing: useExistingDb ? true : undefined,
         host:
           useRemoteDb && useExistingDb ? dhis2Settings.postgresHost : undefined,
@@ -1021,8 +1039,19 @@ export const CreateInstanceDialog = ({
                   })
                 }
                 className={classes.formField}
-                required
-                helperText='PostgreSQL role DHIS2 will authenticate as at runtime (must already exist unless you tick "Create a new database account" below).'
+                required={!useRemoteDb}
+                placeholder={
+                  useRemoteDb
+                    ? dhis2Settings.postgresAdminUser ||
+                      'falls back to admin user'
+                    : undefined
+                }
+                InputLabelProps={useRemoteDb ? { shrink: true } : undefined}
+                helperText={
+                  useRemoteDb
+                    ? `PostgreSQL role DHIS2 will authenticate as at runtime. Leave blank to fall back to the admin user (${dhis2Settings.postgresAdminUser || 'postgres'}).`
+                    : 'PostgreSQL role DHIS2 will authenticate as at runtime (must already exist unless you tick "Create a new database account" below).'
+                }
               />
             </Grid>
             <Grid item xs={12} sm={6} md={6}>
@@ -1041,7 +1070,16 @@ export const CreateInstanceDialog = ({
                   })
                 }
                 className={classes.formField}
-                required
+                required={!useRemoteDb}
+                placeholder={
+                  useRemoteDb ? 'falls back to admin password' : undefined
+                }
+                InputLabelProps={useRemoteDb ? { shrink: true } : undefined}
+                helperText={
+                  useRemoteDb
+                    ? 'Leave blank to fall back to the admin password.'
+                    : undefined
+                }
                 InputProps={{
                   endAdornment: (
                     <InputAdornment position="end">
