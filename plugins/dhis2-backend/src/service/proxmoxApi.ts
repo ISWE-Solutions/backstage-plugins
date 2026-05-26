@@ -82,8 +82,9 @@ async function request<T>(
   }
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+  let res: any;
   try {
-    const res = await nodeFetch(url, {
+    res = await nodeFetch(url, {
       method,
       headers,
       body: payload,
@@ -92,6 +93,34 @@ async function request<T>(
       // Otherwise leave the default agent so the system CAs apply.
       agent: c.validateCerts ? undefined : insecureAgent,
     });
+  } catch (err) {
+    // Node's global fetch (undici) wraps the underlying transport error
+    // in a generic `TypeError: fetch failed` and stashes the real cause
+    // (ENOTFOUND, ECONNREFUSED, self-signed cert, etc.) on `.cause`.
+    // Surface that so callers/operators see something actionable.
+    clearTimeout(timer);
+    const cause = (err as { cause?: unknown }).cause;
+    const causeMsg =
+      cause instanceof Error
+        ? cause.message
+        : cause
+        ? String(cause)
+        : undefined;
+    const codeSuffix =
+      cause &&
+      typeof (cause as { code?: unknown }).code === 'string' &&
+      causeMsg &&
+      !causeMsg.includes((cause as { code: string }).code)
+        ? ` [${(cause as { code: string }).code}]`
+        : '';
+    const base = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Proxmox ${method} ${path} (${url}) failed: ${base}${
+        causeMsg ? ` — ${causeMsg}${codeSuffix}` : ''
+      }`,
+    );
+  }
+  try {
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(
