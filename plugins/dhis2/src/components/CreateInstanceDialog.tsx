@@ -942,61 +942,7 @@ export const CreateInstanceDialog = ({
             {dbTestResult.message}
           </Alert>
         )}
-        {useExistingDb ? (
-          <FormControl
-            fullWidth
-            className={classes.formField}
-            required
-            error={Boolean(databasesError)}
-          >
-            <InputLabel>Database</InputLabel>
-            <Select
-              value={newInstance.database.name}
-              onChange={e =>
-                setNewInstance({
-                  ...newInstance,
-                  database: {
-                    ...newInstance.database,
-                    name: e.target.value as string,
-                  },
-                })
-              }
-              endAdornment={
-                <InputAdornment position="end" style={{ marginRight: 24 }}>
-                  <Tooltip title="Refresh database list">
-                    <span>
-                      <IconButton
-                        size="small"
-                        disabled={loadingDatabases}
-                        onClick={() => fetchExistingDatabases()}
-                      >
-                        <RefreshIcon fontSize="small" />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                </InputAdornment>
-              }
-            >
-              {availableDatabases.length === 0 && (
-                <MenuItem value="" disabled>
-                  {loadingDatabases
-                    ? 'Loading databases…'
-                    : 'Click "Test connection" to load databases'}
-                </MenuItem>
-              )}
-              {availableDatabases.map(db => (
-                <MenuItem key={db} value={db}>
-                  {db}
-                </MenuItem>
-              ))}
-            </Select>
-            <FormHelperText>
-              {databasesError
-                ? databasesError
-                : `Listed from ${dhis2Settings.postgresHost || '<host>'}:${dhis2Settings.postgresPort} as ${dhis2Settings.postgresAdminUser || '<admin>'}`}
-            </FormHelperText>
-          </FormControl>
-        ) : (
+        {!useExistingDb && (
           <TextField
             fullWidth
             label="Database Name"
@@ -1105,6 +1051,61 @@ export const CreateInstanceDialog = ({
               />
             </Grid>
           </Grid>
+        )}
+        {useExistingDb && (
+          <FormControl
+            fullWidth
+            className={classes.formField}
+            required
+            error={Boolean(databasesError)}
+          >
+            <InputLabel>Database</InputLabel>
+            <Select
+              value={newInstance.database.name}
+              onChange={e =>
+                setNewInstance({
+                  ...newInstance,
+                  database: {
+                    ...newInstance.database,
+                    name: e.target.value as string,
+                  },
+                })
+              }
+              endAdornment={
+                <InputAdornment position="end" style={{ marginRight: 24 }}>
+                  <Tooltip title="Refresh database list">
+                    <span>
+                      <IconButton
+                        size="small"
+                        disabled={loadingDatabases}
+                        onClick={() => fetchExistingDatabases()}
+                      >
+                        <RefreshIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </InputAdornment>
+              }
+            >
+              {availableDatabases.length === 0 && (
+                <MenuItem value="" disabled>
+                  {loadingDatabases
+                    ? 'Loading databases…'
+                    : 'Click "Test connection" to load databases'}
+                </MenuItem>
+              )}
+              {availableDatabases.map(db => (
+                <MenuItem key={db} value={db}>
+                  {db}
+                </MenuItem>
+              ))}
+            </Select>
+            <FormHelperText>
+              {databasesError
+                ? databasesError
+                : `Listed from ${dhis2Settings.postgresHost || '<host>'}:${dhis2Settings.postgresPort} as ${dhis2Settings.postgresAdminUser || '<admin>'}`}
+            </FormHelperText>
+          </FormControl>
         )}
         <FormControlLabel
           control={
