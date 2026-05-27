@@ -276,11 +276,7 @@
     cmd: >
       psql --single-transaction --set ON_ERROR_STOP=on
       -d {{ dhis2_db_name }} -f {{ _dhis2_restore_staged }}
-  environment:
-    PGHOST: "{{ dhis2_db_host if _dhis2_restore_remote else omit }}"
-    PGPORT: "{{ dhis2_db_port | string if _dhis2_restore_remote else omit }}"
-    PGUSER: "{{ dhis2_db_admin_user if _dhis2_restore_remote else omit }}"
-    PGPASSWORD: "{{ dhis2_db_admin_password if _dhis2_restore_remote else omit }}"
+  environment: "{{ {'PGHOST': dhis2_db_host, 'PGPORT': dhis2_db_port | string, 'PGUSER': dhis2_db_admin_user, 'PGPASSWORD': dhis2_db_admin_password} if _dhis2_restore_remote else {} }}"
   delegate_to: "{{ _dhis2_restore_workhost }}"
   become: "{{ not _dhis2_restore_remote }}"
   become_user: "{{ omit if _dhis2_restore_remote else 'postgres' }}"
@@ -293,11 +289,7 @@
       pg_restore --no-owner --role={{ dhis2_db_user }}
       --dbname={{ dhis2_db_name }} --jobs=4
       {{ _dhis2_restore_staged }}
-  environment:
-    PGHOST: "{{ dhis2_db_host if _dhis2_restore_remote else omit }}"
-    PGPORT: "{{ dhis2_db_port | string if _dhis2_restore_remote else omit }}"
-    PGUSER: "{{ dhis2_db_admin_user if _dhis2_restore_remote else omit }}"
-    PGPASSWORD: "{{ dhis2_db_admin_password if _dhis2_restore_remote else omit }}"
+  environment: "{{ {'PGHOST': dhis2_db_host, 'PGPORT': dhis2_db_port | string, 'PGUSER': dhis2_db_admin_user, 'PGPASSWORD': dhis2_db_admin_password} if _dhis2_restore_remote else {} }}"
   delegate_to: "{{ _dhis2_restore_workhost }}"
   become: "{{ not _dhis2_restore_remote }}"
   become_user: "{{ omit if _dhis2_restore_remote else 'postgres' }}"
@@ -314,11 +306,7 @@
       pg_restore --no-owner --role={{ dhis2_db_user }}
       --dbname={{ dhis2_db_name }} --jobs=4 --format=directory
       {{ _dhis2_restore_staged }}
-  environment:
-    PGHOST: "{{ dhis2_db_host if _dhis2_restore_remote else omit }}"
-    PGPORT: "{{ dhis2_db_port | string if _dhis2_restore_remote else omit }}"
-    PGUSER: "{{ dhis2_db_admin_user if _dhis2_restore_remote else omit }}"
-    PGPASSWORD: "{{ dhis2_db_admin_password if _dhis2_restore_remote else omit }}"
+  environment: "{{ {'PGHOST': dhis2_db_host, 'PGPORT': dhis2_db_port | string, 'PGUSER': dhis2_db_admin_user, 'PGPASSWORD': dhis2_db_admin_password} if _dhis2_restore_remote else {} }}"
   delegate_to: "{{ _dhis2_restore_workhost }}"
   become: "{{ not _dhis2_restore_remote }}"
   become_user: "{{ omit if _dhis2_restore_remote else 'postgres' }}"
