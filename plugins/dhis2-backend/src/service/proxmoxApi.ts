@@ -1,9 +1,19 @@
 import { LoggerService } from '@backstage/backend-plugin-api';
-import { Agent as HttpsAgent } from 'https';
 // Node 18+ exposes `fetch` globally; we keep an `any`-typed alias so this
 // file compiles without depending on a DOM lib type.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const nodeFetch: any = (globalThis as any).fetch;
+// Node's global fetch is backed by undici, which ignores the legacy
+// `agent` option used by node-fetch. To disable TLS verification (for
+// the typical self-signed Proxmox cert) we have to pass an undici
+// `Agent` as `dispatcher`. Loaded lazily so the file still type-checks
+// in environments where undici is unavailable.
+// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+const { Agent: UndiciAgent } = require('undici') as {
+  Agent: new (opts: {
+    connect?: { rejectUnauthorized?: boolean };
+  }) => unknown;
+};
 
 /**
  * Minimal Proxmox REST API client used by the dhis2-backend plugin to
@@ -40,7 +50,9 @@ export const DHIS2_TAGS = 'dhis2;backstage';
 /** The single tag we treat as the "managed by this plugin" marker. */
 export const DHIS2_PRIMARY_TAG = 'dhis2';
 
-const insecureAgent = new HttpsAgent({ rejectUnauthorized: false });
+const insecureDispatcher = new UndiciAgent({
+  connect: { rejectUnauthorized: false },
+});
 
 function authHeader(c: ProxmoxApiCredentials): string {
   return `PVEAPIToken=${c.apiUser}!${c.apiTokenId}=${c.apiTokenSecret}`;
@@ -89,9 +101,10 @@ async function request<T>(
       headers,
       body: payload,
       signal: ctrl.signal,
-      // For self-signed PVE certs (default), disable TLS verification.
-      // Otherwise leave the default agent so the system CAs apply.
-      agent: c.validateCerts ? undefined : insecureAgent,
+      // Node's global fetch (undici) ignores the legacy `agent` option;
+      // use `dispatcher` with an undici Agent so the rejectUnauthorized
+      // flag is actually honored when talking to a self-signed PVE cert.
+      dispatcher: c.validateCerts ? undefined : insecureDispatcher,
     });
   } catch (err) {
     // Node's global fetch (undici) wraps the underlying transport error
