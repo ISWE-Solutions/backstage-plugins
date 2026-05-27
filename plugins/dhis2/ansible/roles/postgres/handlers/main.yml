@@ -1,5 +1,39 @@
 ---
+# Restart the actual cluster instance (postgresql@<ver>-main), not the
+# oneshot meta unit. Bound with async so a misconfigured postgresql.conf
+# (e.g. shared_buffers > available memory) fails fast instead of hanging
+# the SSH/Ansible session for the systemd start-timeout (often infinity
+# on Ubuntu's postgresql@*.service).
 - name: Restart PostgreSQL
+  listen: Restart PostgreSQL
   ansible.builtin.systemd:
-    name: postgresql
+    name: "postgresql@{{ postgresql_version }}-main"
     state: restarted
+    daemon_reload: true
+  async: 180
+  poll: 5
+
+- name: Wait for PostgreSQL to accept connections after restart
+  listen: Restart PostgreSQL
+  ansible.builtin.command:
+    cmd: pg_isready -q -h /var/run/postgresql -p 5432
+  register: pg_isready_after_restart
+  retries: 30
+  delay: 2
+  until: pg_isready_after_restart.rc == 0
+  changed_when: false
+
+- name: Dump recent PostgreSQL journal on restart failure
+  listen: Restart PostgreSQL
+  ansible.builtin.command:
+    cmd: "journalctl -u postgresql@{{ postgresql_version }}-main -n 100 --no-pager"
+  register: pg_journal_on_failure
+  changed_when: false
+  failed_when: false
+  when: pg_isready_after_restart is failed
+
+- name: Show PostgreSQL journal on restart failure
+  listen: Restart PostgreSQL
+  ansible.builtin.debug:
+    var: pg_journal_on_failure.stdout_lines
+  when: pg_isready_after_restart is failed
