@@ -179,6 +179,7 @@
       set -euo pipefail;
       gunzip -c {{ _dhis2_restore_staged | quote }} > {{ _dhis2_restore_staged | quote }}.dec
       && mv {{ _dhis2_restore_staged | quote }}.dec {{ _dhis2_restore_staged | quote }}
+    executable: /bin/bash
   delegate_to: "{{ _dhis2_restore_workhost }}"
   become: "{{ not _dhis2_restore_remote }}"
   when: _dhis2_gz_test.rc == 0
@@ -190,6 +191,7 @@
       set -euo pipefail;
       zstd -d -c {{ _dhis2_restore_staged | quote }} > {{ _dhis2_restore_staged | quote }}.dec
       && mv {{ _dhis2_restore_staged | quote }}.dec {{ _dhis2_restore_staged | quote }}
+    executable: /bin/bash
   delegate_to: "{{ _dhis2_restore_workhost }}"
   become: "{{ not _dhis2_restore_remote }}"
   when:
