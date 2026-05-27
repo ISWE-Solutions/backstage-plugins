@@ -134,8 +134,8 @@ const buildInitialInstance = (
   node: '',
   resources: {
     cpu: 4,
-    memory: 8192,
-    storage: 100,
+    memory: 16384,
+    storage: 200,
   },
   database: {
     name: '',

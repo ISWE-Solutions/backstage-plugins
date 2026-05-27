@@ -1,11 +1,7 @@
 ---
 postgresql_version: 16
 postgresql_max_connections: 200
-# Conservative default that fits in any LXC >= 2GB RAM. Override per-instance
-# (e.g. via dhis2 group_vars or extra-vars) for larger deployments. Going too
-# high here can cause the post-tuning Restart PostgreSQL handler to hang when
-# the container has less RAM than expected.
-postgresql_shared_buffers: 512MB
+postgresql_shared_buffers: 2GB
 postgresql_extensions:
   - postgis
   - pg_trgm
