@@ -148,35 +148,54 @@
     - not _dhis2_restore_stat.stat.exists
 
 # ---------------------------------------------------------------------------
-# Decompress (.gz / .zst) if applicable — runs on the work host
+# Decompress (.gz / .zst) if applicable — runs on the work host.
+# Detection is by content (gzip -t / zstd -t) rather than filename suffix,
+# because the orchestrator stages downloads under a generic name like
+# dump.bin regardless of the original URL extension.
 # ---------------------------------------------------------------------------
 
-- name: Restore | decompress .gz dump
+- name: Restore | test whether staged dump is gzip-compressed
   ansible.builtin.command:
-    cmd: "gunzip -f {{ _dhis2_restore_staged }}"
-  args:
-    removes: "{{ _dhis2_restore_staged }}"
-    creates: "{{ _dhis2_restore_staged | regex_replace('\\.gz$', '') }}"
+    cmd: "gzip -t {{ _dhis2_restore_staged }}"
+  register: _dhis2_gz_test
+  changed_when: false
+  failed_when: false
   delegate_to: "{{ _dhis2_restore_workhost }}"
   become: "{{ not _dhis2_restore_remote }}"
-  when: _dhis2_restore_staged is match('.*\\.gz$')
-  register: _dhis2_gunzip
 
-- name: Restore | decompress .zst dump
+- name: Restore | test whether staged dump is zstd-compressed
   ansible.builtin.command:
-    cmd: "zstd -d -f --rm {{ _dhis2_restore_staged }}"
-  args:
-    removes: "{{ _dhis2_restore_staged }}"
-    creates: "{{ _dhis2_restore_staged | regex_replace('\\.zst$', '') }}"
+    cmd: "zstd -t -q {{ _dhis2_restore_staged }}"
+  register: _dhis2_zst_test
+  changed_when: false
+  failed_when: false
+  when: _dhis2_gz_test.rc != 0
   delegate_to: "{{ _dhis2_restore_workhost }}"
   become: "{{ not _dhis2_restore_remote }}"
-  when: _dhis2_restore_staged is match('.*\\.zst$')
-  register: _dhis2_unzstd
 
-- name: Restore | update staged path after decompression
-  ansible.builtin.set_fact:
-    _dhis2_restore_staged: "{{ _dhis2_restore_staged | regex_replace('\\.(gz|zst)$', '') }}"
-  when: _dhis2_gunzip.changed | default(false) or _dhis2_unzstd.changed | default(false)
+- name: Restore | decompress gzip dump in place
+  ansible.builtin.shell:
+    cmd: >-
+      set -euo pipefail;
+      gunzip -c {{ _dhis2_restore_staged | quote }} > {{ _dhis2_restore_staged | quote }}.dec
+      && mv {{ _dhis2_restore_staged | quote }}.dec {{ _dhis2_restore_staged | quote }}
+  delegate_to: "{{ _dhis2_restore_workhost }}"
+  become: "{{ not _dhis2_restore_remote }}"
+  when: _dhis2_gz_test.rc == 0
+  changed_when: true
+
+- name: Restore | decompress zstd dump in place
+  ansible.builtin.shell:
+    cmd: >-
+      set -euo pipefail;
+      zstd -d -c {{ _dhis2_restore_staged | quote }} > {{ _dhis2_restore_staged | quote }}.dec
+      && mv {{ _dhis2_restore_staged | quote }}.dec {{ _dhis2_restore_staged | quote }}
+  delegate_to: "{{ _dhis2_restore_workhost }}"
+  become: "{{ not _dhis2_restore_remote }}"
+  when:
+    - _dhis2_gz_test.rc != 0
+    - _dhis2_zst_test.rc | default(1) == 0
+  changed_when: true
 
 # ---------------------------------------------------------------------------
 # Format auto-detection (runs on the work host)
