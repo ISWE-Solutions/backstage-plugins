@@ -1081,20 +1081,48 @@ export class DHIS2Service {
 
   /**
    * Snapshot a running or completed provisioning job.
+   *
+   * Long-running jobs (e.g. DHIS2 restore + ANALYZE) can outlast a single
+   * proxy/keepalive window or trigger transient browser "Failed to fetch"
+   * errors when the laptop sleeps or the network blips. The poller in the
+   * UI treats any thrown error as terminal, so we absorb transient
+   * network/5xx failures here with bounded retries and only surface a
+   * hard error after sustained failure.
    */
   async getProvisionJob(
     baseUrl: string,
     jobId: string,
     fetchFn: typeof fetch = (...args) => fetch(...args),
   ): Promise<ProvisionJobSnapshot> {
-    const res = await fetchWithLifecycleRetry(
-      fetchFn,
-      `${baseUrl}/instances/jobs/${encodeURIComponent(jobId)}`,
-    );
-    if (!res.ok) {
-      throw new Error(`Failed to load job (HTTP ${res.status})`);
+    const url = `${baseUrl}/instances/jobs/${encodeURIComponent(jobId)}`;
+    const maxAttempts = 6;
+    let delay = 1000;
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const res = await fetchWithLifecycleRetry(fetchFn, url);
+        if (res.ok) {
+          return (await res.json()) as ProvisionJobSnapshot;
+        }
+        // 502/503/504 from nginx/proxy are transient — retry.
+        if (res.status === 502 || res.status === 503 || res.status === 504) {
+          lastErr = new Error(`HTTP ${res.status}`);
+        } else {
+          throw new Error(`Failed to load job (HTTP ${res.status})`);
+        }
+      } catch (err) {
+        // Browser network errors surface as TypeError "Failed to fetch".
+        // Treat them as transient; surface anything else immediately.
+        if (!(err instanceof TypeError)) throw err;
+        lastErr = err;
+      }
+      if (attempt < maxAttempts) {
+        await new Promise(r => setTimeout(r, delay));
+        delay = Math.min(8000, delay * 2);
+      }
     }
-    return (await res.json()) as ProvisionJobSnapshot;
+    const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
+    throw new Error(`Failed to load job after ${maxAttempts} attempts: ${msg}`);
   }
 
   /**

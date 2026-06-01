@@ -381,7 +381,7 @@
     # Bound the session so a lock conflict with post-COPY autovacuum can't
     # hang for hours. If ANALYZE is killed by the timeout, autovacuum will
     # rebuild stats in the background; DHIS2 boots fine either way.
-    query: "SET lock_timeout = '30s'; SET statement_timeout = '15min'; SET maintenance_work_mem = '512MB'; ANALYZE"
+    query: "SET lock_timeout = '30s'; SET statement_timeout = '5min'; SET maintenance_work_mem = '512MB'; ANALYZE"
     login_host: "{{ dhis2_db_host if _dhis2_restore_remote else omit }}"
     login_port: "{{ dhis2_db_port if _dhis2_restore_remote else omit }}"
     login_user: "{{ dhis2_db_admin_user if _dhis2_restore_remote else omit }}"
