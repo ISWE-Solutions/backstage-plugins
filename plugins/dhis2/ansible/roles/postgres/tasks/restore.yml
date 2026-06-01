@@ -345,7 +345,7 @@
 - name: Restore | reassign ownership to DHIS2 user
   community.postgresql.postgresql_query:
     db: "{{ dhis2_db_name }}"
-    query: "REASSIGN OWNED BY {{ dhis2_db_admin_user if _dhis2_restore_remote else 'postgres' }} TO {{ dhis2_db_user }}"
+    query: "SET lock_timeout = '30s'; SET statement_timeout = '60s'; REASSIGN OWNED BY {{ dhis2_db_admin_user }} TO {{ dhis2_db_user }}"
     login_host: "{{ dhis2_db_host if _dhis2_restore_remote else omit }}"
     login_port: "{{ dhis2_db_port if _dhis2_restore_remote else omit }}"
     login_user: "{{ dhis2_db_admin_user if _dhis2_restore_remote else omit }}"
@@ -353,6 +353,11 @@
   delegate_to: "{{ _dhis2_restore_workhost }}"
   become: "{{ not _dhis2_restore_remote }}"
   become_user: "{{ omit if _dhis2_restore_remote else 'postgres' }}"
+  # Only meaningful in remote/admin-mode where the admin role temporarily
+  # owned restored objects. In local mode the dump was loaded as the target
+  # role already, and REASSIGN OWNED BY postgres can never succeed (system
+  # objects) — it would just hang on locks against post-COPY autovacuum.
+  when: _dhis2_restore_remote and dhis2_db_admin_user != dhis2_db_user
   ignore_errors: true
 
 - name: Restore | re-grant privileges to DHIS2 user
