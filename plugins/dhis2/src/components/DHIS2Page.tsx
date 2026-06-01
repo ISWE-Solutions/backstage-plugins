@@ -146,6 +146,7 @@ type LogPhase =
   | 'Restore'
   | 'Common'
   | 'PostgreSQL'
+  | 'DBRestore'
   | 'DHIS2'
   | 'Nginx'
   | 'Finalize'
@@ -160,12 +161,23 @@ const PHASE_COLORS: Record<LogPhase, string> = {
   Restore: '#c084fc',
   Common: '#94a3b8',
   PostgreSQL: '#60a5fa',
+  DBRestore: '#a78bfa',
   DHIS2: '#34d399',
   Nginx: '#f472b6',
   Finalize: '#22d3ee',
   Error: '#f87171',
   General: '#6b7280',
 };
+
+// Human-friendly section headers shown in the activity log. Keys default to
+// the phase name when not listed here.
+const PHASE_LABELS: Partial<Record<LogPhase, string>> = {
+  Restore: 'Stage backup',
+  PostgreSQL: 'Database installation',
+  DBRestore: 'Database restore',
+};
+
+const phaseLabel = (phase: LogPhase): string => PHASE_LABELS[phase] ?? phase;
 
 const classifyPhase = (line: string, prev: LogPhase): LogPhase => {
   // Strip the leading "[hh:mm:ss] " timestamp that appendProvisionLog adds.
@@ -191,14 +203,22 @@ const classifyPhase = (line: string, prev: LogPhase): LogPhase => {
   }
 
   // TASK lines reveal which role is currently running inside Phase 4.
-  const taskMatch = raw.match(/TASK \[([a-zA-Z0-9_\-]+)\s*:/);
+  const taskMatch = raw.match(/TASK \[([a-zA-Z0-9_\-]+)\s*:\s*([^\]]*)\]/);
   if (taskMatch) {
     const role = taskMatch[1].toLowerCase();
+    const taskName = (taskMatch[2] || '').trim();
     if (role === 'pve_lxc') return 'Proxmox';
     if (role === 'lxc_bootstrap') return 'Bootstrap';
     if (role === 'stage_restore') return 'Restore';
     if (role === 'common') return 'Common';
-    if (role === 'postgres' || role === 'postgresql') return 'PostgreSQL';
+    if (role === 'postgres' || role === 'postgresql') {
+      // restore.yml inside the postgres role uses task names prefixed with
+      // "Restore |" — surface those under their own "Database restore"
+      // header so it's clear when the playbook moves from installing
+      // PostgreSQL/creating the DB to loading the dump.
+      if (/^Restore\s*\|/i.test(taskName)) return 'DBRestore';
+      return 'PostgreSQL';
+    }
     if (role === 'dhis2') return 'DHIS2';
     if (role === 'nginx' || role === 'proxy') return 'Nginx';
     return prev;
@@ -1700,7 +1720,7 @@ export const DHIS2Page = () => {
                             textTransform: 'uppercase',
                           }}
                         >
-                          {activePhase}
+                          {phaseLabel(activePhase)}
                           {!provisionDone && !provisionError && ' — running…'}
                         </Box>
                         {groups.map((group, gIdx) => {
@@ -1726,7 +1746,7 @@ export const DHIS2Page = () => {
                                   paddingBottom: 2,
                                 }}
                               >
-                                {group.phase}
+                                {phaseLabel(group.phase)}
                               </Box>
                               {group.lines.map((line, lIdx) => (
                                 <div
