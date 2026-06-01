@@ -109,6 +109,26 @@
         name: postgresql
         state: started
 
+# Apply tuning BEFORE any DB work (and before any restore). max_connections
+# and shared_buffers are start-time-only settings, so they require a full
+# restart. Doing the restart now — while the cluster is empty — is instant.
+# Doing it after a restore would force the handler to wait for WAL replay
+# (often 10-20 min), which previously appeared as a stalled provision.
+- name: Apply PostgreSQL tuning parameters
+  ansible.builtin.lineinfile:
+    path: "/etc/postgresql/{{ postgresql_version }}/main/postgresql.conf"
+    regexp: "^#?\\s*{{ item.key }}\\s*="
+    line: "{{ item.key }} = {{ item.value }}"
+    state: present
+  loop:
+    - { key: "max_connections", value: "{{ postgresql_max_connections }}" }
+    - { key: "shared_buffers", value: "{{ postgresql_shared_buffers }}" }
+  notify: Restart PostgreSQL
+  when: not (dhis2_db_remote | default(false) | bool)
+
+- name: Flush handlers so PostgreSQL restarts on the empty cluster
+  ansible.builtin.meta: flush_handlers
+
 # ---------------------------------------------------------------------------
 # Remote-mode preflight: confirm the orchestrator can reach the remote DB
 # before we try to create roles/databases there.
@@ -216,19 +236,3 @@
 - name: Restore database backup if requested
   ansible.builtin.include_tasks: restore.yml
   when: dhis2_restore is defined and dhis2_restore
-
-# ---------------------------------------------------------------------------
-# Local-install tuning (only relevant when PostgreSQL runs inside the LXC).
-# ---------------------------------------------------------------------------
-
-- name: Apply PostgreSQL tuning parameters
-  ansible.builtin.lineinfile:
-    path: "/etc/postgresql/{{ postgresql_version }}/main/postgresql.conf"
-    regexp: "^#?\\s*{{ item.key }}\\s*="
-    line: "{{ item.key }} = {{ item.value }}"
-    state: present
-  loop:
-    - { key: "max_connections", value: "{{ postgresql_max_connections }}" }
-    - { key: "shared_buffers", value: "{{ postgresql_shared_buffers }}" }
-  notify: Restart PostgreSQL
-  when: not (dhis2_db_remote | default(false) | bool)
