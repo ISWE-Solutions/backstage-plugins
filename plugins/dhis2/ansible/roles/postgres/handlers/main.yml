@@ -1,17 +1,18 @@
 ---
-# Restart the actual cluster instance (postgresql@<ver>-main), not the
-# oneshot meta unit. We deliberately shell out to `systemctl restart`
-# wrapped in `timeout` rather than using ansible.builtin.systemd here:
-# the systemd module returns the full unit-property dump (~150 keys,
-# several KB) on every poll, and with this playbook streamed through
-# the Backstage backend's spawn() pipe at -v that volume backs up the
-# stdout pipe and silently stalls ansible-playbook for 10–20 min before
-# it exits non-zero — even though the restart itself succeeded in ~1s.
-# `command:` emits one short line and avoids the pipe-stall entirely.
+# Restart the actual cluster instance (postgresql@<ver>-main). We shell
+# out instead of using ansible.builtin.systemd because that module dumps
+# the full unit-property block (~150 keys) per poll, which backs up the
+# Backstage backend's spawn() stdout pipe and stalls ansible 10-20 min.
+#
+# We also issue the restart with `--no-block` so systemctl returns as
+# soon as the job is queued. A blocking restart can hang for the entire
+# WAL-replay window after a fresh restore (often 10-20 min) and even
+# `timeout` cannot kill it cleanly because systemd holds the job. We
+# bound liveness via the pg_isready wait below instead (up to ~5 min).
 - name: Restart PostgreSQL
   listen: Restart PostgreSQL
   ansible.builtin.command:
-    cmd: "timeout 180 systemctl restart postgresql@{{ postgresql_version }}-main.service"
+    cmd: "systemctl restart --no-block postgresql@{{ postgresql_version }}-main.service"
   changed_when: true
 
 - name: Wait for PostgreSQL to accept connections after restart
@@ -19,10 +20,11 @@
   ansible.builtin.command:
     cmd: pg_isready -q -h /var/run/postgresql -p 5432
   register: pg_isready_after_restart
-  retries: 30
+  retries: 150
   delay: 2
   until: pg_isready_after_restart.rc == 0
   changed_when: false
+  failed_when: false
 
 - name: Dump recent PostgreSQL journal on restart failure
   listen: Restart PostgreSQL
