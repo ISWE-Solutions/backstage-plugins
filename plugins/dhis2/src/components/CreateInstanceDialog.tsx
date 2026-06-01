@@ -135,7 +135,7 @@ const buildInitialInstance = (
   resources: {
     cpu: 4,
     memory: 16384,
-    storage: 200,
+    storage: 40,
   },
   database: {
     name: '',
@@ -605,7 +605,7 @@ export const CreateInstanceDialog = ({
                   ...newInstance,
                   resources: {
                     ...newInstance.resources,
-                    cpu: parseInt(e.target.value, 10) || 1,
+                    cpu: e.target.value === '' ? ('' as any) : parseInt(e.target.value, 10),
                   },
                 })
               }
@@ -624,7 +624,7 @@ export const CreateInstanceDialog = ({
                   ...newInstance,
                   resources: {
                     ...newInstance.resources,
-                    memory: parseInt(e.target.value, 10) || 1024,
+                    memory: e.target.value === '' ? ('' as any) : parseInt(e.target.value, 10),
                   },
                 })
               }
@@ -643,7 +643,7 @@ export const CreateInstanceDialog = ({
                   ...newInstance,
                   resources: {
                     ...newInstance.resources,
-                    storage: parseInt(e.target.value, 10) || 20,
+                    storage: e.target.value === '' ? ('' as any) : parseInt(e.target.value, 10),
                   },
                 })
               }
@@ -665,7 +665,7 @@ export const CreateInstanceDialog = ({
                 })
               }
               className={classes.formField}
-              helperText="e.g. 4g"
+              helperText="e.g. 4G"
             />
           </Grid>
           <Grid item xs={6}>

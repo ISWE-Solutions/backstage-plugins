@@ -505,7 +505,7 @@ export interface OrchestrationLogEntry {
 
 export const DEFAULT_SETTINGS: DHIS2PluginSettings = {
   proxmox: {
-    apiUrl: 'https://pve.example.com:8006',
+    apiUrl: 'https://pve10.example.org:8006',
     useBackstageProxy: true,
     backstageProxyPath: '/api/proxy/proxmox',
     authMethod: 'token',
@@ -519,13 +519,13 @@ export const DEFAULT_SETTINGS: DHIS2PluginSettings = {
     // CERTIFICATE_VERIFY_FAILED at provision time. Operators with a
     // proper PKI can still re-enable it from the Proxmox Cluster panel.
     verifyTls: false,
-    defaultNode: 'pve1',
+    defaultNode: 'pve12',
     rootfsStorage: 'local-lvm',
     templateStorage: 'local',
     osTemplate: 'local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst',
     networkBridge: 'vmbr0',
     nameserver: '1.1.1.1 8.8.8.8',
-    searchDomain: 'example.com',
+    searchDomain: 'example.org',
     vmidStart: 200,
     unprivileged: true,
     startOnBoot: true,
@@ -552,11 +552,11 @@ export const DEFAULT_SETTINGS: DHIS2PluginSettings = {
   },
   dhis2: {
     defaultVersion: '2.40.3',
-    javaHeap: '4g',
+    javaHeap: '4G',
     tomcatPort: 8080,
     defaultCpu: 4,
-    defaultMemoryMb: 8192,
-    defaultStorageGb: 100,
+    defaultMemoryMb: 16384,
+    defaultStorageGb: 40,
     postgresHost: '',
     postgresPort: 5432,
     postgresAdminUser: 'postgres',
