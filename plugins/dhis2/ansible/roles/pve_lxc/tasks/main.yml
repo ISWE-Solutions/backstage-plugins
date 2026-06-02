@@ -97,7 +97,36 @@
     timeout: 120
   no_log: "{{ not (dhis2_debug | default(false) | bool) }}"
 
-- name: Wait for container interfaces to report an IPv4 address
+# Some LXC templates ship without openssh-server (or with sshd masked),
+# which makes the subsequent `Wait for SSH` step time out and breaks the
+# whole bootstrap. Install + enable it directly via `pct exec` on the PVE
+# host so we don't depend on SSH-into-container being already functional.
+- name: Ensure openssh-server is installed inside the LXC (via pct exec)
+  ansible.builtin.shell: |
+    set -e
+    ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+        {% if pve_ssh_port is defined %}-p {{ pve_ssh_port }}{% endif %} \
+        {% if pve_ssh_key | default('', true) | length > 0 %}-i {{ pve_ssh_key }}{% endif %} \
+        {{ pve_ssh_user | default('root') }}@{{ pve_ssh_host | default(pve_node) }} \
+        "pct exec {{ pve_vmid | int }} -- bash -lc '
+          set -e
+          if ! command -v sshd >/dev/null 2>&1 && ! dpkg -s openssh-server >/dev/null 2>&1; then
+            export DEBIAN_FRONTEND=noninteractive
+            for i in 1 2 3 4 5; do
+              apt-get update && apt-get install -y openssh-server && break
+              sleep 5
+            done
+          fi
+          systemctl unmask ssh 2>/dev/null || true
+          systemctl enable --now ssh
+        '"
+  args:
+    executable: /bin/bash
+  register: pve_lxc_sshd_install
+  changed_when: "'Setting up openssh-server' in (pve_lxc_sshd_install.stdout | default(''))"
+  no_log: "{{ not (dhis2_debug | default(false) | bool) }}"
+
+
   ansible.builtin.uri:
     url: "https://{{ pve_api_host }}/api2/json/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/interfaces"
     method: GET
