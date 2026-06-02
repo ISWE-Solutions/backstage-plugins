@@ -293,10 +293,17 @@
 # ---------------------------------------------------------------------------
 
 - name: Restore | apply plain SQL dump with psql
-  ansible.builtin.command:
-    cmd: >
-      psql --single-transaction --set ON_ERROR_STOP=on
+  # -q suppresses per-statement output (CREATE TABLE / COPY n / ALTER TABLE …).
+  # Without it a typical DHIS2 dump emits tens of thousands of lines that, under
+  # ansible -v, are buffered into the task result and have been observed to
+  # back-pressure the backend's stdout pipe long enough to stall ansible-playbook.
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      psql -q --single-transaction --set ON_ERROR_STOP=on
       -d {{ dhis2_db_name }} -f {{ _dhis2_restore_staged }}
+      > {{ _dhis2_restore_staged }}.psql.log 2>&1
+    executable: /bin/bash
   environment: "{{ {'PGHOST': dhis2_db_host, 'PGPORT': dhis2_db_port | string, 'PGUSER': dhis2_db_admin_user, 'PGPASSWORD': dhis2_db_admin_password} if _dhis2_restore_remote else {} }}"
   delegate_to: "{{ _dhis2_restore_workhost }}"
   become: "{{ not _dhis2_restore_remote }}"
@@ -415,7 +422,10 @@
 
 - name: Restore | remove staged dump file
   ansible.builtin.file:
-    path: "{{ _dhis2_restore_staged }}"
+    path: "{{ item }}"
     state: absent
+  loop:
+    - "{{ _dhis2_restore_staged }}"
+    - "{{ _dhis2_restore_staged }}.psql.log"
   delegate_to: "{{ _dhis2_restore_workhost }}"
   become: "{{ not _dhis2_restore_remote }}"
