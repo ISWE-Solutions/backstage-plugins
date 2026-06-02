@@ -944,7 +944,10 @@ export const DHIS2Page = () => {
     await runLifecycleAction(instance, 'restart');
   };
 
-  const handleDeleteInstance = async (id: string) => {
+  const handleDeleteInstance = async (
+    id: string,
+    opts: { backupDatabase?: boolean } = {},
+  ) => {
     const instance = instances.find(i => i.id === id);
     if (!instance) {
       console.warn(`Delete: instance ${id} not found in local state`);
@@ -953,6 +956,15 @@ export const DHIS2Page = () => {
     // Mirror the Create flow: pop the same activity-log dialog, drive the
     // STEP_MARKERS by polling /instances/jobs/:id, and refresh on success.
     const steps: ProvisionStep[] = [
+      ...(opts.backupDatabase
+        ? [
+            {
+              key: 'backup',
+              label: 'Phase 0 — pg_dump pre-delete snapshot',
+              status: 'pending' as const,
+            },
+          ]
+        : []),
       { key: 'submit', label: 'Submitting decommission job to backend', status: 'pending' },
       { key: 'connect', label: 'Connecting to orchestrator host', status: 'pending' },
       { key: 'proxy', label: `Phase 5 — removing central Nginx vhost for ${instance.domain}`, status: 'pending' },
@@ -1047,8 +1059,49 @@ export const DHIS2Page = () => {
     };
 
     try {
-      updateStep('submit', 'running');
       const baseUrl = await discoveryApi.getBaseUrl('dhis2');
+
+      // Optional safety-net snapshot before we destroy anything.
+      if (opts.backupDatabase) {
+        updateStep('backup', 'running');
+        appendProvisionLog(
+          `Taking pg_dump of ${instance.database.name}@${remotePgHost || 'unknown'}…`,
+        );
+        try {
+          const backup = await dhis2Service.backupInstanceDatabase(
+            baseUrl,
+            id,
+            {
+              database: {
+                host: remotePgHost || undefined,
+                port:
+                  instance.database.port ??
+                  (remotePgHost ? dhis2Cfg.postgresPort : undefined),
+                name: instance.database.name,
+                user: instance.database.user,
+                password: instance.database.password,
+              },
+            },
+            backstageFetch,
+          );
+          const mb = (backup.sizeBytes / (1024 * 1024)).toFixed(2);
+          appendProvisionLog(
+            `Backup written: ${backup.path} (${mb} MB, ${backup.durationMs} ms).`,
+          );
+          updateStep('backup', 'done');
+        } catch (backupErr) {
+          const message =
+            backupErr instanceof Error ? backupErr.message : String(backupErr);
+          updateStep('backup', 'error', message);
+          setProvisionError(`Backup failed: ${message}`);
+          appendProvisionLog(`ERROR: backup failed: ${message}`);
+          // Abort — do not proceed with destruction when the operator
+          // explicitly asked for a snapshot first.
+          return;
+        }
+      }
+
+      updateStep('submit', 'running');
       const { jobId } = await dhis2Service.startDecommissionJob(
         baseUrl,
         id,

@@ -2463,6 +2463,114 @@ export class ProvisionService {
     };
   }
 
+  /**
+   * pg_dump the instance's database to a local file on the Backstage
+   * backend host. Used by the Delete dialog as a safety-net snapshot
+   * before the LXC + database are destroyed.
+   *
+   * Requires the database to be reachable from the Backstage host
+   * (i.e. a shared/remote PostgreSQL host) and `pg_dump` to be on PATH.
+   * Returns the absolute path of the written `.dump` (pg_dump custom
+   * format) along with its size.
+   */
+  async backupInstanceDatabase(
+    instanceId: string,
+    opts: {
+      dbHost?: string;
+      dbPort?: number;
+      dbName?: string;
+      dbUser?: string;
+      dbPassword?: string;
+    } = {},
+  ): Promise<{
+    path: string;
+    sizeBytes: number;
+    database: string;
+    host: string;
+    durationMs: number;
+  }> {
+    if (!this.cfg) throw new Error('Orchestrator not configured.');
+    const inst = await this.findInstance(instanceId);
+    if (!inst) throw new Error(`Instance "${instanceId}" not found.`);
+
+    const dbHost = (opts.dbHost ?? inst.database.host ?? '').trim();
+    const dbPort = opts.dbPort ?? inst.database.port ?? 5432;
+    const dbName = (opts.dbName ?? inst.database.name ?? '').trim();
+    const dbUser = (opts.dbUser ?? inst.database.user ?? '').trim();
+    const dbPassword = opts.dbPassword ?? inst.database.password ?? '';
+
+    if (!dbHost || ['localhost', '127.0.0.1', '::1'].includes(dbHost.toLowerCase())) {
+      throw new Error(
+        'Pre-delete pg_dump requires a remote PostgreSQL host reachable from the Backstage backend; this instance uses a database local to its LXC.',
+      );
+    }
+    if (!dbName || !dbUser) {
+      throw new Error('Database name and user are required for pg_dump.');
+    }
+    if (!dbPassword) {
+      throw new Error(
+        'No stored password for this instance — cannot pg_dump. Re-enter credentials in the Edit dialog and retry.',
+      );
+    }
+
+    // Pre-flight: pg_dump on PATH.
+    const preflight = await execCapture('bash', [
+      '-lc',
+      'command -v pg_dump >/dev/null',
+    ]);
+    if (preflight.code !== 0) {
+      throw new Error(
+        'pg_dump is not installed on the Backstage backend host. Install the postgresql-client package and retry.',
+      );
+    }
+
+    const backupsDir =
+      (this.cfg.restoreStagingDir &&
+        path.join(path.dirname(this.cfg.restoreStagingDir), 'dhis2-backups')) ||
+      path.join(os.tmpdir(), 'dhis2-backups');
+    await fs.mkdir(backupsDir, { recursive: true, mode: 0o700 });
+
+    const ts = new Date()
+      .toISOString()
+      .replace(/[:.]/g, '-')
+      .replace(/Z$/, '');
+    const safeName = (inst.name || inst.id).replace(/[^A-Za-z0-9._-]/g, '_');
+    const outPath = path.join(
+      backupsDir,
+      `${safeName}-${dbName}-pre-delete-${ts}.dump`,
+    );
+
+    const env: Record<string, string> = {
+      PGPASSWORD: dbPassword,
+    };
+    const envPrefix = Object.entries(env)
+      .map(([k, v]) => `${k}=${shellQuote(v)}`)
+      .join(' ');
+    const cmd =
+      `${envPrefix} pg_dump --no-password -Fc ` +
+      `-h ${shellQuote(dbHost)} -p ${String(dbPort)} ` +
+      `-U ${shellQuote(dbUser)} -d ${shellQuote(dbName)} ` +
+      `-f ${shellQuote(outPath)}`;
+
+    const started = Date.now();
+    const result = await execCapture('bash', ['-lc', cmd]);
+    if (result.code !== 0) {
+      await fs.unlink(outPath).catch(() => {});
+      const msg = (result.stderr || result.stdout || '').trim();
+      throw new Error(
+        `pg_dump failed (exit ${result.code})` + (msg ? `: ${msg}` : ''),
+      );
+    }
+    const stat = await fs.stat(outPath);
+    return {
+      path: outPath,
+      sizeBytes: stat.size,
+      database: dbName,
+      host: dbHost,
+      durationMs: Date.now() - started,
+    };
+  }
+
   private async findInstance(id: string): Promise<PersistedInstance | null> {
     const list = await this.listInstances();
     return list.find(i => i.id === id) ?? null;

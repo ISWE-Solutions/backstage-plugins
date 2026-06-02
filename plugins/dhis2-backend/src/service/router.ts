@@ -799,6 +799,42 @@ export async function createRouter(
     res.status(202).json({ jobId: job.id, status: job.status });
   });
 
+  router.post('/instances/:id/backup', async (req, res) => {
+    if (!provisionService.isConfigured()) {
+      res.status(503).json({ error: 'DHIS2 orchestrator is not configured.' });
+      return;
+    }
+    const b =
+      req.body && typeof req.body === 'object'
+        ? (req.body as Record<string, unknown>)
+        : {};
+    const db =
+      b.database && typeof b.database === 'object'
+        ? (b.database as Record<string, unknown>)
+        : {};
+    const str = (v: unknown) =>
+      typeof v === 'string' && v.trim() ? v.trim() : undefined;
+    const num = (v: unknown) =>
+      typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+    try {
+      const result = await provisionService.backupInstanceDatabase(
+        req.params.id,
+        {
+          dbHost: str(db.host),
+          dbPort: num(db.port),
+          dbName: str(db.name),
+          dbUser: str(db.user),
+          dbPassword: typeof db.password === 'string' ? db.password : undefined,
+        },
+      );
+      res.json(result);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn(`DHIS2: pre-delete backup failed: ${message}`);
+      res.status(400).json({ error: message });
+    }
+  });
+
   // ---------------------------------------------------------------------
   // Instance edit (apply changes) — Ansible-backed, streamed log
   // ---------------------------------------------------------------------

@@ -1081,6 +1081,62 @@ export class DHIS2Service {
   }
 
   /**
+   * Take a pg_dump (custom format) of the instance's database on the
+   * Backstage backend host. Used as an optional safety-net snapshot
+   * before decommission. Only works when the DB is on a shared remote
+   * host reachable from the Backstage backend.
+   */
+  async backupInstanceDatabase(
+    baseUrl: string,
+    instanceId: string,
+    payload: {
+      database?: {
+        host?: string;
+        port?: number;
+        name?: string;
+        user?: string;
+        password?: string;
+      };
+    },
+    fetchFn: typeof fetch = (...args) => fetch(...args),
+  ): Promise<{
+    path: string;
+    sizeBytes: number;
+    database: string;
+    host: string;
+    durationMs: number;
+  }> {
+    const res = await fetchWithLifecycleRetry(
+      fetchFn,
+      `${baseUrl}/instances/${encodeURIComponent(instanceId)}/backup`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload ?? {}),
+      },
+    );
+    if (!res.ok) {
+      let msg = `Backup request failed (HTTP ${res.status})`;
+      try {
+        const body = await res.json();
+        if (typeof body?.error === 'string') msg = body.error;
+        else if (typeof body?.error?.message === 'string')
+          msg = body.error.message;
+      } catch {
+        // ignore
+      }
+      throw new Error(msg);
+    }
+    return (await res.json()) as {
+      path: string;
+      sizeBytes: number;
+      database: string;
+      host: string;
+      durationMs: number;
+    };
+  }
+
+  /**
    * Kick off an ansible-driven edit job on the backend. Returns the job
    * id immediately; the caller polls `/instances/jobs/:id` to stream the
    * activity log (same pattern as provision/decommission).
