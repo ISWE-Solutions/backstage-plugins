@@ -2412,11 +2412,24 @@ export class ProvisionService {
     const pctCmd = `pct exec ${vmidStr} -- bash -lc ${shellQuote(pickAndTail)}`;
 
     // Resolve the reachable PVE host (the one Backstage can SSH to directly).
-    // Same ladder as resolvePveHost(), with optional per-request overrides.
+    // Same ladder as resolvePveHost(), with optional per-request overrides,
+    // plus a final fallback to the Proxmox API URL host — Backstage is
+    // already talking to it for cluster discovery, so it is by definition
+    // network-reachable from this process.
+    const apiUrlHost = (() => {
+      const u = (cfg.apiUrl || '').trim();
+      if (!u) return '';
+      try {
+        return new URL(u).hostname;
+      } catch {
+        return '';
+      }
+    })();
     const reachableHost =
       (opts.pveHost && opts.pveHost.trim()) ||
       (cfg.pveHost !== undefined ? cfg.pveHost : '') ||
-      (cfg.host && !isLocalHost(cfg.host) ? cfg.host : '');
+      (cfg.host && !isLocalHost(cfg.host) ? cfg.host : '') ||
+      apiUrlHost;
 
     // `pct exec` only runs on the node owning the container, so we always
     // target `inst.node`. If that node isn't directly reachable from
