@@ -375,21 +375,43 @@
   become: "{{ not _dhis2_restore_remote }}"
   become_user: "{{ omit if _dhis2_restore_remote else 'postgres' }}"
 
-- name: Restore | ANALYZE database
-  community.postgresql.postgresql_query:
-    db: "{{ dhis2_db_name }}"
-    # Bound the session so a lock conflict with post-COPY autovacuum can't
-    # hang for hours. If ANALYZE is killed by the timeout, autovacuum will
-    # rebuild stats in the background; DHIS2 boots fine either way.
-    query: "SET lock_timeout = '30s'; SET statement_timeout = '5min'; SET maintenance_work_mem = '512MB'; ANALYZE"
-    login_host: "{{ dhis2_db_host if _dhis2_restore_remote else omit }}"
-    login_port: "{{ dhis2_db_port if _dhis2_restore_remote else omit }}"
-    login_user: "{{ dhis2_db_admin_user if _dhis2_restore_remote else omit }}"
-    login_password: "{{ dhis2_db_admin_password if _dhis2_restore_remote else omit }}"
+- name: Restore | ANALYZE database (best-effort, local DB mode)
+  ansible.builtin.command:
+    cmd: >-
+      timeout --preserve-status 360
+      psql -v ON_ERROR_STOP=1
+      -d {{ dhis2_db_name }}
+      -c ANALYZE
+  environment:
+    PGOPTIONS: "-c lock_timeout=30000 -c statement_timeout=300000 -c maintenance_work_mem=512MB"
   delegate_to: "{{ _dhis2_restore_workhost }}"
-  become: "{{ not _dhis2_restore_remote }}"
-  become_user: "{{ omit if _dhis2_restore_remote else 'postgres' }}"
+  become: true
+  become_user: postgres
+  register: _dhis2_analyze_local
+  changed_when: false
   failed_when: false
+  when: not _dhis2_restore_remote
+
+- name: Restore | ANALYZE database (best-effort, remote DB mode)
+  ansible.builtin.command:
+    cmd: >-
+      timeout --preserve-status 360
+      psql -v ON_ERROR_STOP=1
+      -d {{ dhis2_db_name }}
+      -c ANALYZE
+  environment:
+    PGHOST: "{{ dhis2_db_host }}"
+    PGPORT: "{{ dhis2_db_port | string }}"
+    PGUSER: "{{ dhis2_db_admin_user }}"
+    PGPASSWORD: "{{ dhis2_db_admin_password }}"
+    PGOPTIONS: "-c lock_timeout=30000 -c statement_timeout=300000 -c maintenance_work_mem=512MB"
+  delegate_to: "{{ _dhis2_restore_workhost }}"
+  become: false
+  register: _dhis2_analyze_remote
+  changed_when: false
+  failed_when: false
+  no_log: "{{ not (dhis2_debug | default(false) | bool) }}"
+  when: _dhis2_restore_remote
 
 - name: Restore | remove staged dump file
   ansible.builtin.file:
