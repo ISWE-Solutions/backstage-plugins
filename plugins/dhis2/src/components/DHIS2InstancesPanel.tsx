@@ -99,7 +99,8 @@ const useStyles = makeStyles(theme => ({
     background: theme.palette.background.default,
     border: `1px solid ${theme.palette.divider}`,
     padding: theme.spacing(1.5),
-    maxHeight: 480,
+    flex: 1,
+    minHeight: 240,
     overflow: 'auto',
   },
 }));
@@ -1575,7 +1576,14 @@ export const DHIS2InstancesPanel = ({
           </Typography>
         )}
       </DialogTitle>
-      <DialogContent dividers>
+      <DialogContent
+        dividers
+        style={{
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
         {proxyLogsView.loading ? (
           <Box display="flex" justifyContent="center" p={4}>
             <CircularProgress />

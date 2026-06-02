@@ -2048,7 +2048,14 @@ export const DHIS2Page = () => {
               </IconButton>
             </Box>
           </DialogTitle>
-          <DialogContent dividers>
+          <DialogContent
+            dividers
+            style={{
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
             <Box
               display="flex"
               alignItems="center"
@@ -2100,7 +2107,8 @@ export const DHIS2Page = () => {
                   color: '#e0e0e0',
                   fontFamily: 'monospace',
                   fontSize: '0.85rem',
-                  maxHeight: 480,
+                  flex: 1,
+                  minHeight: 240,
                   overflow: 'auto',
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-word',
