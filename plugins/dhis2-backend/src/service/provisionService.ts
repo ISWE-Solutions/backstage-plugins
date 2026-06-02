@@ -10,6 +10,7 @@ import {
   ProxmoxApiCredentials,
   getNextClusterVmid,
   ensureLxcTags,
+  getLxcIpv4,
 } from './proxmoxApi';
 import { InstanceStore } from './instanceStore';
 
@@ -2411,62 +2412,121 @@ export class ProvisionService {
     // container. `pct` only exists on the PVE host itself.
     const pctCmd = `pct exec ${vmidStr} -- bash -lc ${shellQuote(pickAndTail)}`;
 
-    // Resolve the reachable PVE host (the one Backstage can SSH to directly).
-    // Same ladder as resolvePveHost(), with optional per-request overrides,
-    // plus a final fallback to the Proxmox API URL host — Backstage is
-    // already talking to it for cluster discovery, so it is by definition
-    // network-reachable from this process.
-    const apiUrlHost = (() => {
-      const u = (cfg.apiUrl || '').trim();
-      if (!u) return '';
-      try {
-        return new URL(u).hostname;
-      } catch {
-        return '';
-      }
-    })();
-    const reachableHost =
-      (opts.pveHost && opts.pveHost.trim()) ||
-      (cfg.pveHost !== undefined ? cfg.pveHost : '') ||
-      (cfg.host && !isLocalHost(cfg.host) ? cfg.host : '') ||
-      apiUrlHost;
+    // -----------------------------------------------------------------
+    // Strategy: SSH directly into the LXC container.
+    //
+    // The legacy path (`ssh root@pve-node pct exec ...`) requires that
+    // the Backstage host can reach the owning PVE node on port 22 — in
+    // multi-node clusters behind a firewall, the worker nodes (pve12 in
+    // our case) are typically NOT reachable from Backstage, only the
+    // primary API host is. ProxyJump through the API host also fails
+    // when the primary can't SSH to the worker either.
+    //
+    // The Proxmox API IS reachable (it's how we list nodes/VMs), so we
+    // use it to discover the container's IPv4 address and SSH straight
+    // to that. lxc_bootstrap installs sshd inside every managed LXC
+    // and authorizes the orchestrator key for the `ansible` user with
+    // NOPASSWD sudo, so we can read /opt/tomcat/logs with `sudo tail`.
+    //
+    // Fall back to the old pct-exec-over-SSH path only if API discovery
+    // of the IP fails (e.g. older instances not in the cluster yet).
+    // -----------------------------------------------------------------
 
-    // `pct exec` only runs on the node owning the container, so we always
-    // target `inst.node`. If that node isn't directly reachable from
-    // Backstage (typical multi-node cluster), hop through `reachableHost`
-    // using SSH ProxyJump. Proxmox cluster nodes share the root SSH key
-    // distributed by `pvecm join`, so the same private key works for both
-    // legs.
-    const targetHost = inst.node;
-    const runRemote = !!targetHost && !isLocalHost(targetHost);
-    const needsJump =
-      runRemote &&
-      !!reachableHost &&
-      reachableHost.toLowerCase() !== targetHost.toLowerCase();
+    const proxmoxCreds = this.proxmoxCredentials();
+    let containerIp: string | undefined;
+    if (proxmoxCreds) {
+      try {
+        containerIp = await getLxcIpv4(proxmoxCreds, inst.node, vmidStr);
+      } catch {
+        // Swallow — we'll fall through to the pct-exec path below.
+      }
+    }
 
     let result: { code: number; stdout: string; stderr: string };
-    if (runRemote) {
-      const port =
-        opts.pveSshPort && Number.isInteger(opts.pveSshPort) && opts.pveSshPort > 0
-          ? opts.pveSshPort
-          : cfg.port || 22;
-      const user = (opts.pveSshUser && opts.pveSshUser.trim()) || cfg.user || 'root';
+
+    if (containerIp) {
+      // Direct SSH into the container. Try `ansible` first (created by
+      // lxc_bootstrap with NOPASSWD sudo) and fall back to `root`.
+      const sshPort = cfg.port || 22;
       const keyPath =
         normalizeSshPrivateKeyPath(opts.pveSshKeyPath) ||
         normalizeSshPrivateKeyPath(cfg.privateKeyFile) ||
         undefined;
-      const access: ProxyAccess = {
-        host: targetHost,
-        port,
-        user,
-        keyPath,
-        jump: needsJump
-          ? { host: reachableHost, port, user }
-          : undefined,
-      };
-      result = await sshExec(access, pctCmd);
+      const candidates = ['ansible', 'root'];
+      let lastErr: { code: number; stdout: string; stderr: string } | null =
+        null;
+      result = { code: -1, stdout: '', stderr: '' };
+      let succeeded = false;
+      for (const user of candidates) {
+        const access: ProxyAccess = {
+          host: containerIp,
+          port: sshPort,
+          user,
+          keyPath,
+        };
+        // ansible: sudo -n tail (NOPASSWD).
+        // root:    direct tail.
+        const wrapped =
+          user === 'root' ? pickAndTail : `sudo -n bash -lc ${shellQuote(pickAndTail)}`;
+        const r = await sshExec(access, wrapped);
+        if (r.code === 0) {
+          result = r;
+          succeeded = true;
+          break;
+        }
+        lastErr = r;
+        // 255 = ssh transport error (auth / network). Try next user.
+        // Anything else = remote command failed (e.g. sudo denied,
+        // file missing). Try the next candidate too — root may still
+        // work if ansible-user sudo is locked down.
+      }
+      if (!succeeded && lastErr) {
+        result = lastErr;
+      }
     } else {
-      result = await execCapture('bash', ['-lc', pctCmd]);
+      // ----- Fallback: legacy pct-exec-over-SSH path -----
+      const apiUrlHost = (() => {
+        const u = (cfg.apiUrl || '').trim();
+        if (!u) return '';
+        try {
+          return new URL(u).hostname;
+        } catch {
+          return '';
+        }
+      })();
+      const reachableHost =
+        (opts.pveHost && opts.pveHost.trim()) ||
+        (cfg.pveHost !== undefined ? cfg.pveHost : '') ||
+        (cfg.host && !isLocalHost(cfg.host) ? cfg.host : '') ||
+        apiUrlHost;
+      const targetHost = inst.node;
+      const runRemote = !!targetHost && !isLocalHost(targetHost);
+      const needsJump =
+        runRemote &&
+        !!reachableHost &&
+        reachableHost.toLowerCase() !== targetHost.toLowerCase();
+
+      if (runRemote) {
+        const port =
+          opts.pveSshPort && Number.isInteger(opts.pveSshPort) && opts.pveSshPort > 0
+            ? opts.pveSshPort
+            : cfg.port || 22;
+        const user = (opts.pveSshUser && opts.pveSshUser.trim()) || cfg.user || 'root';
+        const keyPath =
+          normalizeSshPrivateKeyPath(opts.pveSshKeyPath) ||
+          normalizeSshPrivateKeyPath(cfg.privateKeyFile) ||
+          undefined;
+        const access: ProxyAccess = {
+          host: targetHost,
+          port,
+          user,
+          keyPath,
+          jump: needsJump ? { host: reachableHost, port, user } : undefined,
+        };
+        result = await sshExec(access, pctCmd);
+      } else {
+        result = await execCapture('bash', ['-lc', pctCmd]);
+      }
     }
 
     if (result.code !== 0) {

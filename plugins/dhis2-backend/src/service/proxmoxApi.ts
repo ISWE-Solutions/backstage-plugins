@@ -244,3 +244,29 @@ function mergeTags(existing: string, additional: string[]): string {
   }
   return Array.from(set).sort().join(';');
 }
+
+/**
+ * Return the first non-loopback IPv4 address reported for an LXC's
+ * network interfaces. Used by features (log tail, ad-hoc shell) that
+ * need to reach the container directly instead of via `pct exec`.
+ */
+export async function getLxcIpv4(
+  c: ProxmoxApiCredentials,
+  node: string,
+  vmid: number | string,
+): Promise<string | undefined> {
+  const data = await request<
+    Array<{ name?: string; inet?: string; hwaddr?: string }>
+  >(
+    c,
+    'GET',
+    `/nodes/${encodeURIComponent(node)}/lxc/${encodeURIComponent(String(vmid))}/interfaces`,
+  );
+  if (!Array.isArray(data)) return undefined;
+  for (const iface of data) {
+    if (!iface || iface.name === 'lo' || !iface.inet) continue;
+    const ip = String(iface.inet).split('/')[0].trim();
+    if (ip && !ip.startsWith('127.')) return ip;
+  }
+  return undefined;
+}
