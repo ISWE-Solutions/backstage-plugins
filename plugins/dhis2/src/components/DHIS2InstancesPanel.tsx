@@ -1134,11 +1134,13 @@ export const DHIS2InstancesPanel = ({
                     </IconButton>
                   </Tooltip>
                 )}
-                <Tooltip title="View logs">
-                  <IconButton onClick={() => onViewLogs(instance)}>
-                    <DescriptionIcon />
-                  </IconButton>
-                </Tooltip>
+                {instance.status === 'running' && (
+                  <Tooltip title="View logs">
+                    <IconButton onClick={() => onViewLogs(instance)}>
+                      <DescriptionIcon />
+                    </IconButton>
+                  </Tooltip>
+                )}
                 <Tooltip title="Open public URL through proxy">
                   <IconButton
                     onClick={() =>

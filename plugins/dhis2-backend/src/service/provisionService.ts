@@ -2343,10 +2343,11 @@ export class ProvisionService {
   /**
    * Tail the live DHIS2 / Tomcat log files inside an instance LXC.
    *
-   * Runs `pct exec <vmid> -- tail -n N <path>` on the PVE host. When the
-   * orchestrator runs colocated with PVE we exec directly; otherwise we
-   * SSH into the PVE host using the same access ladder used by the
-   * proxy-files routes (`pveHost` override -> cfg.pveHost -> cfg.host).
+   * Runs `pct exec <vmid> -- tail -n N <path>` on the PVE host that owns
+   * the container. When the orchestrator runs colocated with PVE we exec
+   * directly; otherwise we SSH into the PVE host using the same access
+   * ladder used by lifecycle/clone (`cfg.pveHost` override -> `cfg.host`
+   * if non-local -> per-instance `node`).
    *
    * `source`:
    *   - 'dhis2'    -> /opt/tomcat/logs/dhis.log (Log4j2 application log)
@@ -2355,10 +2356,18 @@ export class ProvisionService {
    */
   async tailInstanceLogs(
     instanceId: string,
-    overrides: ProxyAccessOverrides,
-    opts: { source?: 'dhis2' | 'catalina' | 'auto'; lines?: number } = {},
+    opts: {
+      source?: 'dhis2' | 'catalina' | 'auto';
+      lines?: number;
+      /** Optional explicit PVE SSH host override (rarely needed). */
+      pveHost?: string;
+      pveSshPort?: number;
+      pveSshUser?: string;
+      pveSshKeyPath?: string;
+    } = {},
   ): Promise<{ source: string; path: string; lines: string[] }> {
     if (!this.cfg) throw new Error('Orchestrator not configured.');
+    const cfg = this.cfg;
     const inst = await this.findInstance(instanceId);
     if (!inst) throw new Error(`Instance "${instanceId}" not found.`);
 
@@ -2393,17 +2402,37 @@ export class ProvisionService {
         `done; echo "Neither dhis.log nor catalina.out was found under /opt/tomcat/logs." >&2; exit 2`;
     }
 
-    // Wrap so we can run as one argv to either `pct exec` (local) or
-    // `pct exec` over SSH. `pct exec <vmid> -- bash -lc <snippet>` runs the
-    // snippet inside the container.
+    // `pct exec <vmid> -- bash -lc <snippet>` runs the snippet inside the
+    // container. `pct` only exists on the PVE host itself.
     const pctCmd = `pct exec ${vmidStr} -- bash -lc ${shellQuote(pickAndTail)}`;
 
-    const access = resolveProxyAccess(this.cfg, overrides);
-    const runRemote = !isLocalHost(access.host);
+    // Resolve PVE SSH target — same ladder as resolvePveHost(), with
+    // optional per-request overrides for ad-hoc situations.
+    const pveHost =
+      (opts.pveHost && opts.pveHost.trim()) ||
+      (cfg.pveHost !== undefined ? cfg.pveHost : '') ||
+      (cfg.host && !isLocalHost(cfg.host) ? cfg.host : '') ||
+      inst.node;
+    const runRemote = !!pveHost && !isLocalHost(pveHost);
 
-    const result = runRemote
-      ? await sshExec(access, pctCmd)
-      : await execCapture('bash', ['-lc', pctCmd]);
+    let result: { code: number; stdout: string; stderr: string };
+    if (runRemote) {
+      const access: ProxyAccess = {
+        host: pveHost,
+        port:
+          opts.pveSshPort && Number.isInteger(opts.pveSshPort) && opts.pveSshPort > 0
+            ? opts.pveSshPort
+            : cfg.port || 22,
+        user: (opts.pveSshUser && opts.pveSshUser.trim()) || cfg.user || 'root',
+        keyPath:
+          normalizeSshPrivateKeyPath(opts.pveSshKeyPath) ||
+          normalizeSshPrivateKeyPath(cfg.privateKeyFile) ||
+          undefined,
+      };
+      result = await sshExec(access, pctCmd);
+    } else {
+      result = await execCapture('bash', ['-lc', pctCmd]);
+    }
 
     if (result.code !== 0) {
       const msg = (result.stderr || result.stdout || '').trim();

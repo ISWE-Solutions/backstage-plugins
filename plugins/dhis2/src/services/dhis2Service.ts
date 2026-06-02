@@ -734,6 +734,10 @@ export class DHIS2Service {
    *   - 'auto'     (default) -> /opt/tomcat/logs/dhis.log, fallback to catalina.out
    *   - 'dhis2'              -> /opt/tomcat/logs/dhis.log only
    *   - 'catalina'           -> /opt/tomcat/logs/catalina.out only
+   *
+   * `pve` lets the operator override the PVE SSH target. When omitted,
+   * the backend falls back to `dhis2.orchestrator.{pveHost,host,port,user,
+   * privateKeyFile}` from app-config.yaml.
    */
   async getInstanceLogs(
     baseUrl: string,
@@ -741,7 +745,12 @@ export class DHIS2Service {
     opts: {
       source?: 'dhis2' | 'catalina' | 'auto';
       lines?: number;
-      proxy?: ProxyAccessPayload;
+      pve?: {
+        host?: string;
+        sshPort?: number;
+        sshUser?: string;
+        sshKeyPath?: string;
+      };
     } = {},
     fetchFn: typeof fetch = (...args) => fetch(...args),
   ): Promise<{ source: string; path: string; lines: string[] }> {
@@ -754,7 +763,7 @@ export class DHIS2Service {
         body: JSON.stringify({
           source: opts.source ?? 'auto',
           lines: opts.lines ?? 200,
-          proxy: opts.proxy,
+          pve: opts.pve,
         }),
       },
     );

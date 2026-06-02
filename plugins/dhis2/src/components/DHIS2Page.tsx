@@ -1688,26 +1688,6 @@ export const DHIS2Page = () => {
     }
   };
 
-  const buildLogsProxyOverrides = () => {
-    const p = settingsService.load().proxy;
-    const fields: {
-      host?: string;
-      sshPort?: number;
-      sshUser?: string;
-      sshKeyPath?: string;
-    } = {};
-    const host = (p.host ?? '').trim();
-    const sshUser = (p.sshUser ?? '').trim();
-    const sshKeyPath = (p.sshKeyPath ?? '').trim();
-    if (host) fields.host = host;
-    if (Number.isInteger(p.sshPort) && p.sshPort > 0) {
-      fields.sshPort = p.sshPort;
-    }
-    if (sshUser) fields.sshUser = sshUser;
-    if (sshKeyPath) fields.sshKeyPath = sshKeyPath;
-    return Object.keys(fields).length > 0 ? fields : undefined;
-  };
-
   const loadInstanceLogs = async (
     instance: DHIS2Instance,
     source: 'auto' | 'dhis2' | 'catalina',
@@ -1717,7 +1697,7 @@ export const DHIS2Page = () => {
       const result = await dhis2Service.getInstanceLogs(
         baseUrl,
         instance.id,
-        { source, lines: 200, proxy: buildLogsProxyOverrides() },
+        { source, lines: 200 },
         backstageFetch,
       );
       return { lines: result.lines, path: result.path };

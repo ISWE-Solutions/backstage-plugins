@@ -1555,12 +1555,26 @@ export async function createRouter(
       const parsed = Number.parseInt(b.lines.trim(), 10);
       if (Number.isFinite(parsed)) lines = parsed;
     }
+    // Optional per-request PVE SSH overrides. The frontend may pass an
+    // explicit `pve` block when the operator has configured one in the
+    // Proxmox panel; otherwise we fall back to the orchestrator config.
+    const pveRaw =
+      b.pve && typeof b.pve === 'object'
+        ? (b.pve as Record<string, unknown>)
+        : {};
+    const str = (v: unknown) =>
+      typeof v === 'string' && v.trim() ? v.trim() : undefined;
+    const num = (v: unknown) =>
+      typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : undefined;
     try {
-      const result = await provisionService.tailInstanceLogs(
-        req.params.id,
-        parseProxyAccessOverrides(req.body),
-        { source, lines },
-      );
+      const result = await provisionService.tailInstanceLogs(req.params.id, {
+        source,
+        lines,
+        pveHost: str(pveRaw.host),
+        pveSshPort: num(pveRaw.sshPort),
+        pveSshUser: str(pveRaw.sshUser),
+        pveSshKeyPath: str(pveRaw.sshKeyPath),
+      });
       res.json(result);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
