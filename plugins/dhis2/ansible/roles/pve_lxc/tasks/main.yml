@@ -127,6 +127,7 @@
   no_log: "{{ not (dhis2_debug | default(false) | bool) }}"
 
 
+- name: Wait for container interfaces to come up
   ansible.builtin.uri:
     url: "https://{{ pve_api_host }}/api2/json/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/interfaces"
     method: GET
