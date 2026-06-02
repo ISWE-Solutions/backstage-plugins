@@ -1534,6 +1534,41 @@ export async function createRouter(
     }
   });
 
+  router.post('/instances/:id/logs', async (req, res) => {
+    if (!provisionService.isConfigured()) {
+      res.status(503).json({ error: 'DHIS2 orchestrator is not configured.' });
+      return;
+    }
+    const b =
+      req.body && typeof req.body === 'object'
+        ? (req.body as Record<string, unknown>)
+        : {};
+    const sourceRaw = typeof b.source === 'string' ? b.source.trim() : '';
+    const source: 'dhis2' | 'catalina' | 'auto' =
+      sourceRaw === 'dhis2' || sourceRaw === 'catalina'
+        ? sourceRaw
+        : 'auto';
+    let lines = 200;
+    if (typeof b.lines === 'number' && Number.isFinite(b.lines)) {
+      lines = b.lines;
+    } else if (typeof b.lines === 'string' && b.lines.trim()) {
+      const parsed = Number.parseInt(b.lines.trim(), 10);
+      if (Number.isFinite(parsed)) lines = parsed;
+    }
+    try {
+      const result = await provisionService.tailInstanceLogs(
+        req.params.id,
+        parseProxyAccessOverrides(req.body),
+        { source, lines },
+      );
+      res.json(result);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn(`DHIS2: tail logs failed: ${message}`);
+      res.status(400).json({ error: message });
+    }
+  });
+
   router.post('/instances/:id/proxy-files/write', async (req, res) => {
     if (!provisionService.isConfigured()) {
       res.status(503).json({ error: 'DHIS2 orchestrator is not configured.' });

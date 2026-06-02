@@ -2321,6 +2321,100 @@ export class ProvisionService {
     return { written, reload };
   }
 
+  /**
+   * Tail the live DHIS2 / Tomcat log files inside an instance LXC.
+   *
+   * Runs `pct exec <vmid> -- tail -n N <path>` on the PVE host. When the
+   * orchestrator runs colocated with PVE we exec directly; otherwise we
+   * SSH into the PVE host using the same access ladder used by the
+   * proxy-files routes (`pveHost` override -> cfg.pveHost -> cfg.host).
+   *
+   * `source`:
+   *   - 'dhis2'    -> /opt/tomcat/logs/dhis.log (Log4j2 application log)
+   *   - 'catalina' -> /opt/tomcat/logs/catalina.out (Tomcat stdout)
+   *   - 'auto'     -> dhis.log when present, else catalina.out (default)
+   */
+  async tailInstanceLogs(
+    instanceId: string,
+    overrides: ProxyAccessOverrides,
+    opts: { source?: 'dhis2' | 'catalina' | 'auto'; lines?: number } = {},
+  ): Promise<{ source: string; path: string; lines: string[] }> {
+    if (!this.cfg) throw new Error('Orchestrator not configured.');
+    const inst = await this.findInstance(instanceId);
+    if (!inst) throw new Error(`Instance "${instanceId}" not found.`);
+
+    const vmidStr = String(inst.vmid).trim();
+    if (!/^\d+$/.test(vmidStr)) {
+      throw new Error(`Refusing to tail logs: vmid "${vmidStr}" is not numeric.`);
+    }
+    const requested = Number.isFinite(opts.lines) ? Number(opts.lines) : 200;
+    const lines = Math.max(1, Math.min(5000, Math.floor(requested)));
+    const source = opts.source ?? 'auto';
+
+    const DHIS_LOG = '/opt/tomcat/logs/dhis.log';
+    const CATALINA_LOG = '/opt/tomcat/logs/catalina.out';
+
+    // Build the remote shell snippet that runs *inside the LXC*. It picks
+    // the right file based on `source` and falls back when 'auto'.
+    let pickAndTail: string;
+    if (source === 'dhis2') {
+      pickAndTail =
+        `f=${shellQuote(DHIS_LOG)}; ` +
+        `if [ -f "$f" ]; then echo "===> $f" >&2; tail -n ${lines} "$f"; ` +
+        `else echo "Log file $f not found inside the container." >&2; exit 2; fi`;
+    } else if (source === 'catalina') {
+      pickAndTail =
+        `f=${shellQuote(CATALINA_LOG)}; ` +
+        `if [ -f "$f" ]; then echo "===> $f" >&2; tail -n ${lines} "$f"; ` +
+        `else echo "Log file $f not found inside the container." >&2; exit 2; fi`;
+    } else {
+      pickAndTail =
+        `for f in ${shellQuote(DHIS_LOG)} ${shellQuote(CATALINA_LOG)}; do ` +
+        `if [ -f "$f" ]; then echo "===> $f" >&2; tail -n ${lines} "$f"; exit 0; fi; ` +
+        `done; echo "Neither dhis.log nor catalina.out was found under /opt/tomcat/logs." >&2; exit 2`;
+    }
+
+    // Wrap so we can run as one argv to either `pct exec` (local) or
+    // `pct exec` over SSH. `pct exec <vmid> -- bash -lc <snippet>` runs the
+    // snippet inside the container.
+    const pctCmd = `pct exec ${vmidStr} -- bash -lc ${shellQuote(pickAndTail)}`;
+
+    const access = resolveProxyAccess(this.cfg, overrides);
+    const runRemote = !isLocalHost(access.host);
+
+    const result = runRemote
+      ? await sshExec(access, pctCmd)
+      : await execCapture('bash', ['-lc', pctCmd]);
+
+    if (result.code !== 0) {
+      const msg = (result.stderr || result.stdout || '').trim();
+      throw new Error(
+        `Failed to read logs from vmid ${vmidStr}` +
+          (msg ? `: ${msg}` : ` (exit ${result.code}).`),
+      );
+    }
+
+    // Strip the "===> path" marker we printed to stderr, then split.
+    const stderr = (result.stderr || '').trim();
+    const pathMatch = stderr.match(/===>\s+(\S+)/);
+    const usedPath =
+      pathMatch?.[1] ??
+      (source === 'catalina' ? CATALINA_LOG : DHIS_LOG);
+
+    const out = result.stdout.replace(/\r\n/g, '\n');
+    const splitLines = out.length > 0 ? out.split('\n') : [];
+    // tail output usually ends with a trailing newline -> drop the empty tail.
+    if (splitLines.length > 0 && splitLines[splitLines.length - 1] === '') {
+      splitLines.pop();
+    }
+
+    return {
+      source: source === 'auto' ? (usedPath === DHIS_LOG ? 'dhis2' : 'catalina') : source,
+      path: usedPath,
+      lines: splitLines,
+    };
+  }
+
   private async findInstance(id: string): Promise<PersistedInstance | null> {
     const list = await this.listInstances();
     return list.find(i => i.id === id) ?? null;

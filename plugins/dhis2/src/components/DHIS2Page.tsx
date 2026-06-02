@@ -297,7 +297,16 @@ export const DHIS2Page = () => {
     instance: DHIS2Instance | null;
     lines: string[];
     loading: boolean;
-  }>({ open: false, instance: null, lines: [], loading: false });
+    source: 'auto' | 'dhis2' | 'catalina';
+    path?: string;
+    error?: string;
+  }>({
+    open: false,
+    instance: null,
+    lines: [],
+    loading: false,
+    source: 'auto',
+  });
 
   // Restore-from-backup state for the Create dialog.
 
@@ -1679,38 +1688,96 @@ export const DHIS2Page = () => {
     }
   };
 
-  const handleViewInstanceLogs = async (instance: DHIS2Instance) => {
-    setLogsDialog({ open: true, instance, lines: [], loading: true });
+  const buildLogsProxyOverrides = () => {
+    const p = settingsService.load().proxy;
+    const fields: {
+      host?: string;
+      sshPort?: number;
+      sshUser?: string;
+      sshKeyPath?: string;
+    } = {};
+    const host = (p.host ?? '').trim();
+    const sshUser = (p.sshUser ?? '').trim();
+    const sshKeyPath = (p.sshKeyPath ?? '').trim();
+    if (host) fields.host = host;
+    if (Number.isInteger(p.sshPort) && p.sshPort > 0) {
+      fields.sshPort = p.sshPort;
+    }
+    if (sshUser) fields.sshUser = sshUser;
+    if (sshKeyPath) fields.sshKeyPath = sshKeyPath;
+    return Object.keys(fields).length > 0 ? fields : undefined;
+  };
+
+  const loadInstanceLogs = async (
+    instance: DHIS2Instance,
+    source: 'auto' | 'dhis2' | 'catalina',
+  ): Promise<{ lines: string[]; path?: string; error?: string }> => {
     try {
-      const lines = await dhis2Service.getInstanceLogs(instance.id, 200);
-      setLogsDialog(prev => ({ ...prev, lines, loading: false }));
+      const baseUrl = await discoveryApi.getBaseUrl('dhis2');
+      const result = await dhis2Service.getInstanceLogs(
+        baseUrl,
+        instance.id,
+        { source, lines: 200, proxy: buildLogsProxyOverrides() },
+        backstageFetch,
+      );
+      return { lines: result.lines, path: result.path };
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error);
+      // eslint-disable-next-line no-console
       console.error('Failed to load instance logs:', error);
-      setLogsDialog(prev => ({
-        ...prev,
-        lines: ['Failed to load logs. See console for details.'],
-        loading: false,
-      }));
+      return {
+        lines: [`Failed to load logs: ${message}`],
+        error: message,
+      };
     }
   };
 
-  const refreshInstanceLogs = async () => {
+  const handleViewInstanceLogs = async (instance: DHIS2Instance) => {
+    setLogsDialog({
+      open: true,
+      instance,
+      lines: [],
+      loading: true,
+      source: 'auto',
+    });
+    const { lines, path, error } = await loadInstanceLogs(instance, 'auto');
+    setLogsDialog(prev => ({
+      ...prev,
+      lines,
+      path,
+      error,
+      loading: false,
+    }));
+  };
+
+  const refreshInstanceLogs = async (
+    nextSource?: 'auto' | 'dhis2' | 'catalina',
+  ) => {
     if (!logsDialog.instance) return;
-    setLogsDialog(prev => ({ ...prev, loading: true }));
-    try {
-      const lines = await dhis2Service.getInstanceLogs(
-        logsDialog.instance.id,
-        200,
-      );
-      setLogsDialog(prev => ({ ...prev, lines, loading: false }));
-    } catch (error) {
-      console.error('Failed to refresh instance logs:', error);
-      setLogsDialog(prev => ({ ...prev, loading: false }));
-    }
+    const source = nextSource ?? logsDialog.source;
+    setLogsDialog(prev => ({ ...prev, loading: true, source }));
+    const { lines, path, error } = await loadInstanceLogs(
+      logsDialog.instance,
+      source,
+    );
+    setLogsDialog(prev => ({
+      ...prev,
+      lines,
+      path,
+      error,
+      loading: false,
+    }));
   };
 
   const closeLogsDialog = () =>
-    setLogsDialog({ open: false, instance: null, lines: [], loading: false });
+    setLogsDialog({
+      open: false,
+      instance: null,
+      lines: [],
+      loading: false,
+      source: 'auto',
+    });
 
 
 
@@ -1881,7 +1948,7 @@ export const DHIS2Page = () => {
               </span>
               <IconButton
                 size="small"
-                onClick={refreshInstanceLogs}
+                onClick={() => refreshInstanceLogs()}
                 disabled={logsDialog.loading}
                 title="Refresh"
               >
@@ -1890,6 +1957,43 @@ export const DHIS2Page = () => {
             </Box>
           </DialogTitle>
           <DialogContent dividers>
+            <Box
+              display="flex"
+              alignItems="center"
+              flexWrap="wrap"
+              mb={1}
+              style={{ gap: 8 }}
+            >
+              <Typography variant="caption" color="textSecondary">
+                Source:
+              </Typography>
+              {(['auto', 'dhis2', 'catalina'] as const).map(opt => (
+                <Button
+                  key={opt}
+                  size="small"
+                  variant={logsDialog.source === opt ? 'contained' : 'outlined'}
+                  color={logsDialog.source === opt ? 'primary' : 'default'}
+                  disabled={logsDialog.loading}
+                  onClick={() => refreshInstanceLogs(opt)}
+                  style={{ textTransform: 'none', minWidth: 0 }}
+                >
+                  {opt === 'auto'
+                    ? 'Auto'
+                    : opt === 'dhis2'
+                    ? 'dhis.log'
+                    : 'catalina.out'}
+                </Button>
+              ))}
+              {logsDialog.path && !logsDialog.loading ? (
+                <Typography
+                  variant="caption"
+                  color="textSecondary"
+                  style={{ marginLeft: 'auto' }}
+                >
+                  {logsDialog.path}
+                </Typography>
+              ) : null}
+            </Box>
             {logsDialog.loading ? (
               <Box display="flex" justifyContent="center" p={4}>
                 <CircularProgress />

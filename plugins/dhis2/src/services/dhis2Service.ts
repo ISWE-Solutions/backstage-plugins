@@ -726,15 +726,55 @@ export class DHIS2Service {
   }
 
   /**
-   * Get instance logs
+   * Tail the live DHIS2 / Tomcat log files for an instance via the backend.
+   *
+   * The backend runs `pct exec <vmid> -- tail -n <lines> <path>` either
+   * locally on the PVE host or over SSH, depending on the orchestrator
+   * config. `source` selects which log file:
+   *   - 'auto'     (default) -> /opt/tomcat/logs/dhis.log, fallback to catalina.out
+   *   - 'dhis2'              -> /opt/tomcat/logs/dhis.log only
+   *   - 'catalina'           -> /opt/tomcat/logs/catalina.out only
    */
-  async getInstanceLogs(_id: string, _lines: number = 100): Promise<string[]> {
-    // Mock logs
-    return [
-      `[${new Date().toISOString()}] INFO: DHIS2 application started`,
-      `[${new Date().toISOString()}] INFO: Database connection established`,
-      `[${new Date().toISOString()}] INFO: Server listening on port 8080`,
-    ];
+  async getInstanceLogs(
+    baseUrl: string,
+    instanceId: string,
+    opts: {
+      source?: 'dhis2' | 'catalina' | 'auto';
+      lines?: number;
+      proxy?: ProxyAccessPayload;
+    } = {},
+    fetchFn: typeof fetch = (...args) => fetch(...args),
+  ): Promise<{ source: string; path: string; lines: string[] }> {
+    const res = await fetchWithLifecycleRetry(
+      fetchFn,
+      `${baseUrl}/instances/${encodeURIComponent(instanceId)}/logs`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source: opts.source ?? 'auto',
+          lines: opts.lines ?? 200,
+          proxy: opts.proxy,
+        }),
+      },
+    );
+    if (!res.ok) {
+      let msg = `Failed to read instance logs (HTTP ${res.status})`;
+      try {
+        const body = await res.json();
+        if (typeof body?.error === 'string') msg = body.error;
+        else if (typeof body?.error?.message === 'string')
+          msg = body.error.message;
+      } catch {
+        // ignore
+      }
+      throw new Error(msg);
+    }
+    return (await res.json()) as {
+      source: string;
+      path: string;
+      lines: string[];
+    };
   }
 
   /**
