@@ -382,6 +382,68 @@
   become: "{{ not _dhis2_restore_remote }}"
   become_user: "{{ omit if _dhis2_restore_remote else 'postgres' }}"
 
+# After a local-mode restore the dump was loaded as the postgres superuser, so
+# all restored objects (tables, sequences, views, including flyway_schema_history)
+# are owned by postgres. The DHIS2 runtime role only has database-level GRANTs
+# and would hit "permission denied for table flyway_schema_history" on boot.
+# Reassign object ownership in the public schema and grant table/sequence
+# privileges so the app role can read/write everything that was restored.
+- name: Restore | transfer object ownership to DHIS2 user (public schema)
+  community.postgresql.postgresql_query:
+    db: "{{ dhis2_db_name }}"
+    query: |
+      SET lock_timeout = '30s';
+      SET statement_timeout = '120s';
+      DO $$
+      DECLARE r record;
+      BEGIN
+        FOR r IN
+          SELECT n.nspname, c.relname, c.relkind
+          FROM pg_class c
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = 'public'
+            AND c.relkind IN ('r','p','S','v','m','f')
+        LOOP
+          EXECUTE format('ALTER %s %I.%I OWNER TO %I',
+            CASE r.relkind
+              WHEN 'S' THEN 'SEQUENCE'
+              WHEN 'v' THEN 'VIEW'
+              WHEN 'm' THEN 'MATERIALIZED VIEW'
+              WHEN 'f' THEN 'FOREIGN TABLE'
+              ELSE 'TABLE'
+            END,
+            r.nspname, r.relname, '{{ dhis2_db_user }}');
+        END LOOP;
+        EXECUTE format('ALTER SCHEMA public OWNER TO %I', '{{ dhis2_db_user }}');
+      END $$;
+    login_host: "{{ dhis2_db_host if _dhis2_restore_remote else omit }}"
+    login_port: "{{ dhis2_db_port if _dhis2_restore_remote else omit }}"
+    login_user: "{{ dhis2_db_admin_user if _dhis2_restore_remote else omit }}"
+    login_password: "{{ dhis2_db_admin_password if _dhis2_restore_remote else omit }}"
+  delegate_to: "{{ _dhis2_restore_workhost }}"
+  become: "{{ not _dhis2_restore_remote }}"
+  become_user: "{{ omit if _dhis2_restore_remote else 'postgres' }}"
+  when: dhis2_db_admin_user != dhis2_db_user
+  register: _dhis2_reassign_owner
+  failed_when: false
+
+- name: Restore | grant schema and object privileges to DHIS2 user
+  community.postgresql.postgresql_query:
+    db: "{{ dhis2_db_name }}"
+    query: |
+      GRANT USAGE, CREATE ON SCHEMA public TO {{ dhis2_db_user }};
+      GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO {{ dhis2_db_user }};
+      GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO {{ dhis2_db_user }};
+      GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO {{ dhis2_db_user }};
+    login_host: "{{ dhis2_db_host if _dhis2_restore_remote else omit }}"
+    login_port: "{{ dhis2_db_port if _dhis2_restore_remote else omit }}"
+    login_user: "{{ dhis2_db_admin_user if _dhis2_restore_remote else omit }}"
+    login_password: "{{ dhis2_db_admin_password if _dhis2_restore_remote else omit }}"
+  delegate_to: "{{ _dhis2_restore_workhost }}"
+  become: "{{ not _dhis2_restore_remote }}"
+  become_user: "{{ omit if _dhis2_restore_remote else 'postgres' }}"
+  when: dhis2_db_admin_user != dhis2_db_user
+
 - name: Restore | ANALYZE database (best-effort, local DB mode)
   ansible.builtin.command:
     cmd: >-
