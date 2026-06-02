@@ -24,7 +24,6 @@ import {
 } from '@material-ui/core';
 import { Alert } from '@material-ui/lab';
 import AddIcon from '@material-ui/icons/Add';
-import CloudIcon from '@material-ui/icons/Cloud';
 import CheckCircleIcon from '@material-ui/icons/CheckCircle';
 import PlayArrowIcon from '@material-ui/icons/PlayArrow';
 import StopIcon from '@material-ui/icons/Stop';
@@ -1150,15 +1149,6 @@ export const DHIS2InstancesPanel = ({
                     </IconButton>
                   </Tooltip>
                 )}
-                <Tooltip title="Open public URL through proxy">
-                  <IconButton
-                    onClick={() =>
-                      window.open(publicUrl, '_blank', 'noopener,noreferrer')
-                    }
-                  >
-                    <CloudIcon />
-                  </IconButton>
-                </Tooltip>
                 <Tooltip title="View nginx access log for this site">
                   <IconButton
                     onClick={() => void openProxyLogs('access', instance.domain)}
