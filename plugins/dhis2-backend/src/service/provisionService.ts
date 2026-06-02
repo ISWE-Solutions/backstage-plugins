@@ -378,6 +378,13 @@ export interface EditRequest {
   name: string;
   /** New DHIS2 version label. Stored in the registry; no WAR redeploy. */
   version: string;
+  /**
+   * Major Apache Tomcat version ('9' or '10'). When provided, forwarded
+   * to `update-instance.sh --tomcat-version` and persisted to the
+   * registry. Switching the actual runtime requires a reprovision/upgrade
+   * — this field tracks the configured target value.
+   */
+  tomcatVersion?: '9' | '10';
   resources: { cpu: number; memory: number; storage: number };
   database: {
     name: string;
@@ -933,6 +940,9 @@ function buildEditCommand(
   }
   if (req.restartTomcat === false) {
     args.push('--no-restart-tomcat');
+  }
+  if (req.tomcatVersion === '9' || req.tomcatVersion === '10') {
+    args.push('--tomcat-version', req.tomcatVersion);
   }
   // SSH details for the PVE host that runs `pct push` / `pct exec`. The
   // edit playbook does not touch the central proxy host (no nginx config
@@ -1865,6 +1875,7 @@ export class ProvisionService {
           {
             name: req.name,
             version: req.version,
+            tomcatVersion: req.tomcatVersion,
             resources: req.resources,
             database: {
               name: req.database.name,

@@ -1777,6 +1777,8 @@ export interface EditInstancePayload {
    * dedicated upgrade flow when changing the running binary.
    */
   version?: string;
+  /** Major Apache Tomcat version ('9' or '10'); persisted to registry. */
+  tomcatVersion?: '9' | '10';
   /** Target resources to apply via the Proxmox REST API (Phase 1). */
   resources?: { cpu: number; memory: number; storage: number };
   /**

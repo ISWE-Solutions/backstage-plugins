@@ -913,6 +913,13 @@ export async function createRouter(
     const restartTomcat =
       typeof b.restartTomcat === 'boolean' ? b.restartTomcat : true;
 
+    const tomcatVersionRaw =
+      typeof b.tomcatVersion === 'string' ? b.tomcatVersion.trim() : '';
+    const tomcatVersion =
+      tomcatVersionRaw === '9' || tomcatVersionRaw === '10'
+        ? (tomcatVersionRaw as '9' | '10')
+        : undefined;
+
     return {
       instanceId,
       vmid: vmidNum,
@@ -920,6 +927,7 @@ export async function createRouter(
       domain: instance.domain,
       name: str(b.name) ?? instance.name,
       version: str(b.version) ?? instance.version,
+      tomcatVersion,
       resources: { cpu, memory, storage },
       database: {
         name: str(dbObj.name) ?? instance.database.name,

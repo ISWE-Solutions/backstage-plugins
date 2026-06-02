@@ -35,6 +35,8 @@ Optional:
   --pve-user <name>         SSH user for --pve-host (default: root)
   --pve-ssh-key <path>      SSH private key for --pve-host
   --no-restart-tomcat       Render dhis.conf but skip the Tomcat restart
+  --tomcat-version <ver>    Target Apache Tomcat major version (9 or 10);
+                            forwarded as the tomcat_version extra-var
   --keep-vars-file          Don't delete the rendered vars.yml on exit
   -h | --help               Show this help
 
@@ -66,6 +68,7 @@ PVE_USER="root"
 PVE_SSH_KEY=""
 RESTART_TOMCAT=1
 KEEP_VARS_FILE=0
+TOMCAT_VERSION=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -84,6 +87,7 @@ while [[ $# -gt 0 ]]; do
         --pve-user) PVE_USER="$2"; shift 2;;
         --pve-ssh-key) PVE_SSH_KEY="$2"; shift 2;;
         --no-restart-tomcat) RESTART_TOMCAT=0; shift;;
+        --tomcat-version) TOMCAT_VERSION="$2"; shift 2;;
         --keep-vars-file) KEEP_VARS_FILE=1; shift;;
         -h|--help) usage; exit 0;;
         *) echo "unknown option: $1" >&2; usage >&2; exit 2;;
@@ -189,6 +193,7 @@ dhis2_db_user: $(yaml_escape "${DB_USER}")
 dhis2_db_password: $(yaml_escape "${DHIS2_DB_PASS}")
 dhis2_server_base_url: $(yaml_escape "${SERVER_BASE_URL}")
 restart_tomcat: $([[ "${RESTART_TOMCAT}" == "1" ]] && echo true || echo false)
+$([[ -n "${TOMCAT_VERSION}" ]] && printf 'tomcat_version: %s\n' "$(yaml_escape "${TOMCAT_VERSION}")")
 EOF
 chmod 0600 "${EXTRA_VARS_FILE}"
 

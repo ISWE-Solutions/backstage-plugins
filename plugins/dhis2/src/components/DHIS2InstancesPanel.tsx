@@ -194,6 +194,7 @@ interface EditDraft {
    * default key isn't authorized on this particular node.
    */
   sshKeyPath: string;
+  tomcatVersion: '9' | '10';
 }
 
 const DEFAULT_PG_PORT = 5432;
@@ -735,6 +736,7 @@ export const DHIS2InstancesPanel = ({
         DEFAULT_PG_PORT,
       dbPassword: instance.database.password ?? '',
       sshKeyPath: (globalSettings.proxy.sshKeyPath ?? '').trim(),
+      tomcatVersion: (instance.tomcatVersion as '9' | '10' | undefined) ?? '9',
     });
     setProxyFilesState({
       loading: false,

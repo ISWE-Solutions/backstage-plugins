@@ -18,6 +18,8 @@ export interface EditDraft {
   dbPassword: string;
   /** SSH private-key path used to reach the PVE host for `pct exec`. */
   sshKeyPath: string;
+  /** Major Apache Tomcat version to run in the LXC ('9' or '10'). */
+  tomcatVersion: '9' | '10';
 }
 
 export interface ProxyFilesState {
@@ -97,7 +99,7 @@ export const EditInstanceDialog = ({
               label tracked in the registry.
             </Typography>
           </Grid>
-          <Grid item xs={12} sm={7}>
+          <Grid item xs={12} sm={6}>
             <TextField
               label="Name"
               fullWidth
@@ -105,7 +107,7 @@ export const EditInstanceDialog = ({
               onChange={e => updateDraft({ name: e.target.value })}
             />
           </Grid>
-          <Grid item xs={12} sm={5}>
+          <Grid item xs={12} sm={3}>
             <TextField
               label="DHIS2 version"
               select
@@ -119,6 +121,21 @@ export const EditInstanceDialog = ({
                   {v}
                 </MenuItem>
               ))}
+            </TextField>
+          </Grid>
+          <Grid item xs={12} sm={3}>
+            <TextField
+              label="Tomcat version"
+              select
+              fullWidth
+              value={draft.tomcatVersion ?? '9'}
+              onChange={e =>
+                updateDraft({ tomcatVersion: e.target.value as '9' | '10' })
+              }
+              helperText="2.40/2.41 → 9 (javax); v42+ → 10 (jakarta)."
+            >
+              <MenuItem value="9">9</MenuItem>
+              <MenuItem value="10">10</MenuItem>
             </TextField>
           </Grid>
 

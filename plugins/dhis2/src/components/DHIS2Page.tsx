@@ -1247,6 +1247,7 @@ export const DHIS2Page = () => {
       dbPort: number;
       dbPassword: string;
       sshKeyPath: string;
+      tomcatVersion: '9' | '10';
     },
   ) => {
     const steps: ProvisionStep[] = [
@@ -1280,6 +1281,7 @@ export const DHIS2Page = () => {
     const payload = {
       name: draft.name,
       version: draft.version,
+      tomcatVersion: draft.tomcatVersion,
       resources: {
         cpu: draft.cpu,
         memory: draft.memoryMb,

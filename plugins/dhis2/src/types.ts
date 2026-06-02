@@ -122,6 +122,8 @@ export interface DHIS2Instance {
    *   - `unknown`  : Proxmox API not configured / unreachable.
    */
   driftStatus?: 'managed' | 'untagged' | 'missing' | 'unknown';
+  /** Major Apache Tomcat version installed in the LXC ('9' or '10'). */
+  tomcatVersion?: '9' | '10';
 }
 
 export interface CreateInstanceRequest {
