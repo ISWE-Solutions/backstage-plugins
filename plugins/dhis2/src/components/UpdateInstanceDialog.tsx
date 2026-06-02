@@ -347,7 +347,7 @@ export const EditInstanceDialog = ({
           </Grid>
           <Grid item xs={12}>
             <TextField
-              label={`nginx vhost (${proxyFilesState.siteExists ? 'editing' : 'new file'})`}
+              label={`dhis.conf (${proxyFilesState.siteExists ? 'editing' : 'new file'})`}
               fullWidth
               multiline
               minRows={8}
