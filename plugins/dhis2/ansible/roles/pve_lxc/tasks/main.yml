@@ -104,10 +104,19 @@
 # being already functional.
 #
 # The first hop is the API host (`pve_ssh_host`, the only PVE node we are
-# guaranteed to reach from Backstage). From there we re-SSH into the
-# owning node (`pve_node`) over the cluster network and run `pct exec`.
-# Cluster members already have mutual root SSH set up for pvecm /
-# migration, so the inner hop does not need extra credentials.
+# guaranteed to reach from Backstage). When the container's owning node
+# is the same host, `pct exec` runs locally. When it's a different node
+# we re-SSH from the API host to the owning node and run `pct exec`
+# there — that inner hop only works if cluster members have mutual root
+# SSH (default Proxmox install, but some hardened deployments firewall
+# port 22 between PVE nodes).
+#
+# This step is best-effort: most Proxmox-built standard templates
+# (including ubuntu-24.04-standard) already ship sshd, in which case
+# even a failure here is harmless because the next `Wait for SSH` step
+# will succeed on its own. We therefore allow the task to fail without
+# aborting the play — but we surface a clear warning so operators on
+# templates that *do* lack sshd know to act.
 - name: Ensure openssh-server is installed inside the LXC (via pct exec)
   vars:
     _pve_install_sshd_script: |
@@ -122,22 +131,51 @@
       systemctl unmask ssh 2>/dev/null || true
       systemctl enable --now ssh
     _pve_install_sshd_b64: "{{ _pve_install_sshd_script | b64encode }}"
+    # If pve_ssh_host already names the owning node (single-node case or
+    # API host happens to own the container) we skip the inner SSH hop.
+    _pve_node_same_as_api: >-
+      {{ (pve_ssh_host | default(pve_node, true)) in
+         [pve_node, pve_node + '.' + (pve_domain | default('', true))] }}
   ansible.builtin.shell: |
     set -e
-    ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+    SSH_OPTS="-o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=10"
+    {% if _pve_node_same_as_api %}
+    ssh $SSH_OPTS \
+        {% if pve_ssh_port is defined %}-p {{ pve_ssh_port }}{% endif %} \
+        {% if pve_ssh_key | default('', true) | length > 0 %}-i {{ pve_ssh_key }}{% endif %} \
+        {{ pve_ssh_user | default('root') }}@{{ pve_ssh_host | default(pve_node) }} \
+        "pct exec {{ pve_vmid | int }} -- bash -c 'echo {{ _pve_install_sshd_b64 }} | base64 -d | bash'"
+    {% else %}
+    ssh $SSH_OPTS \
         {% if pve_ssh_port is defined %}-p {{ pve_ssh_port }}{% endif %} \
         {% if pve_ssh_key | default('', true) | length > 0 %}-i {{ pve_ssh_key }}{% endif %} \
         {{ pve_ssh_user | default('root') }}@{{ pve_ssh_host | default(pve_node) }} \
         bash -s <<'OUTER_EOF'
     set -e
-    ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes {{ pve_node }} \
+    ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=10 {{ pve_node }} \
         "pct exec {{ pve_vmid | int }} -- bash -c 'echo {{ _pve_install_sshd_b64 }} | base64 -d | bash'"
     OUTER_EOF
+    {% endif %}
   args:
     executable: /bin/bash
   register: pve_lxc_sshd_install
   changed_when: "'Setting up openssh-server' in (pve_lxc_sshd_install.stdout | default(''))"
+  failed_when: false
   no_log: "{{ not (dhis2_debug | default(false) | bool) }}"
+
+- name: Warn if openssh-server pre-install failed (will rely on template default)
+  ansible.builtin.debug:
+    msg: >-
+      Could not pre-install openssh-server via pct exec on '{{ pve_node }}'
+      from '{{ pve_ssh_host | default(pve_node) }}' (rc={{ pve_lxc_sshd_install.rc | default('?') }}).
+      Continuing — if the container's template already ships sshd this is
+      harmless and the next 'Wait for SSH' step will succeed. If it
+      doesn't, that step will time out and you'll need to switch to a
+      template that includes openssh-server (e.g. the Proxmox-built
+      ubuntu-24.04-standard) or open inter-node port 22 between PVE
+      hosts. stderr was:
+      {{ pve_lxc_sshd_install.stderr | default('(suppressed by no_log)') }}
+  when: (pve_lxc_sshd_install.rc | default(0)) != 0
 
 
 - name: Wait for container interfaces to come up
