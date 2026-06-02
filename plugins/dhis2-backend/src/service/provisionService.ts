@@ -2406,28 +2406,45 @@ export class ProvisionService {
     // container. `pct` only exists on the PVE host itself.
     const pctCmd = `pct exec ${vmidStr} -- bash -lc ${shellQuote(pickAndTail)}`;
 
-    // Resolve PVE SSH target — same ladder as resolvePveHost(), with
-    // optional per-request overrides for ad-hoc situations.
-    const pveHost =
+    // Resolve the reachable PVE host (the one Backstage can SSH to directly).
+    // Same ladder as resolvePveHost(), with optional per-request overrides.
+    const reachableHost =
       (opts.pveHost && opts.pveHost.trim()) ||
       (cfg.pveHost !== undefined ? cfg.pveHost : '') ||
-      (cfg.host && !isLocalHost(cfg.host) ? cfg.host : '') ||
-      inst.node;
-    const runRemote = !!pveHost && !isLocalHost(pveHost);
+      (cfg.host && !isLocalHost(cfg.host) ? cfg.host : '');
+
+    // `pct exec` only runs on the node owning the container, so we always
+    // target `inst.node`. If that node isn't directly reachable from
+    // Backstage (typical multi-node cluster), hop through `reachableHost`
+    // using SSH ProxyJump. Proxmox cluster nodes share the root SSH key
+    // distributed by `pvecm join`, so the same private key works for both
+    // legs.
+    const targetHost = inst.node;
+    const runRemote = !!targetHost && !isLocalHost(targetHost);
+    const needsJump =
+      runRemote &&
+      !!reachableHost &&
+      reachableHost.toLowerCase() !== targetHost.toLowerCase();
 
     let result: { code: number; stdout: string; stderr: string };
     if (runRemote) {
+      const port =
+        opts.pveSshPort && Number.isInteger(opts.pveSshPort) && opts.pveSshPort > 0
+          ? opts.pveSshPort
+          : cfg.port || 22;
+      const user = (opts.pveSshUser && opts.pveSshUser.trim()) || cfg.user || 'root';
+      const keyPath =
+        normalizeSshPrivateKeyPath(opts.pveSshKeyPath) ||
+        normalizeSshPrivateKeyPath(cfg.privateKeyFile) ||
+        undefined;
       const access: ProxyAccess = {
-        host: pveHost,
-        port:
-          opts.pveSshPort && Number.isInteger(opts.pveSshPort) && opts.pveSshPort > 0
-            ? opts.pveSshPort
-            : cfg.port || 22,
-        user: (opts.pveSshUser && opts.pveSshUser.trim()) || cfg.user || 'root',
-        keyPath:
-          normalizeSshPrivateKeyPath(opts.pveSshKeyPath) ||
-          normalizeSshPrivateKeyPath(cfg.privateKeyFile) ||
-          undefined,
+        host: targetHost,
+        port,
+        user,
+        keyPath,
+        jump: needsJump
+          ? { host: reachableHost, port, user }
+          : undefined,
       };
       result = await sshExec(access, pctCmd);
     } else {
@@ -2796,6 +2813,14 @@ interface ProxyAccess {
   port: number;
   user: string;
   keyPath?: string;
+  /**
+   * Optional SSH ProxyJump target. When set, the ssh client connects
+   * to `host` via `jump` first (`ssh -J user@host:port`). Used so that
+   * Backstage, which may only reach a single PVE host, can still run
+   * `pct exec` on LXCs owned by other cluster nodes — relying on the
+   * shared root SSH key Proxmox distributes across the cluster.
+   */
+  jump?: { host: string; port: number; user: string };
 }
 
 export interface ProxyFilesResponse {
@@ -2869,6 +2894,9 @@ function sshBaseArgs(a: ProxyAccess): string[] {
   ];
   if (a.keyPath) {
     args.push('-i', a.keyPath);
+  }
+  if (a.jump) {
+    args.push('-J', `${a.jump.user}@${a.jump.host}:${a.jump.port}`);
   }
   args.push(`${a.user}@${a.host}`);
   return args;
