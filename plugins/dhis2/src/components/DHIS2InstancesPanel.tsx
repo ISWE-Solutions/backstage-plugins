@@ -1719,7 +1719,6 @@ export const DHIS2InstancesPanel = ({
       {proxySettingsDialog}
       {proxyLogsDialog}
       {releaseInfoDialog}
-      {releaseInfoDialog}
       <TransferDatabaseDialog
         open={!!transferTarget}
         instance={transferTarget}
