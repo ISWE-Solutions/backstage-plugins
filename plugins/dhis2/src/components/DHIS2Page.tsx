@@ -37,6 +37,7 @@ import CheckCircleIcon from '@material-ui/icons/CheckCircle';
 import ErrorOutlineIcon from '@material-ui/icons/ErrorOutline';
 import RadioButtonUncheckedIcon from '@material-ui/icons/RadioButtonUnchecked';
 import FileCopyIcon from '@material-ui/icons/FileCopy';
+import GetAppIcon from '@material-ui/icons/GetApp';
 import PauseIcon from '@material-ui/icons/Pause';
 import StopIcon from '@material-ui/icons/Stop';
 import ReplayIcon from '@material-ui/icons/Replay';
@@ -263,6 +264,61 @@ const groupLogByPhase = (lines: string[]): LogGroup[] => {
   }
   return groups;
 };
+
+function copyInstanceLogText(lines: string[]): void {
+  const text = lines.join('\n');
+  const nav = (typeof navigator !== 'undefined' ? navigator : undefined) as
+    | (Navigator & { clipboard?: { writeText(s: string): Promise<void> } })
+    | undefined;
+  if (nav?.clipboard?.writeText) {
+    void nav.clipboard.writeText(text);
+    return;
+  }
+  if (typeof document === 'undefined') return;
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
+  } finally {
+    document.body.removeChild(ta);
+  }
+}
+
+function downloadInstanceLogText(lines: string[], filename: string): void {
+  if (typeof document === 'undefined') return;
+  const blob = new Blob([lines.join('\n')], {
+    type: 'text/plain;charset=utf-8',
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function buildInstanceLogFilename(d: {
+  instance: DHIS2Instance | null;
+  source: 'auto' | 'dhis2' | 'catalina';
+  path?: string;
+}): string {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  if (d.path) {
+    const base = d.path.split('/').pop() || `dhis2-${d.source}.log`;
+    return `${base.replace(/\.log$/, '').replace(/\.out$/, '')}-${stamp}.log`;
+  }
+  const name = (d.instance?.name || 'instance').replace(
+    /[^A-Za-z0-9._-]+/g,
+    '_',
+  );
+  return `${name}-${d.source}-${stamp}.log`;
+}
 
 export const DHIS2Page = () => {
   const classes = useStyles();
@@ -2058,6 +2114,25 @@ export const DHIS2Page = () => {
             )}
           </DialogContent>
           <DialogActions>
+            <Button
+              onClick={() => copyInstanceLogText(logsDialog.lines)}
+              startIcon={<FileCopyIcon />}
+              disabled={logsDialog.loading || logsDialog.lines.length === 0}
+            >
+              Copy
+            </Button>
+            <Button
+              onClick={() =>
+                downloadInstanceLogText(
+                  logsDialog.lines,
+                  buildInstanceLogFilename(logsDialog),
+                )
+              }
+              startIcon={<GetAppIcon />}
+              disabled={logsDialog.loading || logsDialog.lines.length === 0}
+            >
+              Download
+            </Button>
             <Button onClick={closeLogsDialog}>Close</Button>
           </DialogActions>
         </Dialog>

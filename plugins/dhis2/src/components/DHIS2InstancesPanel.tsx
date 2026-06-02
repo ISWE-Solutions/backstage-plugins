@@ -38,6 +38,7 @@ import BackupIcon from '@material-ui/icons/Backup';
 import BlockIcon from '@material-ui/icons/Block';
 import SwapHorizIcon from '@material-ui/icons/SwapHoriz';
 import FileCopyIcon from '@material-ui/icons/FileCopy';
+import GetAppIcon from '@material-ui/icons/GetApp';
 import SystemUpdateAltIcon from '@material-ui/icons/SystemUpdateAlt';
 import OpenInNewIcon from '@material-ui/icons/OpenInNew';
 import VpnLockIcon from '@material-ui/icons/VpnLock';
@@ -255,6 +256,54 @@ const EMPTY_LOGS: LogsView = {
   loading: false,
   lines: [],
 };
+
+function copyLogText(lines: string[]): void {
+  const text = lines.join('\n');
+  const nav = (typeof navigator !== 'undefined' ? navigator : undefined) as
+    | (Navigator & { clipboard?: { writeText(s: string): Promise<void> } })
+    | undefined;
+  if (nav?.clipboard?.writeText) {
+    void nav.clipboard.writeText(text);
+    return;
+  }
+  if (typeof document === 'undefined') return;
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
+  } finally {
+    document.body.removeChild(ta);
+  }
+}
+
+function downloadLogText(lines: string[], filename: string): void {
+  if (typeof document === 'undefined') return;
+  const blob = new Blob([lines.join('\n')], {
+    type: 'text/plain;charset=utf-8',
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function buildProxyLogFilename(v: LogsView): string {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  if (v.path) {
+    const base = v.path.split('/').pop() || `nginx-${v.kind}.log`;
+    return `${base.replace(/\.log$/, '')}-${stamp}.log`;
+  }
+  const scope = v.domain ? v.domain.replace(/[^A-Za-z0-9._-]+/g, '_') : 'global';
+  return `nginx-${v.kind}-${scope}-${stamp}.log`;
+}
 
 export const DHIS2InstancesPanel = ({
   instances,
@@ -1542,6 +1591,25 @@ export const DHIS2InstancesPanel = ({
       <DialogActions>
         <Button onClick={refreshProxyLogs} startIcon={<RefreshIcon />}>
           Refresh
+        </Button>
+        <Button
+          onClick={() => copyLogText(proxyLogsView.lines)}
+          startIcon={<FileCopyIcon />}
+          disabled={proxyLogsView.loading || proxyLogsView.lines.length === 0}
+        >
+          Copy
+        </Button>
+        <Button
+          onClick={() =>
+            downloadLogText(
+              proxyLogsView.lines,
+              buildProxyLogFilename(proxyLogsView),
+            )
+          }
+          startIcon={<GetAppIcon />}
+          disabled={proxyLogsView.loading || proxyLogsView.lines.length === 0}
+        >
+          Download
         </Button>
         <Button onClick={closeProxyLogs}>Close</Button>
       </DialogActions>
