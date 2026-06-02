@@ -41,8 +41,8 @@ import FileCopyIcon from '@material-ui/icons/FileCopy';
 import SystemUpdateAltIcon from '@material-ui/icons/SystemUpdateAlt';
 import OpenInNewIcon from '@material-ui/icons/OpenInNew';
 import VpnLockIcon from '@material-ui/icons/VpnLock';
-import VisibilityIcon from '@material-ui/icons/Visibility';
-import VisibilityOffIcon from '@material-ui/icons/VisibilityOff';
+import ListAltIcon from '@material-ui/icons/ListAlt';
+import ErrorOutlineIcon from '@material-ui/icons/ErrorOutline';
 import { DHIS2Instance, ProxyServerSettings } from '../types';
 import { dhis2Service } from '../services/dhis2Service';
 import { settingsService } from '../services/settingsService';
@@ -241,10 +241,12 @@ type LogKind = 'access' | 'error';
 
 interface LogsView {
   open: boolean;
+  instanceId?: string;
   domain?: string;
   kind: LogKind;
   loading: boolean;
   lines: string[];
+  path?: string;
 }
 
 const EMPTY_LOGS: LogsView = {
@@ -414,14 +416,32 @@ export const DHIS2InstancesPanel = ({
   const handleReloadProxyNginx = () =>
     runProxyAction('reload', 'Nginx reload', () => nginxService.reload());
 
-  const openProxyLogs = async (kind: LogKind, domain?: string) => {
-    setProxyLogsView({ open: true, kind, domain, loading: true, lines: [] });
+  const openProxyLogs = async (
+    kind: LogKind,
+    instance?: { id: string; domain: string },
+  ) => {
+    setProxyLogsView({
+      open: true,
+      kind,
+      instanceId: instance?.id,
+      domain: instance?.domain,
+      loading: true,
+      lines: [],
+    });
     try {
-      const lines =
-        kind === 'access'
-          ? await nginxService.getAccessLog(domain)
-          : await nginxService.getErrorLog(domain);
-      setProxyLogsView(v => ({ ...v, loading: false, lines }));
+      const baseUrl = await discoveryApi.getBaseUrl('dhis2');
+      const res = await dhis2Service.tailProxyLogs(
+        baseUrl,
+        instance?.id,
+        { ...proxyPayloadFromSettings(), kind, lines: 200 },
+        backstageFetch,
+      );
+      setProxyLogsView(v => ({
+        ...v,
+        loading: false,
+        lines: res.lines,
+        path: res.path,
+      }));
     } catch (e: any) {
       setProxyLogsView(v => ({
         ...v,
@@ -433,7 +453,12 @@ export const DHIS2InstancesPanel = ({
 
   const refreshProxyLogs = () => {
     if (proxyLogsView.open) {
-      void openProxyLogs(proxyLogsView.kind, proxyLogsView.domain);
+      void openProxyLogs(
+        proxyLogsView.kind,
+        proxyLogsView.instanceId && proxyLogsView.domain
+          ? { id: proxyLogsView.instanceId, domain: proxyLogsView.domain }
+          : undefined,
+      );
     }
   };
 
@@ -1151,16 +1176,16 @@ export const DHIS2InstancesPanel = ({
                 )}
                 <Tooltip title="View nginx access log for this site">
                   <IconButton
-                    onClick={() => void openProxyLogs('access', instance.domain)}
+                    onClick={() => void openProxyLogs('access', instance)}
                   >
-                    <VisibilityIcon />
+                    <ListAltIcon />
                   </IconButton>
                 </Tooltip>
                 <Tooltip title="View nginx error log for this site">
                   <IconButton
-                    onClick={() => void openProxyLogs('error', instance.domain)}
+                    onClick={() => void openProxyLogs('error', instance)}
                   >
-                    <VisibilityOffIcon />
+                    <ErrorOutlineIcon />
                   </IconButton>
                 </Tooltip>
                 <Tooltip title="Reload nginx for this site">
@@ -1495,6 +1520,11 @@ export const DHIS2InstancesPanel = ({
       <DialogTitle>
         Nginx {proxyLogsView.kind === 'access' ? 'access' : 'error'} log
         {proxyLogsView.domain ? ` — ${proxyLogsView.domain}` : ' — global'}
+        {proxyLogsView.path && (
+          <Typography variant="caption" display="block" color="textSecondary">
+            {proxyLogsView.path}
+          </Typography>
+        )}
       </DialogTitle>
       <DialogContent dividers>
         {proxyLogsView.loading ? (

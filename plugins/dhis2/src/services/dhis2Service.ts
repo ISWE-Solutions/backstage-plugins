@@ -1395,6 +1395,48 @@ export class DHIS2Service {
   }
 
   /**
+   * Tail the nginx access / error log for a single site (or globally
+   * when `instanceId` is undefined). The backend SSHes the proxy host
+   * using the same access bundle as readProxyFiles.
+   */
+  async tailProxyLogs(
+    baseUrl: string,
+    instanceId: string | undefined,
+    payload: {
+      proxy?: ProxyAccessPayload;
+      kind: 'access' | 'error';
+      lines?: number;
+    },
+    fetchFn: typeof fetch = (...args) => fetch(...args),
+  ): Promise<{ kind: 'access' | 'error'; path: string; lines: string[] }> {
+    const url = instanceId
+      ? `${baseUrl}/instances/${encodeURIComponent(instanceId)}/proxy-logs/tail`
+      : `${baseUrl}/proxy-logs/tail`;
+    const res = await fetchWithLifecycleRetry(fetchFn, url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      let msg = `Failed to read proxy ${payload.kind} log (HTTP ${res.status})`;
+      try {
+        const body = await res.json();
+        if (typeof body?.error === 'string') msg = body.error;
+        else if (typeof body?.error?.message === 'string')
+          msg = body.error.message;
+      } catch {
+        // ignore
+      }
+      throw new Error(msg);
+    }
+    return (await res.json()) as {
+      kind: 'access' | 'error';
+      path: string;
+      lines: string[];
+    };
+  }
+
+  /**
    * Snapshot a running or completed provisioning job.
    *
    * Long-running jobs (e.g. DHIS2 restore + ANALYZE) can outlast a single

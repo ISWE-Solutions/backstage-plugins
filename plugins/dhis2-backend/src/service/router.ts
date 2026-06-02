@@ -1652,6 +1652,64 @@ export async function createRouter(
     }
   });
 
+  // Tail nginx access/error log for a single site (per-instance).
+  router.post('/instances/:id/proxy-logs/tail', async (req, res) => {
+    if (!provisionService.isConfigured()) {
+      res.status(503).json({ error: 'DHIS2 orchestrator is not configured.' });
+      return;
+    }
+    const b =
+      req.body && typeof req.body === 'object'
+        ? (req.body as Record<string, unknown>)
+        : {};
+    const kind = b.kind === 'error' ? 'error' : 'access';
+    const lines =
+      typeof b.lines === 'number' && Number.isFinite(b.lines)
+        ? (b.lines as number)
+        : undefined;
+    try {
+      const result = await provisionService.tailProxyLogs(
+        req.params.id,
+        parseProxyAccessOverrides(req.body),
+        { kind, lines },
+      );
+      res.json(result);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn(`DHIS2: proxy-logs tail failed: ${message}`);
+      res.status(400).json({ error: message });
+    }
+  });
+
+  // Tail the global nginx access/error log (not scoped to a site).
+  router.post('/proxy-logs/tail', async (req, res) => {
+    if (!provisionService.isConfigured()) {
+      res.status(503).json({ error: 'DHIS2 orchestrator is not configured.' });
+      return;
+    }
+    const b =
+      req.body && typeof req.body === 'object'
+        ? (req.body as Record<string, unknown>)
+        : {};
+    const kind = b.kind === 'error' ? 'error' : 'access';
+    const lines =
+      typeof b.lines === 'number' && Number.isFinite(b.lines)
+        ? (b.lines as number)
+        : undefined;
+    try {
+      const result = await provisionService.tailProxyLogs(
+        undefined,
+        parseProxyAccessOverrides(req.body),
+        { kind, lines },
+      );
+      res.json(result);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn(`DHIS2: proxy-logs tail (global) failed: ${message}`);
+      res.status(400).json({ error: message });
+    }
+  });
+
   router.get('/instances', async (_req, res) => {
     const instances = await instanceRegistryService.listEnriched();
     res.json({ instances });

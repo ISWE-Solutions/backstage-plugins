@@ -2347,6 +2347,65 @@ export class ProvisionService {
   }
 
   /**
+   * Tail the nginx access / error log for a single site on the central
+   * proxy host. The log file path is derived from the instance's base
+   * domain — matches what configure-proxy.sh writes:
+   *   /var/log/nginx/<base-domain>_access.log
+   *   /var/log/nginx/<base-domain>_error.log
+   */
+  async tailProxyLogs(
+    instanceId: string | undefined,
+    overrides: ProxyAccessOverrides,
+    opts: { kind: 'access' | 'error'; lines?: number },
+  ): Promise<{ kind: 'access' | 'error'; path: string; lines: string[] }> {
+    if (!this.cfg) throw new Error('Orchestrator not configured.');
+    const access = resolveProxyAccess(this.cfg, overrides);
+    const requested = Number.isFinite(opts.lines) ? Number(opts.lines) : 200;
+    const lines = Math.max(1, Math.min(5000, Math.floor(requested)));
+
+    // Resolve the on-disk log file.
+    let logPath: string;
+    if (instanceId) {
+      const inst = await this.findInstance(instanceId);
+      if (!inst) throw new Error(`Instance "${instanceId}" not found.`);
+      const baseDomain = inst.domain.includes('/')
+        ? inst.domain.split('/')[0]
+        : inst.domain;
+      if (!baseDomain || !/^[A-Za-z0-9._-]+$/.test(baseDomain)) {
+        throw new Error(
+          `Refusing to tail logs: base domain "${baseDomain}" is unsafe as a filename.`,
+        );
+      }
+      logPath = `/var/log/nginx/${baseDomain}_${opts.kind}.log`;
+    } else {
+      // Global log files installed by the nginx package.
+      logPath =
+        opts.kind === 'access'
+          ? '/var/log/nginx/access.log'
+          : '/var/log/nginx/error.log';
+    }
+
+    // `sudo -n` so the unprivileged proxy SSH user can read root-owned
+    // logs without prompting. The proxy user must have a NOPASSWD sudo
+    // entry for /usr/bin/tail (typical for the dhis2 deployment user).
+    const remoteCmd =
+      `if [ -r ${shellQuote(logPath)} ]; then tail -n ${lines} ${shellQuote(logPath)}; ` +
+      `else sudo -n tail -n ${lines} ${shellQuote(logPath)}; fi`;
+    const r = await sshExec(access, remoteCmd);
+    if (r.code !== 0) {
+      const msg = (r.stderr || r.stdout || '').trim();
+      throw new Error(
+        `Failed to read ${opts.kind} log from ${access.user}@${access.host}:${logPath}` +
+          (msg ? `: ${msg}` : ` (exit ${r.code}).`),
+      );
+    }
+    const out = (r.stdout || '').replace(/\r\n/g, '\n');
+    const split = out.length > 0 ? out.split('\n') : [];
+    if (split.length > 0 && split[split.length - 1] === '') split.pop();
+    return { kind: opts.kind, path: logPath, lines: split };
+  }
+
+  /**
    * Tail the live DHIS2 / Tomcat log files inside an instance LXC.
    *
    * Runs `pct exec <vmid> -- tail -n N <path>` on the PVE host that owns
