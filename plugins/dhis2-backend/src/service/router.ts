@@ -8,6 +8,9 @@ import {
   ProvisionRequest,
   DecommissionRequest,
   EditRequest,
+  LifecycleRequest,
+  CloneRequest,
+  UpgradeRequest,
 } from './provisionService';
 import { InstanceRegistryService } from './instanceRegistryService';
 import {
@@ -946,6 +949,530 @@ export async function createRouter(
     const job = provisionService.startEditJob(payload);
     logger.info(
       `DHIS2: edit job ${job.id} started for ${payload.name} (vmid=${payload.vmid}, node=${payload.node})`,
+    );
+    res.status(202).json({ jobId: job.id, status: job.status });
+  });
+
+  // ---------------------------------------------------------------------
+  // Instance lifecycle (start / stop / restart) — Ansible-backed, streamed log
+  // ---------------------------------------------------------------------
+  function parseLifecycleRequest(
+    instanceId: string,
+    body: unknown,
+    instance: {
+      name: string;
+      vmid: string;
+      node: string;
+      domain: string;
+    },
+  ): LifecycleRequest {
+    const b = (body && typeof body === 'object' ? body : {}) as Record<
+      string,
+      any
+    >;
+    const vmidNum = Number(instance.vmid);
+    if (!Number.isInteger(vmidNum) || vmidNum <= 0) {
+      throw new InputError(
+        `Persisted instance has invalid vmid "${instance.vmid}"`,
+      );
+    }
+    const action =
+      typeof b.action === 'string' ? b.action.trim().toLowerCase() : '';
+    if (action !== 'start' && action !== 'stop' && action !== 'restart') {
+      throw new InputError(
+        `action must be one of: start, stop, restart (got "${b.action}")`,
+      );
+    }
+    const num = (v: unknown): number | undefined => {
+      if (typeof v === 'number' && Number.isFinite(v)) return v;
+      if (typeof v === 'string' && v.trim() !== '') {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : undefined;
+      }
+      return undefined;
+    };
+    const str = (v: unknown): string | undefined =>
+      typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined;
+    const proxmox =
+      b.proxmox && typeof b.proxmox === 'object'
+        ? (b.proxmox as Record<string, any>)
+        : {};
+    return {
+      instanceId,
+      vmid: vmidNum,
+      node: instance.node,
+      domain: instance.domain,
+      name: instance.name,
+      action: action as 'start' | 'stop' | 'restart',
+      shutdownTimeout: num(b.shutdownTimeout),
+      forceStop:
+        typeof b.forceStop === 'boolean' ? b.forceStop : undefined,
+      proxmox: {
+        apiUrl: str(proxmox.apiUrl),
+        apiUser: str(proxmox.apiUser),
+        apiTokenId: str(proxmox.apiTokenId),
+        apiTokenSecret:
+          typeof proxmox.apiTokenSecret === 'string'
+            ? proxmox.apiTokenSecret
+            : undefined,
+        validateApiCerts:
+          typeof proxmox.validateApiCerts === 'boolean'
+            ? proxmox.validateApiCerts
+            : undefined,
+      },
+    };
+  }
+
+  router.post('/instances/:id/lifecycle', async (req, res) => {
+    if (!provisionService.isConfigured()) {
+      res.status(503).json({
+        error:
+          'Provisioning orchestrator is not configured. Set dhis2.orchestrator in app-config.yaml.',
+      });
+      return;
+    }
+    const instanceId = req.params.id;
+    const persisted = await provisionService.listInstances();
+    const found = persisted.find(i => i.id === instanceId);
+    if (!found) {
+      res.status(404).json({ error: `Instance ${instanceId} not found` });
+      return;
+    }
+    let payload: LifecycleRequest;
+    try {
+      payload = parseLifecycleRequest(instanceId, req.body, {
+        name: found.name,
+        vmid: found.vmid,
+        node: found.node,
+        domain: found.domain,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(400).json({ error: message });
+      return;
+    }
+    const job = provisionService.startLifecycleJob(payload);
+    logger.info(
+      `DHIS2: lifecycle job ${job.id} (${payload.action}) started for ${payload.name} (vmid=${payload.vmid}, node=${payload.node})`,
+    );
+    res.status(202).json({ jobId: job.id, status: job.status });
+  });
+
+  // ---------------------------------------------------------------------
+  // Clone an existing instance into a new LXC + reconfigure DB + nginx
+  // ---------------------------------------------------------------------
+  function parseCloneRequest(
+    sourceInstanceId: string,
+    body: unknown,
+    source: {
+      vmid: string;
+      node: string;
+      hostname: string;
+      domain: string;
+      database: {
+        host?: string;
+        port?: number;
+        name: string;
+      };
+    },
+  ): CloneRequest {
+    const b = (body && typeof body === 'object' ? body : {}) as Record<
+      string,
+      any
+    >;
+    const str = (v: unknown): string | undefined =>
+      typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined;
+    const num = (v: unknown): number | undefined => {
+      if (typeof v === 'number' && Number.isFinite(v)) return v;
+      if (typeof v === 'string' && v.trim() !== '') {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : undefined;
+      }
+      return undefined;
+    };
+    const need = (label: string, v: string | undefined): string => {
+      if (!v) throw new InputError(`Missing required field: ${label}`);
+      return v;
+    };
+
+    const srcVmid = Number(source.vmid);
+    if (!Number.isInteger(srcVmid) || srcVmid <= 0) {
+      throw new InputError(
+        `Source instance has invalid vmid "${source.vmid}"`,
+      );
+    }
+
+    const targetVmid = num(b.vmid);
+    if (
+      targetVmid === undefined ||
+      !Number.isInteger(targetVmid) ||
+      targetVmid <= 0
+    ) {
+      throw new InputError(`vmid must be a positive integer`);
+    }
+    if (targetVmid === srcVmid) {
+      throw new InputError(`Target vmid must differ from source vmid`);
+    }
+
+    const dbStrategyRaw =
+      typeof b.dbStrategy === 'string' ? b.dbStrategy.trim() : '';
+    if (
+      dbStrategyRaw !== 'colocated' &&
+      dbStrategyRaw !== 'shared-clone' &&
+      dbStrategyRaw !== 'shared-keep'
+    ) {
+      throw new InputError(
+        `dbStrategy must be one of: colocated, shared-clone, shared-keep (got "${b.dbStrategy}")`,
+      );
+    }
+    const dbStrategy = dbStrategyRaw as
+      | 'colocated'
+      | 'shared-clone'
+      | 'shared-keep';
+
+    const dbIn =
+      b.database && typeof b.database === 'object'
+        ? (b.database as Record<string, any>)
+        : {};
+    const dbHost = need(
+      'database.host',
+      str(dbIn.host) ?? source.database.host,
+    );
+    const dbPort = num(dbIn.port) ?? source.database.port ?? 5432;
+    const dbName = need('database.name', str(dbIn.name));
+    const dbUser = need('database.user', str(dbIn.user));
+    const dbPassword = need(
+      'database.password',
+      typeof dbIn.password === 'string' && dbIn.password !== ''
+        ? dbIn.password
+        : undefined,
+    );
+
+    const adminIn =
+      b.databaseAdmin && typeof b.databaseAdmin === 'object'
+        ? (b.databaseAdmin as Record<string, any>)
+        : {};
+    if (dbStrategy === 'shared-clone') {
+      if (typeof adminIn.password !== 'string' || adminIn.password === '') {
+        throw new InputError(
+          'databaseAdmin.password is required when dbStrategy="shared-clone"',
+        );
+      }
+    }
+
+    const resIn =
+      b.resources && typeof b.resources === 'object'
+        ? (b.resources as Record<string, any>)
+        : {};
+    const cpu = num(resIn.cpu);
+    const memory = num(resIn.memory);
+    const storage = num(resIn.storage);
+    if (cpu === undefined || cpu <= 0) {
+      throw new InputError('resources.cpu must be a positive integer');
+    }
+    if (memory === undefined || memory <= 0) {
+      throw new InputError('resources.memory (MB) must be a positive integer');
+    }
+    if (storage === undefined || storage <= 0) {
+      throw new InputError('resources.storage (GB) must be a positive integer');
+    }
+
+    const proxyIn =
+      b.proxy && typeof b.proxy === 'object'
+        ? (b.proxy as Record<string, any>)
+        : {};
+    const proxmoxIn =
+      b.proxmox && typeof b.proxmox === 'object'
+        ? (b.proxmox as Record<string, any>)
+        : {};
+
+    return {
+      sourceInstanceId,
+      source: {
+        vmid: srcVmid,
+        node: source.node,
+        hostname: source.hostname,
+        dbHost: source.database.host ?? '',
+        dbPort: source.database.port ?? 5432,
+        dbName: source.database.name,
+      },
+      name: need('name', str(b.name)),
+      vmid: targetVmid,
+      node: need('node', str(b.node)),
+      hostname: need('hostname', str(b.hostname)),
+      domain: need('domain', str(b.domain)),
+      version: str(b.version),
+      resources: { cpu, memory, storage },
+      dbStrategy,
+      database: {
+        host: dbHost,
+        port: dbPort,
+        name: dbName,
+        user: dbUser,
+        password: dbPassword,
+      },
+      databaseAdmin: {
+        user: str(adminIn.user),
+        password:
+          typeof adminIn.password === 'string' && adminIn.password !== ''
+            ? adminIn.password
+            : undefined,
+      },
+      pauseSource:
+        typeof b.pauseSource === 'boolean' ? b.pauseSource : undefined,
+      shutdownTimeout: num(b.shutdownTimeout),
+      restartTomcat:
+        typeof b.restartTomcat === 'boolean' ? b.restartTomcat : undefined,
+      proxy: {
+        host: str(proxyIn.host),
+        sshPort: num(proxyIn.sshPort),
+        sshUser: str(proxyIn.sshUser),
+        sshKeyPath: str(proxyIn.sshKeyPath),
+        nginxConfigPath: str(proxyIn.nginxConfigPath),
+        nginxReloadCommand: str(proxyIn.nginxReloadCommand),
+      },
+      skipCertbot:
+        typeof b.skipCertbot === 'boolean' ? b.skipCertbot : undefined,
+      email: str(b.email),
+      proxmox: {
+        apiUrl: str(proxmoxIn.apiUrl),
+        apiUser: str(proxmoxIn.apiUser),
+        apiTokenId: str(proxmoxIn.apiTokenId),
+        apiTokenSecret:
+          typeof proxmoxIn.apiTokenSecret === 'string'
+            ? proxmoxIn.apiTokenSecret
+            : undefined,
+        validateApiCerts:
+          typeof proxmoxIn.validateApiCerts === 'boolean'
+            ? proxmoxIn.validateApiCerts
+            : undefined,
+      },
+    };
+  }
+
+  router.post('/instances/:id/clone', async (req, res) => {
+    if (!provisionService.isConfigured()) {
+      res.status(503).json({
+        error:
+          'Provisioning orchestrator is not configured. Set dhis2.orchestrator in app-config.yaml.',
+      });
+      return;
+    }
+    const sourceId = req.params.id;
+    const persisted = await provisionService.listInstances();
+    const source = persisted.find(i => i.id === sourceId);
+    if (!source) {
+      res.status(404).json({ error: `Source instance ${sourceId} not found` });
+      return;
+    }
+    let payload: CloneRequest;
+    try {
+      payload = parseCloneRequest(sourceId, req.body, {
+        vmid: source.vmid,
+        node: source.node,
+        hostname: source.name,
+        domain: source.domain,
+        database: {
+          host: source.database.host,
+          port: source.database.port,
+          name: source.database.name,
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(400).json({ error: message });
+      return;
+    }
+    // Avoid collisions with already-registered instances.
+    if (persisted.some(i => i.id === `dhis2-${payload.vmid}`)) {
+      res.status(409).json({
+        error: `An instance with vmid=${payload.vmid} is already registered`,
+      });
+      return;
+    }
+    const job = provisionService.startCloneJob(payload);
+    logger.info(
+      `DHIS2: clone job ${job.id} started: src=${payload.source.vmid}@${payload.source.node} -> ${payload.name} (vmid=${payload.vmid}, node=${payload.node}, db_strategy=${payload.dbStrategy})`,
+    );
+    res.status(202).json({ jobId: job.id, status: job.status });
+  });
+
+  // ---------------------------------------------------------------------
+  // Upgrade DHIS2 WAR on an existing instance (in-place WAR swap + restart)
+  // ---------------------------------------------------------------------
+  function parseUpgradeRequest(
+    instanceId: string,
+    body: unknown,
+    source: {
+      vmid: string;
+      node: string;
+      hostname: string;
+      domain: string;
+      database: {
+        host?: string;
+        port?: number;
+        name: string;
+        user: string;
+        password?: string;
+      };
+    },
+  ): UpgradeRequest {
+    const b = (body && typeof body === 'object' ? body : {}) as Record<
+      string,
+      any
+    >;
+    const str = (v: unknown): string | undefined =>
+      typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined;
+    const num = (v: unknown): number | undefined => {
+      if (typeof v === 'number' && Number.isFinite(v)) return v;
+      if (typeof v === 'string' && v.trim() !== '') {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : undefined;
+      }
+      return undefined;
+    };
+
+    const vmid = Number(source.vmid);
+    if (!Number.isInteger(vmid) || vmid <= 0) {
+      throw new InputError(`Instance has invalid vmid "${source.vmid}"`);
+    }
+
+    const toVersion = str(b.toVersion);
+    if (!toVersion) {
+      throw new InputError(
+        'toVersion is required (e.g. "2.41.3" or "41.2.0")',
+      );
+    }
+    // Sanity-check the version label so the playbook's URL derivation
+    // produces something useful. Accept "2.41.3", "41.2.0", "41.2", "41".
+    if (!/^[0-9]+(?:\.[0-9]+){0,3}$/.test(toVersion)) {
+      throw new InputError(
+        `toVersion "${toVersion}" does not look like a DHIS2 version label`,
+      );
+    }
+
+    const backupRetainNum = num(b.backupRetain);
+    if (
+      backupRetainNum !== undefined &&
+      (!Number.isInteger(backupRetainNum) || backupRetainNum <= 0)
+    ) {
+      throw new InputError('backupRetain must be a positive integer');
+    }
+
+    const dbIn =
+      b.database && typeof b.database === 'object'
+        ? (b.database as Record<string, any>)
+        : {};
+    const dbHost = str(dbIn.host) ?? source.database.host;
+    const dbPort = num(dbIn.port) ?? source.database.port ?? 5432;
+    const dbName = str(dbIn.name) ?? source.database.name;
+    const dbUser = str(dbIn.user) ?? source.database.user;
+    const dbPassword =
+      typeof dbIn.password === 'string' && dbIn.password !== ''
+        ? dbIn.password
+        : source.database.password;
+
+    const proxyIn =
+      b.proxy && typeof b.proxy === 'object'
+        ? (b.proxy as Record<string, any>)
+        : {};
+    const proxmoxIn =
+      b.proxmox && typeof b.proxmox === 'object'
+        ? (b.proxmox as Record<string, any>)
+        : {};
+
+    return {
+      instanceId,
+      vmid,
+      node: source.node,
+      hostname: source.hostname,
+      name: str(b.name) ?? source.hostname,
+      domain: source.domain,
+      toVersion,
+      warUrl: str(b.warUrl),
+      warFile: str(b.warFile),
+      backupDb:
+        typeof b.backupDb === 'boolean' ? b.backupDb : undefined,
+      backupRetain: backupRetainNum,
+      tomcatService: str(b.tomcatService),
+      webappsDir: str(b.webappsDir),
+      database: {
+        host: dbHost,
+        port: dbPort,
+        name: dbName,
+        user: dbUser,
+        password: dbPassword,
+      },
+      proxy: {
+        host: str(proxyIn.host),
+        sshPort: num(proxyIn.sshPort),
+        sshUser: str(proxyIn.sshUser),
+        sshKeyPath: str(proxyIn.sshKeyPath),
+      },
+      proxmox: {
+        apiUrl: str(proxmoxIn.apiUrl),
+        apiUser: str(proxmoxIn.apiUser),
+        apiTokenId: str(proxmoxIn.apiTokenId),
+        apiTokenSecret:
+          typeof proxmoxIn.apiTokenSecret === 'string'
+            ? proxmoxIn.apiTokenSecret
+            : undefined,
+        validateApiCerts:
+          typeof proxmoxIn.validateApiCerts === 'boolean'
+            ? proxmoxIn.validateApiCerts
+            : undefined,
+      },
+    };
+  }
+
+  router.post('/instances/:id/upgrade', async (req, res) => {
+    if (!provisionService.isConfigured()) {
+      res.status(503).json({
+        error:
+          'Provisioning orchestrator is not configured. Set dhis2.orchestrator in app-config.yaml.',
+      });
+      return;
+    }
+    const instanceId = req.params.id;
+    const persisted = await provisionService.listInstances();
+    const source = persisted.find(i => i.id === instanceId);
+    if (!source) {
+      res.status(404).json({ error: `Instance ${instanceId} not found` });
+      return;
+    }
+    let payload: UpgradeRequest;
+    try {
+      payload = parseUpgradeRequest(instanceId, req.body, {
+        vmid: source.vmid,
+        node: source.node,
+        hostname: source.name,
+        domain: source.domain,
+        database: {
+          host: source.database.host,
+          port: source.database.port,
+          name: source.database.name,
+          user: source.database.user,
+          password: source.database.password,
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(400).json({ error: message });
+      return;
+    }
+    if (
+      payload.backupDb !== false &&
+      (!payload.database?.password || payload.database.password === '')
+    ) {
+      res.status(400).json({
+        error:
+          'database.password is required for a pre-upgrade pg_dump. Provide it in the request body or set backupDb=false.',
+      });
+      return;
+    }
+    const job = provisionService.startUpgradeJob(payload);
+    logger.info(
+      `DHIS2: upgrade job ${job.id} started: ${instanceId} (vmid=${payload.vmid}, node=${payload.node}) -> ${payload.toVersion}`,
     );
     res.status(202).json({ jobId: job.id, status: job.status });
   });

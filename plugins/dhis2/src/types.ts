@@ -439,7 +439,7 @@ export interface ProxyServerSettings {
 export interface DHIS2DefaultsSettings {
   /** Default DHIS2 version for new instances */
   defaultVersion: string;
-  /** Default JVM heap size, e.g. "4g" */
+  /** Default JVM heap size, e.g. "4G" */
   javaHeap: string;
   /** Tomcat port inside the container */
   tomcatPort: number;

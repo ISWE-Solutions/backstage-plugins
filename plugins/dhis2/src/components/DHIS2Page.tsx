@@ -52,6 +52,10 @@ import { fetchApiRef, useApi, discoveryApiRef } from '@backstage/core-plugin-api
 import { DHIS2LogsPanel } from './DHIS2LogsPanel';
 import { ProxmoxClusterPanel } from './ProxmoxClusterPanel';
 import { RestoreInstanceDialog } from './RestoreInstanceDialog';
+import { CloneInstanceDialog } from './CloneInstanceDialog';
+import { UpgradeInstanceDialog } from './UpgradeInstanceDialog';
+import { CloneInstancePayload } from '../services/dhis2Service';
+import { UpgradeInstancePayload } from '../services/dhis2Service';
 import { DHIS2InstancesPanel } from './DHIS2InstancesPanel';
 import {
   CreateInstanceDialog,
@@ -303,6 +307,31 @@ export const DHIS2Page = () => {
     instance: DHIS2Instance | null;
   }>({ open: false, instance: null });
 
+  // Clone dialog state — owned by the page so the activity-log dialog can
+  // surface the underlying ansible job progress.
+  const [cloneDialog, setCloneDialog] = useState<{
+    open: boolean;
+    source: DHIS2Instance | null;
+    suggestedVmid: number | null;
+    submitting: boolean;
+    error: string | null;
+  }>({
+    open: false,
+    source: null,
+    suggestedVmid: null,
+    submitting: false,
+    error: null,
+  });
+
+  // Upgrade dialog state — drives the in-place WAR swap flow.
+  const [upgradeDialog, setUpgradeDialog] = useState<{
+    open: boolean;
+    instance: DHIS2Instance | null;
+    submitting: boolean;
+    error: string | null;
+    defaultVersion?: string;
+  }>({ open: false, instance: null, submitting: false, error: null });
+
   // Provisioning progress dialog state. Driven by `handleCreateInstance`.
   type ProvisionStepStatus = 'pending' | 'running' | 'done' | 'error';
   interface ProvisionStep {
@@ -483,6 +512,9 @@ export const DHIS2Page = () => {
     // legacy patterns as fallbacks in case an older script is in use.
     { pattern: /PLAY \[Phase 5[ab]?\b|TASK \[proxy\s*:|Phase 3 — configuring central Nginx|TASK \[nginx\s*:/i, advanceTo: 'proxy' },
     { pattern: /DHIS2 provisioning complete/i, advanceTo: 'finalize' },
+    // Lifecycle (start / stop / restart) phases driven by lifecycle.yml.
+    { pattern: /PLAY \[Phase 1 — (start|stop|restart) LXC/i, advanceTo: 'lxc' },
+    { pattern: /PLAY \[Phase 2 — wait for LXC/i, advanceTo: 'settle' },
   ];
 
   // Advance the step list so all steps up to (but not including) `key` are
@@ -739,31 +771,168 @@ export const DHIS2Page = () => {
     }
   };
 
-  const handleStartInstance = async (id: string) => {
+  const runLifecycleAction = async (
+    instance: DHIS2Instance,
+    action: 'start' | 'stop' | 'restart',
+  ) => {
+    const verbing =
+      action === 'start' ? 'start' : action === 'stop' ? 'stop' : 'restart';
+    const steps: ProvisionStep[] = [
+      { key: 'submit', label: `Submitting ${verbing} job to backend`, status: 'pending' },
+      { key: 'connect', label: 'Connecting to orchestrator host', status: 'pending' },
+      { key: 'lxc', label: `Phase 1 — ${verbing} LXC ${instance.vmid} on ${instance.node}`, status: 'pending' },
+      { key: 'settle', label: 'Phase 2 — wait for LXC to settle', status: 'pending' },
+      { key: 'finalize', label: `Finalizing ${verbing}`, status: 'pending' },
+    ];
+    setProvisionInstanceName(`${instance.name} (${verbing})`);
+    setProvisionSteps(steps);
+    setProvisionLog([]);
+    setProvisionError(null);
+    setProvisionDone(false);
+    setProvisionOpen(true);
+    setReplayActive(false);
+    setReplayPlaying(false);
+    setReplayIndex(0);
+    setAutoScroll(true);
+    appendProvisionLog(`Starting ${verbing} for "${instance.name}".`);
+
+    const settings = settingsService.load();
+    const pm = settings.proxmox;
+    const payload: {
+      action: 'start' | 'stop' | 'restart';
+      proxmox?: {
+        apiUrl?: string;
+        apiUser?: string;
+        apiTokenId?: string;
+        apiTokenSecret?: string;
+        validateApiCerts?: boolean;
+      };
+    } = {
+      action,
+      proxmox: (() => {
+        const apiUrl = (pm.apiUrl ?? '').trim();
+        const tokenId = (pm.tokenId ?? '').trim();
+        const tokenSecret = (pm.tokenSecret ?? '').trim();
+        const username = (pm.username ?? '').trim();
+        const fields: {
+          apiUrl?: string;
+          apiUser?: string;
+          apiTokenId?: string;
+          apiTokenSecret?: string;
+          validateApiCerts?: boolean;
+        } = {};
+        if (apiUrl) fields.apiUrl = apiUrl;
+        if (pm.authMethod === 'token') {
+          if (tokenId) fields.apiTokenId = tokenId;
+          if (tokenSecret) fields.apiTokenSecret = tokenSecret;
+          if (!tokenId.includes('!') && username) fields.apiUser = username;
+        }
+        fields.validateApiCerts = Boolean(pm.verifyTls);
+        return Object.keys(fields).length > 0 ? fields : undefined;
+      })(),
+    };
+
     try {
-      await dhis2Service.startInstance(id);
-      loadInstances();
+      updateStep('submit', 'running');
+      const baseUrl = await discoveryApi.getBaseUrl('dhis2');
+      const { jobId } = await dhis2Service.startLifecycleJob(
+        baseUrl,
+        instance.id,
+        payload,
+        backstageFetch,
+      );
+      updateStep('submit', 'done');
+      updateStep('connect', 'running');
+      appendProvisionLog(`Backend accepted job ${jobId}. Streaming progress…`);
+
+      let lastLineCount = 0;
+      const deadline = Date.now() + 15 * 60 * 1000;
+      while (Date.now() < deadline) {
+        await wait(1500);
+        const job = await dhis2Service.getProvisionJob(
+          baseUrl,
+          jobId,
+          backstageFetch,
+        );
+        if (job.lines.length > lastLineCount) {
+          for (let i = lastLineCount; i < job.lines.length; i++) {
+            const line = job.lines[i];
+            appendProvisionLog(line);
+            for (const m of STEP_MARKERS) {
+              if (m.pattern.test(line)) advanceSteps(m.advanceTo);
+            }
+          }
+          lastLineCount = job.lines.length;
+        }
+        if (job.status === 'running' || job.status === 'queued') {
+          if (job.lines.length > 0) advanceSteps('lxc');
+          continue;
+        }
+        if (job.status === 'success') {
+          setProvisionSteps(prev =>
+            prev.map(s =>
+              s.status === 'error' ? s : { ...s, status: 'done' },
+            ),
+          );
+          setProvisionDone(true);
+          appendProvisionLog(
+            `Instance "${instance.name}" ${verbing} completed (exit 0).`,
+          );
+          loadInstances();
+          break;
+        }
+        const message = job.error ?? `Lifecycle ${verbing} failed (exit ${job.exitCode ?? '?'})`;
+        setProvisionSteps(prev =>
+          prev.map(s =>
+            s.status === 'running'
+              ? { ...s, status: 'error', detail: message }
+              : s,
+          ),
+        );
+        setProvisionError(message);
+        appendProvisionLog(`ERROR: ${message}`);
+        break;
+      }
     } catch (error) {
-      console.error('Failed to start instance:', error);
+      console.error(`Failed to ${verbing} instance:`, error);
+      const message = error instanceof Error ? error.message : String(error);
+      setProvisionSteps(prev =>
+        prev.map(s =>
+          s.status === 'running'
+            ? { ...s, status: 'error', detail: message }
+            : s,
+        ),
+      );
+      setProvisionError(message);
+      appendProvisionLog(`ERROR: ${message}`);
     }
+  };
+
+  const handleStartInstance = async (id: string) => {
+    const instance = instances.find(i => i.id === id);
+    if (!instance) {
+      console.warn(`Start: instance ${id} not found in local state`);
+      return;
+    }
+    await runLifecycleAction(instance, 'start');
   };
 
   const handleStopInstance = async (id: string) => {
-    try {
-      await dhis2Service.stopInstance(id);
-      loadInstances();
-    } catch (error) {
-      console.error('Failed to stop instance:', error);
+    const instance = instances.find(i => i.id === id);
+    if (!instance) {
+      console.warn(`Stop: instance ${id} not found in local state`);
+      return;
     }
+    await runLifecycleAction(instance, 'stop');
   };
 
   const handleRestartInstance = async (id: string) => {
-    try {
-      await dhis2Service.restartInstance(id);
-      loadInstances();
-    } catch (error) {
-      console.error('Failed to restart instance:', error);
+    const instance = instances.find(i => i.id === id);
+    if (!instance) {
+      console.warn(`Restart: instance ${id} not found in local state`);
+      return;
     }
+    await runLifecycleAction(instance, 'restart');
   };
 
   const handleDeleteInstance = async (id: string) => {
@@ -1122,6 +1291,394 @@ export const DHIS2Page = () => {
     }
   };
 
+  const handleOpenClone = async (instance: DHIS2Instance) => {
+    setCloneDialog({
+      open: true,
+      source: instance,
+      suggestedVmid: null,
+      submitting: false,
+      error: null,
+    });
+    // Best-effort suggested VMID — fall back to source vmid + 1 if the
+    // backend can't reach Proxmox right now.
+    try {
+      const next = await dhis2Service.getNextVmid();
+      setCloneDialog(prev => ({ ...prev, suggestedVmid: next }));
+    } catch {
+      const fallback = Number(instance.vmid);
+      setCloneDialog(prev => ({
+        ...prev,
+        suggestedVmid: Number.isFinite(fallback) ? fallback + 1 : null,
+      }));
+    }
+  };
+
+  const handleCloneInstance = async (payload: CloneInstancePayload) => {
+    const source = cloneDialog.source;
+    if (!source) return;
+
+    const steps: ProvisionStep[] = [
+      { key: 'submit', label: 'Submitting clone job to backend', status: 'pending' },
+      { key: 'connect', label: 'Connecting to orchestrator host', status: 'pending' },
+      { key: 'clone', label: `Phase 3 — clone LXC ${source.vmid} -> ${payload.vmid} on ${payload.node}`, status: 'pending' },
+      { key: 'cloneDb', label: `Phase 5b — clone database (strategy: ${payload.dbStrategy})`, status: 'pending' },
+      { key: 'dhis2config', label: 'Phase 6 — re-render dhis.conf inside cloned LXC', status: 'pending' },
+      { key: 'restart', label: 'Phase 6 — restart Tomcat', status: 'pending' },
+      { key: 'proxy', label: `Phase 7 — central Nginx vhost for ${payload.domain}`, status: 'pending' },
+      { key: 'finalize', label: 'Finalizing clone', status: 'pending' },
+    ];
+
+    setProvisionInstanceName(`${payload.name} (clone of ${source.name})`);
+    setProvisionSteps(steps);
+    setProvisionLog([]);
+    setProvisionError(null);
+    setProvisionDone(false);
+    setProvisionOpen(true);
+    setReplayActive(false);
+    setReplayPlaying(false);
+    setReplayIndex(0);
+    setAutoScroll(true);
+    appendProvisionLog(
+      `Starting clone of "${source.name}" -> "${payload.name}" (db_strategy=${payload.dbStrategy}).`,
+    );
+
+    // Layer global settings (proxy + proxmox) onto the dialog payload so
+    // the backend doesn't have to fall back to defaults.
+    const settings = settingsService.load();
+    const pm = settings.proxmox;
+    const p = settings.proxy;
+    const enrichedPayload: CloneInstancePayload = {
+      ...payload,
+      email: payload.email || settings.proxy.letsencryptEmail || undefined,
+      proxy: (() => {
+        const merged = { ...(payload.proxy ?? {}) };
+        const host = (p.host ?? '').trim();
+        const sshUser = (p.sshUser ?? '').trim();
+        const sshKeyPath = (p.sshKeyPath ?? '').trim();
+        if (!merged.host && host) merged.host = host;
+        if (
+          merged.sshPort === undefined &&
+          Number.isInteger(p.sshPort) &&
+          p.sshPort > 0
+        ) {
+          merged.sshPort = p.sshPort;
+        }
+        if (!merged.sshUser && sshUser) merged.sshUser = sshUser;
+        if (!merged.sshKeyPath && sshKeyPath) merged.sshKeyPath = sshKeyPath;
+        return Object.keys(merged).length > 0 ? merged : undefined;
+      })(),
+      proxmox: (() => {
+        const merged = { ...(payload.proxmox ?? {}) };
+        const apiUrl = (pm.apiUrl ?? '').trim();
+        const tokenId = (pm.tokenId ?? '').trim();
+        const tokenSecret = (pm.tokenSecret ?? '').trim();
+        const username = (pm.username ?? '').trim();
+        if (!merged.apiUrl && apiUrl) merged.apiUrl = apiUrl;
+        if (pm.authMethod === 'token') {
+          if (!merged.apiTokenId && tokenId) merged.apiTokenId = tokenId;
+          if (!merged.apiTokenSecret && tokenSecret) {
+            merged.apiTokenSecret = tokenSecret;
+          }
+          if (
+            !merged.apiUser &&
+            !tokenId.includes('!') &&
+            username
+          ) {
+            merged.apiUser = username;
+          }
+        }
+        if (merged.validateApiCerts === undefined) {
+          merged.validateApiCerts = Boolean(pm.verifyTls);
+        }
+        return Object.keys(merged).length > 0 ? merged : undefined;
+      })(),
+    };
+
+    // Close the dialog once the job is accepted so the activity log can
+    // take over. Surface any submit error inline first.
+    setCloneDialog(prev => ({ ...prev, submitting: true, error: null }));
+
+    try {
+      updateStep('submit', 'running');
+      const baseUrl = await discoveryApi.getBaseUrl('dhis2');
+      const { jobId } = await dhis2Service.startCloneJob(
+        baseUrl,
+        source.id,
+        enrichedPayload,
+        backstageFetch,
+      );
+      updateStep('submit', 'done');
+      updateStep('connect', 'running');
+      appendProvisionLog(`Backend accepted job ${jobId}. Streaming progress…`);
+      setCloneDialog(prev => ({ ...prev, open: false, submitting: false }));
+
+      const CLONE_STEP_MARKERS: Array<{ pattern: RegExp; advanceTo: string }> = [
+        { pattern: /PLAY \[Phase 3 — clone LXC/i, advanceTo: 'clone' },
+        { pattern: /PLAY \[Phase 5b — clone DB|CREATE DATABASE/i, advanceTo: 'cloneDb' },
+        { pattern: /PLAY \[Phase 6 — apply DHIS2 config|Push dhis\.conf into LXC/i, advanceTo: 'dhis2config' },
+        { pattern: /Restart Tomcat inside LXC|systemctl restart tomcat/i, advanceTo: 'restart' },
+        { pattern: /PLAY \[Phase 7[ab]?\b|TASK \[proxy\s*:/i, advanceTo: 'proxy' },
+        { pattern: /STEP_DONE: clone vmid=/i, advanceTo: 'finalize' },
+      ];
+
+      let lastLineCount = 0;
+      const deadline = Date.now() + 60 * 60 * 1000;
+      while (Date.now() < deadline) {
+        await wait(1500);
+        const job = await dhis2Service.getProvisionJob(
+          baseUrl,
+          jobId,
+          backstageFetch,
+        );
+        if (job.lines.length > lastLineCount) {
+          for (let i = lastLineCount; i < job.lines.length; i++) {
+            const line = job.lines[i];
+            appendProvisionLog(line);
+            for (const m of CLONE_STEP_MARKERS) {
+              if (m.pattern.test(line)) advanceSteps(m.advanceTo);
+            }
+          }
+          lastLineCount = job.lines.length;
+        }
+        if (job.status === 'running' || job.status === 'queued') {
+          if (job.lines.length > 0) advanceSteps('clone');
+          continue;
+        }
+        if (job.status === 'success') {
+          setProvisionSteps(prev =>
+            prev.map(s =>
+              s.status === 'error' ? s : { ...s, status: 'done' },
+            ),
+          );
+          setProvisionDone(true);
+          appendProvisionLog(
+            `Clone "${payload.name}" completed successfully (exit 0).`,
+          );
+          loadInstances();
+          break;
+        }
+        const message =
+          job.error ?? `Clone failed (exit ${job.exitCode ?? '?'})`;
+        setProvisionSteps(prev =>
+          prev.map(s =>
+            s.status === 'running'
+              ? { ...s, status: 'error', detail: message }
+              : s,
+          ),
+        );
+        setProvisionError(message);
+        appendProvisionLog(`ERROR: ${message}`);
+        break;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('Failed to clone instance:', error);
+      setCloneDialog(prev => ({
+        ...prev,
+        submitting: false,
+        error: message,
+      }));
+      setProvisionSteps(prev =>
+        prev.map(s =>
+          s.status === 'running'
+            ? { ...s, status: 'error', detail: message }
+            : s,
+        ),
+      );
+      setProvisionError(message);
+      appendProvisionLog(`ERROR: ${message}`);
+    }
+  };
+
+  const handleOpenUpgrade = (
+    instance: DHIS2Instance,
+    opts?: { defaultVersion?: string },
+  ) => {
+    setUpgradeDialog({
+      open: true,
+      instance,
+      submitting: false,
+      error: null,
+      defaultVersion: opts?.defaultVersion,
+    });
+  };
+
+  const handleUpgradeInstance = async (payload: UpgradeInstancePayload) => {
+    const target = upgradeDialog.instance;
+    if (!target) return;
+
+    const steps: ProvisionStep[] = [
+      { key: 'submit', label: 'Submitting upgrade job to backend', status: 'pending' },
+      { key: 'connect', label: 'Connecting to orchestrator host', status: 'pending' },
+      { key: 'preflight', label: `Phase 1 — pre-flight checks on LXC ${target.vmid}`, status: 'pending' },
+      {
+        key: 'backup',
+        label:
+          payload.backupDb === false
+            ? 'Phase 2 — pg_dump backup (skipped)'
+            : 'Phase 2 — pg_dump backup of current database',
+        status: 'pending',
+      },
+      { key: 'stage', label: `Phase 3 — stage DHIS2 ${payload.toVersion} WAR on PVE host`, status: 'pending' },
+      { key: 'swap', label: 'Phase 4 — stop Tomcat, archive current WAR, push new WAR', status: 'pending' },
+      { key: 'health', label: 'Phase 5 — restart Tomcat and health-check DHIS2', status: 'pending' },
+      { key: 'finalize', label: 'Finalizing upgrade', status: 'pending' },
+    ];
+
+    setProvisionInstanceName(`${target.name} upgrade -> ${payload.toVersion}`);
+    setProvisionSteps(steps);
+    setProvisionLog([]);
+    setProvisionError(null);
+    setProvisionDone(false);
+    setProvisionOpen(true);
+    setReplayActive(false);
+    setReplayPlaying(false);
+    setReplayIndex(0);
+    setAutoScroll(true);
+    appendProvisionLog(
+      `Starting upgrade of "${target.name}" -> DHIS2 ${payload.toVersion}.`,
+    );
+
+    // Layer global settings (proxy + proxmox) onto the dialog payload.
+    const settings = settingsService.load();
+    const pm = settings.proxmox;
+    const p = settings.proxy;
+    const enrichedPayload: UpgradeInstancePayload = {
+      ...payload,
+      proxy: (() => {
+        const merged = { ...(payload.proxy ?? {}) };
+        const host = (p.host ?? '').trim();
+        const sshUser = (p.sshUser ?? '').trim();
+        const sshKeyPath = (p.sshKeyPath ?? '').trim();
+        if (!merged.host && host) merged.host = host;
+        if (
+          merged.sshPort === undefined &&
+          Number.isInteger(p.sshPort) &&
+          p.sshPort > 0
+        ) {
+          merged.sshPort = p.sshPort;
+        }
+        if (!merged.sshUser && sshUser) merged.sshUser = sshUser;
+        if (!merged.sshKeyPath && sshKeyPath) merged.sshKeyPath = sshKeyPath;
+        return Object.keys(merged).length > 0 ? merged : undefined;
+      })(),
+      proxmox: (() => {
+        const merged = { ...(payload.proxmox ?? {}) };
+        const apiUrl = (pm.apiUrl ?? '').trim();
+        const tokenId = (pm.tokenId ?? '').trim();
+        const tokenSecret = (pm.tokenSecret ?? '').trim();
+        const username = (pm.username ?? '').trim();
+        if (!merged.apiUrl && apiUrl) merged.apiUrl = apiUrl;
+        if (pm.authMethod === 'token') {
+          if (!merged.apiTokenId && tokenId) merged.apiTokenId = tokenId;
+          if (!merged.apiTokenSecret && tokenSecret) {
+            merged.apiTokenSecret = tokenSecret;
+          }
+          if (!merged.apiUser && !tokenId.includes('!') && username) {
+            merged.apiUser = username;
+          }
+        }
+        if (merged.validateApiCerts === undefined) {
+          merged.validateApiCerts = Boolean(pm.verifyTls);
+        }
+        return Object.keys(merged).length > 0 ? merged : undefined;
+      })(),
+    };
+
+    setUpgradeDialog(prev => ({ ...prev, submitting: true, error: null }));
+
+    try {
+      updateStep('submit', 'running');
+      const baseUrl = await discoveryApi.getBaseUrl('dhis2');
+      const { jobId } = await dhis2Service.startUpgradeJob(
+        baseUrl,
+        target.id,
+        enrichedPayload,
+        backstageFetch,
+      );
+      updateStep('submit', 'done');
+      updateStep('connect', 'running');
+      appendProvisionLog(`Backend accepted job ${jobId}. Streaming progress…`);
+      setUpgradeDialog(prev => ({ ...prev, open: false, submitting: false }));
+
+      const UPGRADE_STEP_MARKERS: Array<{ pattern: RegExp; advanceTo: string }> = [
+        { pattern: /PLAY \[Phase 1 — pre-flight upgrade/i, advanceTo: 'preflight' },
+        { pattern: /PLAY \[Phase 2 — (run )?pg_dump|pg_dump '/i, advanceTo: 'backup' },
+        { pattern: /PLAY \[Phase 3 — stage|Download WAR from|Copy pre-staged WAR/i, advanceTo: 'stage' },
+        { pattern: /PLAY \[Phase 4 — swap|Stop Tomcat|Push new WAR/i, advanceTo: 'swap' },
+        { pattern: /PLAY \[Phase 5 — health-check|Poll Tomcat for upgraded/i, advanceTo: 'health' },
+        { pattern: /STEP_DONE: upgrade vmid=/i, advanceTo: 'finalize' },
+      ];
+
+      let lastLineCount = 0;
+      const deadline = Date.now() + 60 * 60 * 1000;
+      while (Date.now() < deadline) {
+        await wait(1500);
+        const job = await dhis2Service.getProvisionJob(
+          baseUrl,
+          jobId,
+          backstageFetch,
+        );
+        if (job.lines.length > lastLineCount) {
+          for (let i = lastLineCount; i < job.lines.length; i++) {
+            const line = job.lines[i];
+            appendProvisionLog(line);
+            for (const m of UPGRADE_STEP_MARKERS) {
+              if (m.pattern.test(line)) advanceSteps(m.advanceTo);
+            }
+          }
+          lastLineCount = job.lines.length;
+        }
+        if (job.status === 'running' || job.status === 'queued') {
+          if (job.lines.length > 0) advanceSteps('preflight');
+          continue;
+        }
+        if (job.status === 'success') {
+          setProvisionSteps(prev =>
+            prev.map(s =>
+              s.status === 'error' ? s : { ...s, status: 'done' },
+            ),
+          );
+          setProvisionDone(true);
+          appendProvisionLog(
+            `Upgrade of "${target.name}" -> ${payload.toVersion} completed successfully (exit 0).`,
+          );
+          loadInstances();
+          break;
+        }
+        const message =
+          job.error ?? `Upgrade failed (exit ${job.exitCode ?? '?'})`;
+        setProvisionSteps(prev =>
+          prev.map(s =>
+            s.status === 'running'
+              ? { ...s, status: 'error', detail: message }
+              : s,
+          ),
+        );
+        setProvisionError(message);
+        appendProvisionLog(`ERROR: ${message}`);
+        break;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('Failed to upgrade instance:', error);
+      setUpgradeDialog(prev => ({
+        ...prev,
+        submitting: false,
+        error: message,
+      }));
+      setProvisionSteps(prev =>
+        prev.map(s =>
+          s.status === 'running'
+            ? { ...s, status: 'error', detail: message }
+            : s,
+        ),
+      );
+      setProvisionError(message);
+      appendProvisionLog(`ERROR: ${message}`);
+    }
+  };
+
   const handleViewInstanceLogs = async (instance: DHIS2Instance) => {
     setLogsDialog({ open: true, instance, lines: [], loading: true });
     try {
@@ -1223,6 +1780,8 @@ export const DHIS2Page = () => {
               onRestore={instance => setRestoreDialog({ open: true, instance })}
               onDelete={handleDeleteInstance}
               onEdit={handleEditInstance}
+              onClone={handleOpenClone}
+              onUpgrade={handleOpenUpgrade}
               onChanged={loadInstances}
               unmanagedContainers={unmanagedContainers}
               reconcileWarning={reconcileWarning}
@@ -1792,6 +2351,49 @@ export const DHIS2Page = () => {
           instance={restoreDialog.instance}
           nodes={nodes}
           onClose={() => setRestoreDialog({ open: false, instance: null })}
+        />
+
+        {/* Clone-to-new-environment for an existing instance */}
+        <CloneInstanceDialog
+          open={cloneDialog.open}
+          source={cloneDialog.source}
+          clusterNodes={nodes.map(n => n.node)}
+          versions={versions}
+          suggestedVmid={cloneDialog.suggestedVmid}
+          baseDomain={
+            (settingsService.load().proxy.baseDomain ?? [])[0] ?? ''
+          }
+          submitting={cloneDialog.submitting}
+          errorMessage={cloneDialog.error}
+          onClose={() =>
+            setCloneDialog({
+              open: false,
+              source: null,
+              suggestedVmid: null,
+              submitting: false,
+              error: null,
+            })
+          }
+          onSubmit={handleCloneInstance}
+        />
+
+        {/* Upgrade DHIS2 WAR for an existing instance */}
+        <UpgradeInstanceDialog
+          open={upgradeDialog.open}
+          instance={upgradeDialog.instance}
+          versions={versions}
+          submitting={upgradeDialog.submitting}
+          errorMessage={upgradeDialog.error}
+          defaultVersion={upgradeDialog.defaultVersion}
+          onClose={() =>
+            setUpgradeDialog({
+              open: false,
+              instance: null,
+              submitting: false,
+              error: null,
+            })
+          }
+          onSubmit={handleUpgradeInstance}
         />
       </Content>
     </Page>

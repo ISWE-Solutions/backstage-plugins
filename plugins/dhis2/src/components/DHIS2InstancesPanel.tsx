@@ -29,12 +29,16 @@ import CheckCircleIcon from '@material-ui/icons/CheckCircle';
 import PlayArrowIcon from '@material-ui/icons/PlayArrow';
 import StopIcon from '@material-ui/icons/Stop';
 import RefreshIcon from '@material-ui/icons/Refresh';
+import ReplayIcon from '@material-ui/icons/Replay';
+import AutorenewIcon from '@material-ui/icons/Autorenew';
 import DeleteIcon from '@material-ui/icons/Delete';
 import SettingsIcon from '@material-ui/icons/Settings';
 import DescriptionIcon from '@material-ui/icons/Description';
 import SettingsBackupRestoreIcon from '@material-ui/icons/SettingsBackupRestore';
 import BackupIcon from '@material-ui/icons/Backup';
 import SwapHorizIcon from '@material-ui/icons/SwapHoriz';
+import FileCopyIcon from '@material-ui/icons/FileCopy';
+import SystemUpdateAltIcon from '@material-ui/icons/SystemUpdateAlt';
 import OpenInNewIcon from '@material-ui/icons/OpenInNew';
 import VpnLockIcon from '@material-ui/icons/VpnLock';
 import VisibilityIcon from '@material-ui/icons/Visibility';
@@ -43,6 +47,7 @@ import { DHIS2Instance, ProxyServerSettings } from '../types';
 import { dhis2Service } from '../services/dhis2Service';
 import { settingsService } from '../services/settingsService';
 import { nginxService } from '../services/nginxService';
+import { findHotfix } from '../lib/versions';
 import { TransferDatabaseDialog } from './TransferDatabaseDialog';
 import { EditInstanceDialog } from './UpdateInstanceDialog';
 import { DeleteInstanceDialog } from './DeleteInstanceDialog';
@@ -128,6 +133,15 @@ export interface DHIS2InstancesPanelProps {
    * streaming activity-log dialog as Create / Delete.
    */
   onEdit?: (instance: DHIS2Instance, draft: EditDraft) => Promise<void> | void;
+  /**
+   * Optional Clone handler owned by the page so it can drive the
+   * activity-log dialog while the ansible job runs.
+   */
+  onClone?: (instance: DHIS2Instance) => void;
+  onUpgrade?: (
+    instance: DHIS2Instance,
+    opts?: { defaultVersion?: string },
+  ) => void;
   /**
    * Called after the panel mutates an instance (edit, backup, refresh) so
    * the parent can re-load its instance list.
@@ -244,6 +258,8 @@ export const DHIS2InstancesPanel = ({
   onRestore,
   onDelete,
   onEdit,
+  onClone,
+  onUpgrade,
   onChanged,
   unmanagedContainers = [],
   reconcileWarning = null,
@@ -254,6 +270,7 @@ export const DHIS2InstancesPanel = ({
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [nodeFilter, setNodeFilter] = useState<string>('all');
+  const [hotfixOnly, setHotfixOnly] = useState(false);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
@@ -449,10 +466,10 @@ export const DHIS2InstancesPanel = ({
   ) => setProxyDraft(prev => ({ ...prev, [key]: value }));
 
   useEffect(() => {
-    if (editTarget && versions.length === 0) {
+    if (versions.length === 0) {
       dhis2Service.getVersions().then(setVersions).catch(() => {});
     }
-  }, [editTarget, versions.length]);
+  }, [versions.length]);
 
   // Node filter options. Prefer the live list of Proxmox cluster nodes
   // passed in by the parent so the dropdown reflects the cluster even
@@ -465,11 +482,32 @@ export const DHIS2InstancesPanel = ({
     return Array.from(new Set(instances.map(i => i.node))).sort();
   }, [clusterNodes, instances]);
 
+  // Per-instance hotfix detection: highest patch on the same MAJOR.MINOR
+  // line that is strictly greater than the deployed version.
+  const hotfixByInstance = useMemo(() => {
+    const map = new Map<
+      string,
+      { hotfix: string | null; majorUpgrade: string | null }
+    >();
+    if (!versions || versions.length === 0) return map;
+    for (const i of instances) {
+      map.set(i.id, findHotfix(i.version, versions));
+    }
+    return map;
+  }, [instances, versions]);
+
+  const instancesWithHotfix = useMemo(
+    () =>
+      instances.filter(i => !!hotfixByInstance.get(i.id)?.hotfix),
+    [instances, hotfixByInstance],
+  );
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return instances.filter(i => {
       if (statusFilter !== 'all' && i.status !== statusFilter) return false;
       if (nodeFilter !== 'all' && i.node !== nodeFilter) return false;
+      if (hotfixOnly && !hotfixByInstance.get(i.id)?.hotfix) return false;
       if (!q) return true;
       return (
         i.name.toLowerCase().includes(q) ||
@@ -478,7 +516,7 @@ export const DHIS2InstancesPanel = ({
         i.database.name.toLowerCase().includes(q)
       );
     });
-  }, [instances, search, statusFilter, nodeFilter]);
+  }, [instances, search, statusFilter, nodeFilter, hotfixOnly, hotfixByInstance]);
 
   const selectedInstances = filtered.filter(i => selected.has(i.id));
 
@@ -749,7 +787,7 @@ export const DHIS2InstancesPanel = ({
         variant="outlined"
         size="small"
         startIcon={
-          proxyBusy === 'reload' ? <CircularProgress size={14} /> : <RefreshIcon />
+          proxyBusy === 'reload' ? <CircularProgress size={14} /> : <AutorenewIcon />
         }
         onClick={handleReloadProxyNginx}
         disabled={!!proxyBusy}
@@ -807,6 +845,22 @@ export const DHIS2InstancesPanel = ({
         {allFilteredSelected ? 'Clear selection' : 'Select all'}
       </Button>
       <Button
+        variant={hotfixOnly ? 'contained' : 'outlined'}
+        size="small"
+        color={hotfixOnly ? 'secondary' : 'default'}
+        startIcon={<SystemUpdateAltIcon />}
+        onClick={() => setHotfixOnly(v => !v)}
+        disabled={instancesWithHotfix.length === 0 && !hotfixOnly}
+      >
+        {hotfixOnly
+          ? `Showing ${instancesWithHotfix.length} with hotfix`
+          : `Hotfix available${
+              instancesWithHotfix.length > 0
+                ? ` (${instancesWithHotfix.length})`
+                : ''
+            }`}
+      </Button>
+      <Button
         variant="contained"
         color="primary"
         size="small"
@@ -823,6 +877,8 @@ export const DHIS2InstancesPanel = ({
     const isProxyBusy = (action: string) =>
       proxyBusy === `${action}:${instance.domain}`;
     const drift = driftChipFor(instance.driftStatus);
+    const hotfixInfo = hotfixByInstance.get(instance.id);
+    const hotfix = hotfixInfo?.hotfix ?? null;
     const proxyScheme = proxyDefaults.forceHttps ? 'https' : 'http';
     const publicUrl =
       proxyDefaults.mode === 'subdomain'
@@ -915,6 +971,42 @@ export const DHIS2InstancesPanel = ({
                     size="small"
                     className={classes.statusChip}
                   />
+                  {instance.version && (
+                    <Tooltip
+                      title={
+                        hotfix
+                          ? `Currently on DHIS2 ${instance.version} — patch ${hotfix} is available in the same release line.`
+                          : `DHIS2 version (up to date)`
+                      }
+                    >
+                      <Chip
+                        label={`DHIS2 ${instance.version}`}
+                        size="small"
+                        variant="outlined"
+                        className={classes.statusChip}
+                      />
+                    </Tooltip>
+                  )}
+                  {hotfix && (
+                    <Tooltip
+                      title={`A newer patch (${hotfix}) is available in the ${instance.version.replace(/^2\./, '').split('.').slice(0, 2).join('.')}.x line. Click to upgrade.`}
+                    >
+                      <Chip
+                        label={`Hotfix → ${hotfix}`}
+                        size="small"
+                        clickable
+                        icon={<SystemUpdateAltIcon style={{ fontSize: 16 }} />}
+                        onClick={() =>
+                          onUpgrade?.(instance, { defaultVersion: hotfix })
+                        }
+                        style={{
+                          marginLeft: 8,
+                          backgroundColor: '#ff9800',
+                          color: '#fff',
+                        }}
+                      />
+                    </Tooltip>
+                  )}
                   {drift && (
                     <Tooltip title={drift.tooltip}>
                       <Chip
@@ -1006,7 +1098,7 @@ export const DHIS2InstancesPanel = ({
                 {instance.status === 'running' && (
                   <Tooltip title="Restart">
                     <IconButton onClick={() => handleRestart(instance)}>
-                      <RefreshIcon />
+                      <ReplayIcon />
                     </IconButton>
                   </Tooltip>
                 )}
@@ -1046,7 +1138,7 @@ export const DHIS2InstancesPanel = ({
                     {isProxyBusy('reload') ? (
                       <CircularProgress size={20} />
                     ) : (
-                      <RefreshIcon />
+                      <AutorenewIcon />
                     )}
                   </IconButton>
                 </Tooltip>
@@ -1103,6 +1195,26 @@ export const DHIS2InstancesPanel = ({
                   <IconButton onClick={() => setTransferTarget(instance)}>
                     <SwapHorizIcon />
                   </IconButton>
+                </Tooltip>
+                <Tooltip title="Clone to new environment">
+                  <span>
+                    <IconButton
+                      onClick={() => onClone?.(instance)}
+                      disabled={!onClone}
+                    >
+                      <FileCopyIcon />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title="Upgrade DHIS2 WAR">
+                  <span>
+                    <IconButton
+                      onClick={() => onUpgrade?.(instance)}
+                      disabled={!onUpgrade}
+                    >
+                      <SystemUpdateAltIcon />
+                    </IconButton>
+                  </span>
                 </Tooltip>
                 <Tooltip title="Edit settings">
                   <IconButton
@@ -1403,6 +1515,46 @@ export const DHIS2InstancesPanel = ({
                 .join(', ')}
               {unmanagedContainers.length > 10 &&
                 ` and ${unmanagedContainers.length - 10} more`}
+            </Typography>
+          </Alert>
+        </Box>
+      )}
+      {instancesWithHotfix.length > 0 && (
+        <Box mb={2}>
+          <Alert
+            severity="warning"
+            variant="outlined"
+            icon={<SystemUpdateAltIcon fontSize="inherit" />}
+            action={
+              <Button
+                size="small"
+                color="inherit"
+                onClick={() => setHotfixOnly(v => !v)}
+              >
+                {hotfixOnly ? 'Show all' : 'Show only these'}
+              </Button>
+            }
+          >
+            <Typography variant="body2" gutterBottom>
+              <strong>
+                {instancesWithHotfix.length} instance
+                {instancesWithHotfix.length === 1 ? '' : 's'}{' '}
+                {instancesWithHotfix.length === 1 ? 'is' : 'are'} missing a
+                DHIS2 hotfix.
+              </strong>{' '}
+              A newer patch is available within the same release line.
+              Click the orange chip on each card to upgrade.
+            </Typography>
+            <Typography variant="caption" component="div">
+              {instancesWithHotfix
+                .slice(0, 10)
+                .map(i => {
+                  const hf = hotfixByInstance.get(i.id)?.hotfix;
+                  return `${i.name} (${i.version} → ${hf ?? '?'})`;
+                })
+                .join(', ')}
+              {instancesWithHotfix.length > 10 &&
+                ` and ${instancesWithHotfix.length - 10} more`}
             </Typography>
           </Alert>
         </Box>

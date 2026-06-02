@@ -1,0 +1,560 @@
+---
+# clone.yml — duplicate an existing DHIS2 instance into a new LXC, then
+# reconfigure DB connection + nginx vhost so the clone is independently
+# usable as a dev / test / staging environment.
+#
+# Implemented strategies (dhis2_clone_db_strategy):
+#   colocated      — DB lives inside source LXC; `pct clone` copies it
+#                    automatically. No DB work needed.
+#   shared-clone   — DB lives on a shared remote Postgres; create a new
+#                    DB on the same server via
+#                    `CREATE DATABASE <new> TEMPLATE <src>` and a new
+#                    role with its own password.
+#   shared-keep    — Clone keeps pointing at the source DB. Dangerous;
+#                    the UI must warn the operator.
+#
+# Required extra-vars (rendered by scripts/clone-instance.sh):
+#   Proxmox API:
+#     pve_api_host, pve_api_user, pve_api_token_id, pve_api_token_secret,
+#     pve_validate_certs
+#   Source:
+#     src_node, src_vmid, src_hostname
+#     src_db_host, src_db_port, src_db_name (only used for shared-* strategies)
+#   Target:
+#     pve_node, pve_vmid, pve_hostname, fqdn, instance_name
+#     dhis2_cores, dhis2_memory_mb, dhis2_storage_gb,
+#     dhis2_version
+#   DB:
+#     dhis2_clone_db_strategy ∈ {colocated, shared-clone, shared-keep}
+#     dhis2_db_host, dhis2_db_port, dhis2_db_name, dhis2_db_user,
+#     dhis2_db_password           — final connection rendered into dhis.conf
+#     dhis2_db_admin_user, dhis2_db_admin_password
+#                                 — needed for shared-clone (to CREATE DATABASE)
+#   Lifecycle:
+#     clone_pause_source          — bool; when true, gracefully shutdown
+#                                   source LXC before clone and restart after
+#     clone_shutdown_timeout      — seconds (default 60)
+#   Proxy (Phase 5):
+#     proxy_ssh_host, proxy_ssh_port, proxy_ssh_user, proxy_ssh_key,
+#     host_proxy_upstream_dir (opt), host_proxy_nginx_reload_cmd (opt),
+#     host_proxy_skip_certbot (opt), email (opt)
+#   Misc:
+#     restart_tomcat (bool; defaults true)
+
+# ---------------------------------------------------------------------------
+# Phase 1 — pre-flight: read source status
+# ---------------------------------------------------------------------------
+- name: "Phase 1 — pre-flight clone of LXC {{ src_vmid }} -> {{ pve_vmid }}"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    _pve_api_base: "https://{{ pve_api_host }}/api2/json"
+    _pve_auth: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+  tasks:
+    - name: Validate clone DB strategy
+      ansible.builtin.assert:
+        that:
+          - dhis2_clone_db_strategy in ['colocated', 'shared-clone', 'shared-keep']
+        fail_msg: >-
+          dhis2_clone_db_strategy must be one of:
+          colocated, shared-clone, shared-keep
+          (got "{{ dhis2_clone_db_strategy | default('') }}")
+
+    - name: "Read source LXC {{ src_vmid }} status"
+      ansible.builtin.uri:
+        url: "{{ _pve_api_base }}/nodes/{{ src_node }}/lxc/{{ src_vmid }}/status/current"
+        method: GET
+        headers:
+          Authorization: "{{ _pve_auth }}"
+        validate_certs: "{{ pve_validate_certs | default(false) }}"
+        status_code: [200]
+      register: _src_status
+      changed_when: false
+
+    - name: Record whether source was running
+      ansible.builtin.set_fact:
+        _src_was_running: "{{ _src_status.json.data.status == 'running' }}"
+
+    - name: Show source status
+      ansible.builtin.debug:
+        msg: >-
+          Source LXC {{ src_vmid }} on {{ src_node }}: status =
+          {{ _src_status.json.data.status }} (was_running={{ _src_was_running }}).
+
+# ---------------------------------------------------------------------------
+# Phase 2 — optional graceful shutdown of source (for a consistent clone)
+# ---------------------------------------------------------------------------
+- name: "Phase 2 — pause source LXC {{ src_vmid }} for consistent clone"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    _pve_api_base: "https://{{ pve_api_host }}/api2/json"
+    _pve_auth: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+    _timeout: "{{ clone_shutdown_timeout | default(60) | int }}"
+  tasks:
+    - name: "Shutdown source LXC {{ src_vmid }} (timeout {{ _timeout }}s)"
+      ansible.builtin.uri:
+        url: "{{ _pve_api_base }}/nodes/{{ src_node }}/lxc/{{ src_vmid }}/status/shutdown"
+        method: POST
+        headers:
+          Authorization: "{{ _pve_auth }}"
+        body_format: form-urlencoded
+        body:
+          timeout: "{{ _timeout }}"
+          forceStop: 1
+        validate_certs: "{{ pve_validate_certs | default(false) }}"
+        status_code: [200]
+      when:
+        - clone_pause_source | default(true) | bool
+        - hostvars['localhost']['_src_was_running'] | bool
+
+    - name: Wait for source LXC to reach 'stopped'
+      ansible.builtin.uri:
+        url: "{{ _pve_api_base }}/nodes/{{ src_node }}/lxc/{{ src_vmid }}/status/current"
+        method: GET
+        headers:
+          Authorization: "{{ _pve_auth }}"
+        validate_certs: "{{ pve_validate_certs | default(false) }}"
+        status_code: [200]
+      register: _src_wait
+      until: _src_wait.json.data.status == 'stopped'
+      retries: 30
+      delay: 5
+      changed_when: false
+      when:
+        - clone_pause_source | default(true) | bool
+        - hostvars['localhost']['_src_was_running'] | bool
+
+# ---------------------------------------------------------------------------
+# Phase 3 — clone via Proxmox REST API + poll task
+# ---------------------------------------------------------------------------
+- name: "Phase 3 — clone LXC {{ src_vmid }} -> {{ pve_vmid }} via Proxmox API"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    _pve_api_base: "https://{{ pve_api_host }}/api2/json"
+    _pve_auth: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+  tasks:
+    - name: "Issue clone (full) to new VMID {{ pve_vmid }}"
+      ansible.builtin.uri:
+        url: "{{ _pve_api_base }}/nodes/{{ src_node }}/lxc/{{ src_vmid }}/clone"
+        method: POST
+        headers:
+          Authorization: "{{ _pve_auth }}"
+        body_format: form-urlencoded
+        body:
+          newid: "{{ pve_vmid | int }}"
+          hostname: "{{ pve_hostname }}"
+          full: 1
+          target: "{{ pve_node }}"
+          description: >-
+            DHIS2 clone of vmid={{ src_vmid }} ({{ src_hostname }}).
+            Created via Backstage clone flow.
+        validate_certs: "{{ pve_validate_certs | default(false) }}"
+        status_code: [200]
+      register: _clone_resp
+
+    - name: Capture clone task UPID
+      ansible.builtin.set_fact:
+        _clone_upid: "{{ _clone_resp.json.data }}"
+
+    - name: Show clone task UPID
+      ansible.builtin.debug:
+        msg: "Proxmox clone task: {{ _clone_upid }}"
+
+    - name: Poll clone task until finished
+      ansible.builtin.uri:
+        url: "{{ _pve_api_base }}/nodes/{{ src_node }}/tasks/{{ _clone_upid | urlencode }}/status"
+        method: GET
+        headers:
+          Authorization: "{{ _pve_auth }}"
+        validate_certs: "{{ pve_validate_certs | default(false) }}"
+        status_code: [200]
+      register: _clone_task
+      until: _clone_task.json.data.status == 'stopped'
+      retries: 180
+      delay: 10
+      changed_when: false
+
+    - name: Fail if clone task did not exit OK
+      ansible.builtin.fail:
+        msg: >-
+          Proxmox clone task {{ _clone_upid }} exited with status
+          "{{ _clone_task.json.data.exitstatus | default('?') }}".
+      when: _clone_task.json.data.exitstatus | default('') != 'OK'
+
+# ---------------------------------------------------------------------------
+# Phase 4 — apply target resource overrides + restart source
+# ---------------------------------------------------------------------------
+- name: "Phase 4 — configure target LXC {{ pve_vmid }} and restart source"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    _pve_api_base: "https://{{ pve_api_host }}/api2/json"
+    _pve_auth: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+  tasks:
+    - name: "Tag the new container as dhis2 + clone-of:<src>"
+      ansible.builtin.uri:
+        url: "{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/config"
+        method: PUT
+        headers:
+          Authorization: "{{ _pve_auth }}"
+        body_format: form-urlencoded
+        body:
+          tags: "dhis2;backstage;clone-of-{{ src_vmid }}"
+          cores: "{{ dhis2_cores | int }}"
+          memory: "{{ dhis2_memory_mb | int }}"
+        validate_certs: "{{ pve_validate_certs | default(false) }}"
+        status_code: [200]
+      changed_when: true
+
+    - name: "Resize rootfs to {{ dhis2_storage_gb }}G (grow only)"
+      ansible.builtin.uri:
+        url: "{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/resize"
+        method: PUT
+        headers:
+          Authorization: "{{ _pve_auth }}"
+        body_format: form-urlencoded
+        body:
+          disk: rootfs
+          size: "{{ dhis2_storage_gb | int }}G"
+        validate_certs: "{{ pve_validate_certs | default(false) }}"
+        status_code: [200, 400, 500]
+      register: _disk_resize
+      when: (dhis2_storage_gb | default(0) | int) > 0
+      changed_when: _disk_resize.status == 200
+      failed_when: false
+
+    - name: "Restart source LXC {{ src_vmid }} (was running before clone)"
+      ansible.builtin.uri:
+        url: "{{ _pve_api_base }}/nodes/{{ src_node }}/lxc/{{ src_vmid }}/status/start"
+        method: POST
+        headers:
+          Authorization: "{{ _pve_auth }}"
+        body_format: form-urlencoded
+        body: {}
+        validate_certs: "{{ pve_validate_certs | default(false) }}"
+        status_code: [200]
+      when:
+        - clone_pause_source | default(true) | bool
+        - hostvars['localhost']['_src_was_running'] | bool
+
+    - name: "Start target LXC {{ pve_vmid }}"
+      ansible.builtin.uri:
+        url: "{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/status/start"
+        method: POST
+        headers:
+          Authorization: "{{ _pve_auth }}"
+        body_format: form-urlencoded
+        body: {}
+        validate_certs: "{{ pve_validate_certs | default(false) }}"
+        status_code: [200]
+
+    - name: Wait for target LXC interfaces to report an IPv4
+      ansible.builtin.uri:
+        url: "{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/interfaces"
+        method: GET
+        headers:
+          Authorization: "{{ _pve_auth }}"
+        validate_certs: "{{ pve_validate_certs | default(false) }}"
+        return_content: true
+      register: _new_iface
+      until: >-
+        _new_iface.status == 200
+        and (_new_iface.json.data | default([])
+             | selectattr('name', 'ne', 'lo')
+             | selectattr('inet', 'defined')
+             | map(attribute='inet')
+             | reject('match', '^127\\.')
+             | list | length > 0)
+      retries: 60
+      delay: 5
+
+    - name: Record target container IPv4
+      ansible.builtin.set_fact:
+        _target_container_ip: >-
+          {{
+            (_new_iface.json.data
+             | selectattr('name', 'ne', 'lo')
+             | selectattr('inet', 'defined')
+             | map(attribute='inet')
+             | reject('match', '^127\\.')
+             | first
+            ).split('/')[0]
+          }}
+
+    - name: Show target container IP
+      ansible.builtin.debug:
+        msg: "Target LXC {{ pve_vmid }} is up at {{ _target_container_ip }}"
+
+# ---------------------------------------------------------------------------
+# Phase 5a — register PVE host for pct push/exec (mirrors update.yml)
+# ---------------------------------------------------------------------------
+- name: "Phase 5a — register PVE host for pct push/exec"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Add PVE host to pve_hosts group
+      ansible.builtin.add_host:
+        name: "{{ pve_ssh_host }}"
+        groups: pve_hosts
+        ansible_host: "{{ pve_ssh_host }}"
+        ansible_port: "{{ pve_ssh_port | default(22) }}"
+        ansible_user: "{{ pve_ssh_user | default('root') }}"
+        ansible_ssh_private_key_file: >-
+          {{ pve_ssh_key | default(ansible_ssh_private_key_file_orchestrator | default(''), true) }}
+        ansible_python_interpreter: /usr/bin/python3
+      changed_when: false
+
+# ---------------------------------------------------------------------------
+# Phase 5b — clone the DB on shared Postgres (only for strategy=shared-clone)
+# ---------------------------------------------------------------------------
+- name: "Phase 5b — clone DB on shared Postgres server"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    _pg_env:
+      PGPASSWORD: "{{ dhis2_db_admin_password }}"
+  tasks:
+    - name: Skip — strategy is not shared-clone
+      ansible.builtin.debug:
+        msg: "DB strategy is '{{ dhis2_clone_db_strategy }}' — no remote DB work needed."
+      when: dhis2_clone_db_strategy != 'shared-clone'
+
+    - name: Terminate active connections to source DB
+      ansible.builtin.command:
+        argv:
+          - psql
+          - -h
+          - "{{ dhis2_db_host }}"
+          - -p
+          - "{{ dhis2_db_port | default(5432) | int | string }}"
+          - -U
+          - "{{ dhis2_db_admin_user }}"
+          - -d
+          - postgres
+          - -v
+          - "ON_ERROR_STOP=1"
+          - -c
+          - >-
+            SELECT pg_terminate_backend(pid)
+            FROM pg_stat_activity
+            WHERE datname = '{{ src_db_name }}' AND pid <> pg_backend_pid();
+      environment: "{{ _pg_env }}"
+      when: dhis2_clone_db_strategy == 'shared-clone'
+      changed_when: false
+
+    - name: "CREATE DATABASE {{ dhis2_db_name }} TEMPLATE {{ src_db_name }}"
+      ansible.builtin.command:
+        argv:
+          - psql
+          - -h
+          - "{{ dhis2_db_host }}"
+          - -p
+          - "{{ dhis2_db_port | default(5432) | int | string }}"
+          - -U
+          - "{{ dhis2_db_admin_user }}"
+          - -d
+          - postgres
+          - -v
+          - "ON_ERROR_STOP=1"
+          - -c
+          - >-
+            CREATE DATABASE "{{ dhis2_db_name }}"
+            TEMPLATE "{{ src_db_name }}"
+            OWNER "{{ dhis2_db_admin_user }}";
+      environment: "{{ _pg_env }}"
+      when: dhis2_clone_db_strategy == 'shared-clone'
+
+    - name: "Create role {{ dhis2_db_user }} and grant on cloned DB"
+      ansible.builtin.command:
+        argv:
+          - psql
+          - -h
+          - "{{ dhis2_db_host }}"
+          - -p
+          - "{{ dhis2_db_port | default(5432) | int | string }}"
+          - -U
+          - "{{ dhis2_db_admin_user }}"
+          - -d
+          - postgres
+          - -v
+          - "ON_ERROR_STOP=1"
+          - -c
+          - >-
+            DO $$
+            BEGIN
+              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{{ dhis2_db_user }}') THEN
+                CREATE ROLE "{{ dhis2_db_user }}" LOGIN PASSWORD '{{ dhis2_db_password }}';
+              ELSE
+                ALTER ROLE "{{ dhis2_db_user }}" WITH LOGIN PASSWORD '{{ dhis2_db_password }}';
+              END IF;
+            END$$;
+            ALTER DATABASE "{{ dhis2_db_name }}" OWNER TO "{{ dhis2_db_user }}";
+            GRANT ALL PRIVILEGES ON DATABASE "{{ dhis2_db_name }}" TO "{{ dhis2_db_user }}";
+      environment: "{{ _pg_env }}"
+      no_log: true
+      when: dhis2_clone_db_strategy == 'shared-clone'
+
+# ---------------------------------------------------------------------------
+# Phase 6 — re-render dhis.conf inside the target LXC + restart Tomcat
+# (uses pct push/exec from the PVE host, mirrors update.yml Phase 2b)
+# ---------------------------------------------------------------------------
+- name: "Phase 6 — apply DHIS2 config changes inside target LXC"
+  hosts: pve_hosts
+  gather_facts: false
+  become: false
+  vars:
+    _dhis_conf_path: "/opt/dhis2/dhis.conf"
+    _files_dir: "{{ dhis2_files_dir | default('/opt/dhis2/files') }}"
+    _stage_path: "/tmp/dhis2-clone-{{ pve_vmid }}-dhis.conf"
+    _server_base_url: "{{ dhis2_server_base_url | default('https://' ~ fqdn) }}"
+  tasks:
+    - name: Stage rendered dhis.conf on PVE host
+      ansible.builtin.copy:
+        content: |
+          # Rendered by clone.yml — do not edit by hand.
+
+          connection.dialect = org.hibernate.dialect.PostgreSQLDialect
+          connection.driver_class = org.postgresql.Driver
+          connection.url = jdbc:postgresql://{{ dhis2_db_host }}:{{ dhis2_db_port | int }}/{{ dhis2_db_name }}
+          connection.username = {{ dhis2_db_user }}
+          connection.password = {{ dhis2_db_password }}
+
+          connection.pool.max_size = 80
+          connection.pool.min_size = 10
+
+          server.base.url = {{ _server_base_url }}
+
+          filestore.provider = filesystem
+          filestore.container = {{ _files_dir | basename }}
+          filestore.location = {{ _files_dir | dirname }}
+
+          analytics.cache.expiration = 3600
+
+          system.monitoring.url =
+          system.monitoring.username =
+          system.monitoring.password =
+        dest: "{{ _stage_path }}"
+        mode: "0600"
+
+    - name: "Set hostname inside target LXC {{ pve_vmid }} to {{ pve_hostname }}"
+      ansible.builtin.command:
+        cmd: "pct exec {{ pve_vmid }} -- hostnamectl set-hostname {{ pve_hostname }}"
+      become: true
+      changed_when: true
+      failed_when: false
+
+    - name: "Ensure /opt/dhis2 exists inside LXC {{ pve_vmid }}"
+      ansible.builtin.command:
+        cmd: "pct exec {{ pve_vmid }} -- mkdir -p /opt/dhis2"
+      become: true
+      changed_when: false
+
+    - name: "Push dhis.conf into LXC {{ pve_vmid }}"
+      ansible.builtin.command:
+        cmd: "pct push {{ pve_vmid }} {{ _stage_path }} {{ _dhis_conf_path }} --perms 600"
+      become: true
+
+    - name: "Fix dhis.conf ownership inside LXC {{ pve_vmid }}"
+      ansible.builtin.command:
+        cmd: "pct exec {{ pve_vmid }} -- chown tomcat:tomcat {{ _dhis_conf_path }}"
+      become: true
+      changed_when: false
+
+    - name: Remove staged dhis.conf from PVE host
+      ansible.builtin.file:
+        path: "{{ _stage_path }}"
+        state: absent
+
+    - name: "Restart Tomcat inside LXC {{ pve_vmid }} to apply new config"
+      ansible.builtin.command:
+        cmd: "pct exec {{ pve_vmid }} -- systemctl restart tomcat"
+      become: true
+      when: restart_tomcat | default(true) | bool
+
+    - name: Wait for DHIS2 endpoint inside LXC to respond (best-effort, 5 min)
+      ansible.builtin.shell: |
+        pct exec {{ pve_vmid }} -- bash -lc \
+          "curl -fsS -o /dev/null -w '%{http_code}' \
+           http://127.0.0.1:8080/dhis-web-commons/security/login.action || true"
+      become: true
+      register: _health
+      until: _health.stdout in ['200', '302']
+      retries: 30
+      delay: 10
+      changed_when: false
+      failed_when: false
+
+    - name: Show DHIS2 endpoint status code
+      ansible.builtin.debug:
+        msg: >-
+          DHIS2 endpoint inside cloned LXC {{ pve_vmid }} responded with HTTP
+          {{ _health.stdout | default('?') }} (200/302 = healthy).
+
+# ---------------------------------------------------------------------------
+# Phase 7 — central Nginx reverse proxy on the Proxmox host (Phase 5 of site.yml)
+# ---------------------------------------------------------------------------
+- name: "Phase 7a — register proxy host for the central Nginx play"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Add proxy host to pve_hosts (proxy variant) group
+      ansible.builtin.add_host:
+        name: "{{ proxy_ssh_host | default(pve_ssh_host, true) }}"
+        groups:
+          - clone_pve_hosts
+        ansible_host: "{{ proxy_ssh_host | default(pve_ssh_host, true) }}"
+        ansible_port: "{{ proxy_ssh_port | default(22) }}"
+        ansible_user: >-
+          {{ proxy_ssh_user
+             | default(pve_ssh_user | default('root', true), true) }}
+        ansible_ssh_private_key_file: >-
+          {{ proxy_ssh_key
+             | default(pve_ssh_key
+                       | default(ansible_ssh_private_key_file_orchestrator,
+                                 true),
+                       true) }}
+        ansible_python_interpreter: /usr/bin/python3
+        host_proxy_vmid: "{{ pve_vmid }}"
+        host_proxy_container_ip: "{{ hostvars['localhost']['_target_container_ip'] }}"
+        host_proxy_domain: "{{ fqdn }}"
+        host_proxy_email: "{{ email | default('') }}"
+        host_proxy_skip_certbot: "{{ host_proxy_skip_certbot | default(false) }}"
+        host_proxy_upstream_dir: >-
+          {{ host_proxy_upstream_dir | default(omit, true) }}
+        host_proxy_nginx_reload_cmd: >-
+          {{ host_proxy_nginx_reload_cmd | default(omit, true) }}
+      changed_when: false
+
+- name: "Phase 7b — write central Nginx config and request TLS cert"
+  hosts: clone_pve_hosts
+  gather_facts: false
+  become: true
+  roles:
+    - role: proxy
+
+# ---------------------------------------------------------------------------
+# Phase 8 — emit a machine-parseable result line for the backend to ingest
+# ---------------------------------------------------------------------------
+- name: "Phase 8 — emit clone result for backend ingestion"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Print STEP_DONE marker
+      ansible.builtin.debug:
+        msg: >-
+          STEP_DONE: clone vmid={{ pve_vmid }} node={{ pve_node }}
+          hostname={{ pve_hostname }} domain={{ fqdn }}
+          ip={{ hostvars['localhost']['_target_container_ip'] }}
+          db_strategy={{ dhis2_clone_db_strategy }}
+          db_host={{ dhis2_db_host }} db_name={{ dhis2_db_name }}
+          db_user={{ dhis2_db_user }}

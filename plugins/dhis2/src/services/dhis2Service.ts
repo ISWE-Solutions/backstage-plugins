@@ -515,18 +515,91 @@ export class DHIS2Service {
   }
 
   /**
-   * Get available DHIS2 versions
+   * Get the list of available DHIS2 versions, newest first.
+   *
+   * Tries the upstream release catalog at
+   * `https://releases.dhis2.org/v1/versions/stable.json` (served with
+   * permissive CORS so this works from the browser). When that feed is
+   * unreachable or returns an unexpected shape, falls back to a
+   * hand-maintained list covering the supported branches so the Create
+   * / Upgrade / Clone dialogs still populate.
    */
   async getVersions(): Promise<string[]> {
-    return [
+    const fallback = [
+      '2.42.1',
+      '2.42.0',
+      '2.41.5',
+      '2.41.4',
+      '2.41.3',
       '2.41.2',
       '2.41.1',
       '2.41.0',
+      '2.40.7',
+      '2.40.6',
       '2.40.5',
-      '2.40.4',
-      '2.40.3',
       '2.39.7',
     ];
+    try {
+      const res = await fetch(
+        'https://releases.dhis2.org/v1/versions/stable.json',
+        { method: 'GET', headers: { Accept: 'application/json' } },
+      );
+      if (!res.ok) return fallback;
+      const data: any = await res.json();
+      // The upstream feed exposes either { versions: [{ name, latestPatchVersion, patchVersions:[{ name }] }] }
+      // or, on older mirrors, a flat array of version strings. Normalise both.
+      const out = new Set<string>();
+      const pushVersion = (v: unknown) => {
+        if (typeof v !== 'string') return;
+        const trimmed = v.trim();
+        if (!trimmed) return;
+        // Accept "2.41.3", "41.2.0", "2.41.8.1", etc.
+        if (/^\d+(?:\.\d+){0,3}$/.test(trimmed)) {
+          out.add(trimmed.startsWith('2.') ? trimmed : `2.${trimmed}`);
+        }
+      };
+      if (Array.isArray(data)) {
+        for (const v of data) pushVersion(v);
+      } else if (data && Array.isArray(data.versions)) {
+        for (const branch of data.versions) {
+          if (!branch || typeof branch !== 'object') continue;
+          // Each branch may carry the latest patch directly + a patchVersions array.
+          pushVersion((branch as any).displayName);
+          pushVersion((branch as any).name);
+          pushVersion((branch as any).latestPatchVersion);
+          const patches = (branch as any).patchVersions;
+          if (Array.isArray(patches)) {
+            for (const p of patches) {
+              if (!p) continue;
+              if (typeof p === 'string') {
+                pushVersion(p);
+              } else if (typeof p === 'object') {
+                pushVersion((p as any).displayName);
+                pushVersion((p as any).name);
+                pushVersion((p as any).version);
+              }
+            }
+          }
+        }
+      }
+      if (out.size === 0) return fallback;
+      // Sort newest-first using a numeric tuple comparison.
+      const toTuple = (v: string) =>
+        v.replace(/^2\./, '').split('.').map(p => parseInt(p, 10) || 0);
+      return [...out].sort((a, b) => {
+        const at = toTuple(a);
+        const bt = toTuple(b);
+        const len = Math.max(at.length, bt.length);
+        for (let i = 0; i < len; i++) {
+          const da = at[i] ?? 0;
+          const db = bt[i] ?? 0;
+          if (da !== db) return db - da;
+        }
+        return 0;
+      });
+    } catch {
+      return fallback;
+    }
   }
 
   /**
@@ -1003,6 +1076,141 @@ export class DHIS2Service {
   }
 
   /**
+   * Kick off an ansible-driven lifecycle (start / stop / restart) job on
+   * the backend. Returns the job id immediately; the caller polls
+   * `/instances/jobs/:id` to stream the activity log (same pattern as
+   * provision/edit/decommission).
+   */
+  async startLifecycleJob(
+    baseUrl: string,
+    instanceId: string,
+    payload: LifecyclePayload,
+    fetchFn: typeof fetch = (...args) => fetch(...args),
+  ): Promise<{ jobId: string; status: string }> {
+    const res = await fetchWithLifecycleRetry(
+      fetchFn,
+      `${baseUrl}/instances/${encodeURIComponent(instanceId)}/lifecycle`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload ?? {}),
+      },
+    );
+    if (!res.ok) {
+      let msg = `Lifecycle request failed (HTTP ${res.status})`;
+      try {
+        const body = await res.json();
+        const err = body?.error;
+        if (typeof err === 'string' && err.trim()) {
+          msg = err;
+        } else if (err && typeof err === 'object') {
+          if (typeof err.message === 'string' && err.message.trim()) {
+            msg = err.message;
+          } else if (typeof err.name === 'string' && err.name.trim()) {
+            msg = err.name;
+          }
+        } else if (typeof body?.message === 'string' && body.message.trim()) {
+          msg = body.message;
+        }
+      } catch {
+        // ignore body parse failure
+      }
+      throw new Error(msg);
+    }
+    return (await res.json()) as { jobId: string; status: string };
+  }
+
+  /**
+   * Kick off an ansible-driven clone job on the backend: duplicate the
+   * source instance into a new LXC and reconfigure DB + nginx vhost.
+   * Returns the job id immediately; the caller polls
+   * `/instances/jobs/:id` to stream the activity log.
+   */
+  async startCloneJob(
+    baseUrl: string,
+    sourceInstanceId: string,
+    payload: CloneInstancePayload,
+    fetchFn: typeof fetch = (...args) => fetch(...args),
+  ): Promise<{ jobId: string; status: string }> {
+    const res = await fetchWithLifecycleRetry(
+      fetchFn,
+      `${baseUrl}/instances/${encodeURIComponent(sourceInstanceId)}/clone`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload ?? {}),
+      },
+    );
+    if (!res.ok) {
+      let msg = `Clone request failed (HTTP ${res.status})`;
+      try {
+        const body = await res.json();
+        const err = body?.error;
+        if (typeof err === 'string' && err.trim()) {
+          msg = err;
+        } else if (err && typeof err === 'object') {
+          if (typeof err.message === 'string' && err.message.trim()) {
+            msg = err.message;
+          } else if (typeof err.name === 'string' && err.name.trim()) {
+            msg = err.name;
+          }
+        } else if (typeof body?.message === 'string' && body.message.trim()) {
+          msg = body.message;
+        }
+      } catch {
+        // ignore body parse failure
+      }
+      throw new Error(msg);
+    }
+    return (await res.json()) as { jobId: string; status: string };
+  }
+
+  /**
+   * Kick off an ansible-driven upgrade job: swap the deployed DHIS2 WAR
+   * inside an existing LXC for a newer release (or a pre-staged file)
+   * and restart Tomcat with a health probe. Returns the job id
+   * immediately; the caller polls `/instances/jobs/:id` for progress.
+   */
+  async startUpgradeJob(
+    baseUrl: string,
+    instanceId: string,
+    payload: UpgradeInstancePayload,
+    fetchFn: typeof fetch = (...args) => fetch(...args),
+  ): Promise<{ jobId: string; status: string }> {
+    const res = await fetchWithLifecycleRetry(
+      fetchFn,
+      `${baseUrl}/instances/${encodeURIComponent(instanceId)}/upgrade`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload ?? {}),
+      },
+    );
+    if (!res.ok) {
+      let msg = `Upgrade request failed (HTTP ${res.status})`;
+      try {
+        const body = await res.json();
+        const err = body?.error;
+        if (typeof err === 'string' && err.trim()) {
+          msg = err;
+        } else if (err && typeof err === 'object') {
+          if (typeof err.message === 'string' && err.message.trim()) {
+            msg = err.message;
+          } else if (typeof err.name === 'string' && err.name.trim()) {
+            msg = err.name;
+          }
+        } else if (typeof body?.message === 'string' && body.message.trim()) {
+          msg = body.message;
+        }
+      } catch {
+        // ignore body parse failure
+      }
+      throw new Error(msg);
+    }
+    return (await res.json()) as { jobId: string; status: string };
+  }
+
+  /**
    * Read the per-instance nginx upstream + vhost ("dhis.conf") files from
    * the central proxy host. The backend SSHes into the proxy using the
    * settings supplied in `payload.proxy` (host/sshUser/sshKeyPath/etc.).
@@ -1455,6 +1663,123 @@ export interface EditInstancePayload {
 
 export const dhis2Service = new DHIS2Service();
 
+/**
+ * Payload sent to POST /api/dhis2/instances/:id/lifecycle. Drives a
+ * start / stop / restart of the underlying LXC via the Proxmox REST API.
+ */
+export interface LifecyclePayload {
+  action: 'start' | 'stop' | 'restart';
+  /** Seconds to wait for graceful shutdown / reboot (default 60). */
+  shutdownTimeout?: number;
+  /** Force a hard stop if graceful shutdown times out (default true). */
+  forceStop?: boolean;
+  /** Per-job Proxmox credential override. */
+  proxmox?: {
+    apiUrl?: string;
+    apiUser?: string;
+    apiTokenId?: string;
+    apiTokenSecret?: string;
+    validateApiCerts?: boolean;
+  };
+}
+
+/**
+ * Payload sent to POST /api/dhis2/instances/:id/clone. Duplicates the
+ * source instance into a new LXC, with the DB handled per `dbStrategy`:
+ *   - 'colocated'    — DB lives in source LXC; `pct clone` copies it
+ *   - 'shared-clone' — clone DB on the shared Postgres server via
+ *                      `CREATE DATABASE … TEMPLATE <src>` + new role
+ *   - 'shared-keep'  — clone keeps pointing at the source DB (dangerous)
+ */
+export interface CloneInstancePayload {
+  /** Display name + container hostname for the new instance. */
+  name: string;
+  hostname: string;
+  /** Target Proxmox node + VMID. */
+  node: string;
+  vmid: number;
+  /** Public FQDN/segment for the clone (same form as create). */
+  domain: string;
+  /** Optional new DHIS2 version label written into the registry. */
+  version?: string;
+  resources: { cpu: number; memory: number; storage: number };
+  dbStrategy: 'colocated' | 'shared-clone' | 'shared-keep';
+  database: {
+    host: string;
+    port: number;
+    name: string;
+    user: string;
+    /** Required so the rendered dhis.conf has the correct credential. */
+    password: string;
+  };
+  /** Admin role on the shared PG server (only used for 'shared-clone'). */
+  databaseAdmin?: { user?: string; password?: string };
+  /** Briefly shutdown source for a consistent clone (default true). */
+  pauseSource?: boolean;
+  shutdownTimeout?: number;
+  restartTomcat?: boolean;
+  proxy?: {
+    host?: string;
+    sshPort?: number;
+    sshUser?: string;
+    sshKeyPath?: string;
+    nginxConfigPath?: string;
+    nginxReloadCommand?: string;
+  };
+  skipCertbot?: boolean;
+  email?: string;
+  proxmox?: {
+    apiUrl?: string;
+    apiUser?: string;
+    apiTokenId?: string;
+    apiTokenSecret?: string;
+    validateApiCerts?: boolean;
+  };
+}
+
+/**
+ * Payload sent to POST /api/dhis2/instances/:id/upgrade. Swaps the
+ * deployed DHIS2 WAR for a newer release (or a pre-staged file on the
+ * PVE host) and restarts Tomcat. The persisted `version` field is
+ * updated on success.
+ */
+export interface UpgradeInstancePayload {
+  /** New DHIS2 version label (e.g. "2.41.3" or "41.2.0"). */
+  toVersion: string;
+  /** Optional explicit WAR URL; when omitted the backend derives it from toVersion. */
+  warUrl?: string;
+  /** Optional pre-staged WAR file on the PVE host (takes precedence over warUrl). */
+  warFile?: string;
+  /** Run pg_dump before swapping the WAR. Default true. */
+  backupDb?: boolean;
+  /** Keep newest N pre-upgrade backup dirs inside the LXC. Default 3. */
+  backupRetain?: number;
+  /** Override the Tomcat systemd unit (default "tomcat"). */
+  tomcatService?: string;
+  /** Override the Tomcat webapps dir (default "/opt/tomcat/webapps"). */
+  webappsDir?: string;
+  /** DB credentials used by pg_dump (overrides persisted values). */
+  database?: {
+    host?: string;
+    port?: number;
+    name?: string;
+    user?: string;
+    password?: string;
+  };
+  proxy?: {
+    host?: string;
+    sshPort?: number;
+    sshUser?: string;
+    sshKeyPath?: string;
+  };
+  proxmox?: {
+    apiUrl?: string;
+    apiUser?: string;
+    apiTokenId?: string;
+    apiTokenSecret?: string;
+    validateApiCerts?: boolean;
+  };
+}
 /** Payload sent to POST /api/dhis2/instances/:id/transfer-database. */
 export interface DatabaseTransferPayload {
   source: {

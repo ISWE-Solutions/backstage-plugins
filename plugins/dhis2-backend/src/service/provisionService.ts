@@ -404,6 +404,179 @@ export interface EditRequest {
 }
 
 /**
+ * Shape the frontend sends to POST /instances/:id/lifecycle.
+ *
+ * Drives a start / stop / restart of the underlying LXC via the
+ * Proxmox REST API (no in-container SSH). Same job-runner pattern as
+ * Edit / Decommission: returns a job id immediately and streams the
+ * playbook output into the activity log.
+ */
+export interface LifecycleRequest {
+  instanceId: string;
+  vmid: number;
+  node: string;
+  /** Same form used by provision-instance.sh: '<fqdn>' or '<fqdn>/<segment>'. */
+  domain: string;
+  /** Human-readable instance name — only used for log lines / job echo. */
+  name: string;
+  action: 'start' | 'stop' | 'restart';
+  /** Seconds to wait for graceful shutdown / reboot (default 60). */
+  shutdownTimeout?: number;
+  /** Force a hard stop if graceful shutdown times out (default true). */
+  forceStop?: boolean;
+  proxmox?: {
+    apiUrl?: string;
+    apiUser?: string;
+    apiTokenId?: string;
+    apiTokenSecret?: string;
+    validateApiCerts?: boolean;
+  };
+}
+
+/**
+ * Shape the frontend sends to POST /instances/:id/clone.
+ *
+ * Drives a Proxmox-level LXC clone of an existing instance plus the
+ * follow-up reconfiguration (DB strategy, dhis.conf rewrite, nginx
+ * vhost) so the clone is independently usable as a dev / test /
+ * staging environment.
+ */
+export interface CloneRequest {
+  /** Persisted id of the SOURCE instance. */
+  sourceInstanceId: string;
+  /** Source VMID / node / hostname / db.name resolved from the registry. */
+  source: {
+    vmid: number;
+    node: string;
+    hostname: string;
+    dbHost: string;
+    dbPort: number;
+    dbName: string;
+  };
+  /** Display name for the new instance (registered in the store on success). */
+  name: string;
+  /** Target Proxmox node + VMID. */
+  vmid: number;
+  node: string;
+  /** Container hostname for the clone (often same as `name`). */
+  hostname: string;
+  /** Same form used by provision-instance.sh: '<fqdn>' or '<fqdn>/<segment>'. */
+  domain: string;
+  /** Optional new DHIS2 version label written into the registry. */
+  version?: string;
+  resources: { cpu: number; memory: number; storage: number };
+  /**
+   * DB strategy:
+   *   - 'colocated'    — source DB lives in source LXC; `pct clone` copies it
+   *                      automatically; no remote DB work is performed.
+   *   - 'shared-clone' — source DB lives on a shared remote Postgres; create
+   *                      `<dbName>` via `CREATE DATABASE … TEMPLATE <src>` +
+   *                      a new role with its own password.
+   *   - 'shared-keep'  — clone keeps pointing at the source DB. The UI must
+   *                      warn the operator before submitting.
+   */
+  dbStrategy: 'colocated' | 'shared-clone' | 'shared-keep';
+  database: {
+    host: string;
+    port: number;
+    name: string;
+    user: string;
+    /** Required so dhis.conf can be rendered with the correct credential. */
+    password: string;
+  };
+  /** Admin role on the shared PG server (only used for 'shared-clone'). */
+  databaseAdmin?: { user?: string; password?: string };
+  /** Briefly shutdown source for a consistent clone (default true). */
+  pauseSource?: boolean;
+  /** Seconds to wait for the graceful source shutdown (default 60). */
+  shutdownTimeout?: number;
+  /** When false, render dhis.conf but skip the Tomcat restart. */
+  restartTomcat?: boolean;
+  /** SSH details for the PVE host (used for pct push / pct exec). */
+  proxy?: {
+    host?: string;
+    sshPort?: number;
+    sshUser?: string;
+    sshKeyPath?: string;
+    nginxConfigPath?: string;
+    nginxReloadCommand?: string;
+  };
+  /** Skip Let's Encrypt cert request on the new vhost. */
+  skipCertbot?: boolean;
+  /** Contact email passed to certbot (when not skipped). */
+  email?: string;
+  proxmox?: {
+    apiUrl?: string;
+    apiUser?: string;
+    apiTokenId?: string;
+    apiTokenSecret?: string;
+    validateApiCerts?: boolean;
+  };
+}
+
+/**
+ * Shape the frontend sends to POST /instances/:id/upgrade.
+ *
+ * Replaces the deployed DHIS2 WAR inside an existing LXC with a newer
+ * release (or a pre-staged local file), keeping the same container,
+ * database, and reverse-proxy vhost. The orchestrator stops Tomcat,
+ * archives the current WAR (and optionally pg_dumps the DB) under
+ * /opt/dhis2/backups/pre-upgrade-<ts>/ inside the LXC, pushes the new
+ * WAR, and starts Tomcat back up with a health probe.
+ *
+ * On success the persisted instance record's `version` field is updated
+ * to `toVersion` so the catalog UI reflects the new release immediately.
+ */
+export interface UpgradeRequest {
+  /** Persisted id of the instance being upgraded. */
+  instanceId: string;
+  vmid: number;
+  node: string;
+  /** Container hostname (only used for log lines). */
+  hostname: string;
+  /** Display name (used in log lines / STEP_DONE). */
+  name: string;
+  /** '<fqdn>' or '<fqdn>/<segment>' — picks ROOT.war vs <segment>.war. */
+  domain: string;
+  /** Target DHIS2 version label (e.g. '2.41.3' or '41.2.0'). */
+  toVersion: string;
+  /** Optional explicit WAR URL. When empty the playbook derives it from toVersion. */
+  warUrl?: string;
+  /** Optional pre-staged WAR path on the PVE host. Takes precedence over warUrl. */
+  warFile?: string;
+  /** When false, skip the pre-upgrade pg_dump snapshot. Default true. */
+  backupDb?: boolean;
+  /** Keep newest N pre-upgrade backup dirs inside the LXC. Default 3. */
+  backupRetain?: number;
+  /** Override the Tomcat systemd unit (default "tomcat"). */
+  tomcatService?: string;
+  /** Override the Tomcat webapps dir (default "/opt/tomcat/webapps"). */
+  webappsDir?: string;
+  /** Database connection used by pg_dump when backupDb is true. */
+  database?: {
+    host?: string;
+    port?: number;
+    name?: string;
+    user?: string;
+    password?: string;
+  };
+  /** SSH details for the PVE host (used for pct push / pct exec). */
+  proxy?: {
+    host?: string;
+    sshPort?: number;
+    sshUser?: string;
+    sshKeyPath?: string;
+  };
+  proxmox?: {
+    apiUrl?: string;
+    apiUser?: string;
+    apiTokenId?: string;
+    apiTokenSecret?: string;
+    validateApiCerts?: boolean;
+  };
+}
+
+/**
  * Normalize Proxmox API credentials so the orchestrator (and the bash
  * script / Ansible role downstream) always receive `PROXMOX_USER` =
  * `user@realm` and `PROXMOX_TOKEN_ID` = the token name (the part AFTER
@@ -903,6 +1076,302 @@ function buildDecommissionCommand(
   if (req.dropDatabase) {
     env.DHIS2_DB_ADMIN_USER = req.databaseAdmin?.user || 'postgres';
     env.DHIS2_DB_ADMIN_PASS = req.databaseAdmin?.password || '';
+  }
+  const debugFlag = process.env.DHIS2_DEBUG;
+  if (debugFlag && debugFlag !== '0' && debugFlag.toLowerCase() !== 'false') {
+    env.DHIS2_DEBUG = '1';
+  }
+  const envPrefix = Object.entries(env)
+    .map(([k, v]) => `${k}=${shellQuote(v)}`)
+    .join(' ');
+  const quotedArgs = args.map(shellQuote).join(' ');
+  return `${envPrefix} bash -lc ${shellQuote(quotedArgs)}`;
+}
+
+function buildLifecycleCommand(
+  cfg: OrchestratorConfig,
+  req: LifecycleRequest,
+  scriptPath: string,
+): string {
+  const args: string[] = [
+    scriptPath,
+    '--vmid', String(req.vmid),
+    '--node', req.node,
+    '--action', req.action,
+  ];
+  if (
+    typeof req.shutdownTimeout === 'number' &&
+    Number.isInteger(req.shutdownTimeout) &&
+    req.shutdownTimeout > 0
+  ) {
+    args.push('--shutdown-timeout', String(req.shutdownTimeout));
+  }
+  if (req.forceStop === false) {
+    args.push('--no-force-stop');
+  }
+
+  const reqPm = req.proxmox ?? {};
+  const effectiveApiUrl =
+    (reqPm.apiUrl && reqPm.apiUrl.trim()) || cfg.apiUrl;
+  const { apiUser: effectiveApiUser, apiTokenId: effectiveApiTokenId } =
+    normalizeProxmoxCreds(
+      (reqPm.apiUser && reqPm.apiUser.trim()) || cfg.apiUser,
+      (reqPm.apiTokenId && reqPm.apiTokenId.trim()) || cfg.apiTokenId,
+    );
+  const effectiveApiTokenSecret =
+    (reqPm.apiTokenSecret && reqPm.apiTokenSecret.trim()) ||
+    cfg.apiTokenSecret;
+  const cfgValidate = Boolean(cfg.validateApiCerts);
+  const reqValidate =
+    typeof reqPm.validateApiCerts === 'boolean'
+      ? reqPm.validateApiCerts
+      : cfgValidate;
+  const effectiveValidateCerts = cfgValidate && reqValidate;
+
+  const env: Record<string, string> = {
+    PROXMOX_API_URL: effectiveApiUrl,
+    PROXMOX_USER: effectiveApiUser,
+    PROXMOX_TOKEN_ID: effectiveApiTokenId,
+    PROXMOX_TOKEN_SECRET: effectiveApiTokenSecret,
+    PROXMOX_VALIDATE_CERTS: effectiveValidateCerts ? 'true' : 'false',
+  };
+  const debugFlag = process.env.DHIS2_DEBUG;
+  if (debugFlag && debugFlag !== '0' && debugFlag.toLowerCase() !== 'false') {
+    env.DHIS2_DEBUG = '1';
+  }
+  const envPrefix = Object.entries(env)
+    .map(([k, v]) => `${k}=${shellQuote(v)}`)
+    .join(' ');
+  const quotedArgs = args.map(shellQuote).join(' ');
+  return `${envPrefix} bash -lc ${shellQuote(quotedArgs)}`;
+}
+
+function buildCloneCommand(
+  cfg: OrchestratorConfig,
+  req: CloneRequest,
+  scriptPath: string,
+): string {
+  // Mirror resolvePveHost(): explicit override > cfg.host (if not local)
+  // > target node hostname.
+  let pveHost: string;
+  if (cfg.pveHost !== undefined) {
+    pveHost = cfg.pveHost;
+  } else if (cfg.host && !isLocalHost(cfg.host)) {
+    pveHost = cfg.host;
+  } else {
+    pveHost = req.node;
+  }
+
+  const proxy = req.proxy ?? {};
+  const args: string[] = [
+    scriptPath,
+    '--src-vmid', String(req.source.vmid),
+    '--src-node', req.source.node,
+    '--src-hostname', req.source.hostname,
+    '--src-db-name', req.source.dbName,
+    '--vmid', String(req.vmid),
+    '--node', req.node,
+    '--hostname', req.hostname,
+    '--instance-name', req.name,
+    '--domain', req.domain,
+    '--cpu', String(req.resources.cpu),
+    '--memory', String(req.resources.memory),
+    '--storage', String(req.resources.storage),
+    '--version', req.version ?? '',
+    '--db-strategy', req.dbStrategy,
+    '--db-host', req.database.host,
+    '--db-port', String(req.database.port || 5432),
+    '--db-name', req.database.name,
+    '--db-user', req.database.user,
+  ];
+  if (
+    typeof req.shutdownTimeout === 'number' &&
+    Number.isInteger(req.shutdownTimeout) &&
+    req.shutdownTimeout > 0
+  ) {
+    args.push('--shutdown-timeout', String(req.shutdownTimeout));
+  }
+  if (req.pauseSource === false) {
+    args.push('--no-pause-source');
+  }
+  if (req.restartTomcat === false) {
+    args.push('--no-restart-tomcat');
+  }
+
+  // SSH details for pct push/exec (target PVE host).
+  args.push('--pve-host', proxy.host ?? pveHost);
+  if (typeof proxy.sshPort === 'number') {
+    args.push('--pve-port', String(proxy.sshPort));
+  }
+  if (proxy.sshUser) args.push('--pve-user', proxy.sshUser);
+  if (proxy.sshKeyPath) args.push('--pve-ssh-key', proxy.sshKeyPath);
+  // The central nginx reverse-proxy host shares the same SSH details.
+  args.push('--proxy-host', proxy.host ?? pveHost);
+  if (typeof proxy.sshPort === 'number') {
+    args.push('--proxy-port', String(proxy.sshPort));
+  }
+  if (proxy.sshUser) args.push('--proxy-user', proxy.sshUser);
+  if (proxy.sshKeyPath) args.push('--proxy-ssh-key', proxy.sshKeyPath);
+  if (proxy.nginxConfigPath) {
+    args.push('--proxy-upstream-dir', proxy.nginxConfigPath);
+  }
+  if (proxy.nginxReloadCommand) {
+    args.push('--proxy-nginx-reload', proxy.nginxReloadCommand);
+  }
+  if (req.skipCertbot) args.push('--skip-certbot');
+  if (req.email) args.push('--email', req.email);
+
+  const reqPm = req.proxmox ?? {};
+  const effectiveApiUrl =
+    (reqPm.apiUrl && reqPm.apiUrl.trim()) || cfg.apiUrl;
+  const { apiUser: effectiveApiUser, apiTokenId: effectiveApiTokenId } =
+    normalizeProxmoxCreds(
+      (reqPm.apiUser && reqPm.apiUser.trim()) || cfg.apiUser,
+      (reqPm.apiTokenId && reqPm.apiTokenId.trim()) || cfg.apiTokenId,
+    );
+  const effectiveApiTokenSecret =
+    (reqPm.apiTokenSecret && reqPm.apiTokenSecret.trim()) ||
+    cfg.apiTokenSecret;
+  const cfgValidate = Boolean(cfg.validateApiCerts);
+  const reqValidate =
+    typeof reqPm.validateApiCerts === 'boolean'
+      ? reqPm.validateApiCerts
+      : cfgValidate;
+  const effectiveValidateCerts = cfgValidate && reqValidate;
+
+  const env: Record<string, string> = {
+    PROXMOX_API_URL: effectiveApiUrl,
+    PROXMOX_USER: effectiveApiUser,
+    PROXMOX_TOKEN_ID: effectiveApiTokenId,
+    PROXMOX_TOKEN_SECRET: effectiveApiTokenSecret,
+    PROXMOX_VALIDATE_CERTS: effectiveValidateCerts ? 'true' : 'false',
+    DHIS2_DB_PASS: req.database.password,
+  };
+  if (req.dbStrategy === 'shared-clone') {
+    const admin = req.databaseAdmin ?? {};
+    if (admin.user) env.DHIS2_DB_ADMIN_USER = admin.user;
+    if (admin.password) env.DHIS2_DB_ADMIN_PASS = admin.password;
+  }
+  const debugFlag = process.env.DHIS2_DEBUG;
+  if (debugFlag && debugFlag !== '0' && debugFlag.toLowerCase() !== 'false') {
+    env.DHIS2_DEBUG = '1';
+  }
+  const envPrefix = Object.entries(env)
+    .map(([k, v]) => `${k}=${shellQuote(v)}`)
+    .join(' ');
+  const quotedArgs = args.map(shellQuote).join(' ');
+  return `${envPrefix} bash -lc ${shellQuote(quotedArgs)}`;
+}
+
+function buildUpgradeCommand(
+  cfg: OrchestratorConfig,
+  req: UpgradeRequest,
+  scriptPath: string,
+): string {
+  // Same resolvePveHost() fallback ladder used by clone/lifecycle.
+  let pveHost: string;
+  if (cfg.pveHost !== undefined) {
+    pveHost = cfg.pveHost;
+  } else if (cfg.host && !isLocalHost(cfg.host)) {
+    pveHost = cfg.host;
+  } else {
+    pveHost = req.node;
+  }
+
+  const proxy = req.proxy ?? {};
+  const db = req.database ?? {};
+  const backupDb = req.backupDb !== false;
+
+  const args: string[] = [
+    scriptPath,
+    '--vmid', String(req.vmid),
+    '--node', req.node,
+    '--hostname', req.hostname,
+    '--instance-name', req.name,
+    '--domain', req.domain,
+    '--to-version', req.toVersion,
+  ];
+  if (req.warUrl && req.warUrl.trim() !== '') {
+    args.push('--war-url', req.warUrl.trim());
+  }
+  if (req.warFile && req.warFile.trim() !== '') {
+    args.push('--war-file', req.warFile.trim());
+  }
+  if (!backupDb) {
+    args.push('--no-backup-db');
+  }
+  if (
+    typeof req.backupRetain === 'number' &&
+    Number.isInteger(req.backupRetain) &&
+    req.backupRetain > 0
+  ) {
+    args.push('--backup-retain', String(req.backupRetain));
+  }
+  if (req.tomcatService && req.tomcatService.trim() !== '') {
+    args.push('--tomcat-service', req.tomcatService.trim());
+  }
+  if (req.webappsDir && req.webappsDir.trim() !== '') {
+    args.push('--webapps-dir', req.webappsDir.trim());
+  }
+  if (db.host && db.host.trim() !== '') {
+    args.push('--db-host', db.host.trim());
+  }
+  if (
+    typeof db.port === 'number' &&
+    Number.isInteger(db.port) &&
+    db.port > 0
+  ) {
+    args.push('--db-port', String(db.port));
+  }
+  if (db.name && db.name.trim() !== '') {
+    args.push('--db-name', db.name.trim());
+  }
+  if (db.user && db.user.trim() !== '') {
+    args.push('--db-user', db.user.trim());
+  }
+
+  args.push('--pve-host', proxy.host ?? pveHost);
+  if (typeof proxy.sshPort === 'number') {
+    args.push('--pve-port', String(proxy.sshPort));
+  }
+  if (proxy.sshUser) args.push('--pve-user', proxy.sshUser);
+  const pveSshKey = normalizeSshPrivateKeyPath(proxy.sshKeyPath);
+  if (pveSshKey) {
+    args.push('--pve-ssh-key', pveSshKey);
+  } else {
+    const fallbackPveSshKey = normalizeSshPrivateKeyPath(cfg.privateKeyFile);
+    if (fallbackPveSshKey) {
+      args.push('--pve-ssh-key', fallbackPveSshKey);
+    }
+  }
+
+  const reqPm = req.proxmox ?? {};
+  const effectiveApiUrl =
+    (reqPm.apiUrl && reqPm.apiUrl.trim()) || cfg.apiUrl;
+  const { apiUser: effectiveApiUser, apiTokenId: effectiveApiTokenId } =
+    normalizeProxmoxCreds(
+      (reqPm.apiUser && reqPm.apiUser.trim()) || cfg.apiUser,
+      (reqPm.apiTokenId && reqPm.apiTokenId.trim()) || cfg.apiTokenId,
+    );
+  const effectiveApiTokenSecret =
+    (reqPm.apiTokenSecret && reqPm.apiTokenSecret.trim()) ||
+    cfg.apiTokenSecret;
+  const cfgValidate = Boolean(cfg.validateApiCerts);
+  const reqValidate =
+    typeof reqPm.validateApiCerts === 'boolean'
+      ? reqPm.validateApiCerts
+      : cfgValidate;
+  const effectiveValidateCerts = cfgValidate && reqValidate;
+
+  const env: Record<string, string> = {
+    PROXMOX_API_URL: effectiveApiUrl,
+    PROXMOX_USER: effectiveApiUser,
+    PROXMOX_TOKEN_ID: effectiveApiTokenId,
+    PROXMOX_TOKEN_SECRET: effectiveApiTokenSecret,
+    PROXMOX_VALIDATE_CERTS: effectiveValidateCerts ? 'true' : 'false',
+  };
+  if (backupDb && db.password) {
+    env.DHIS2_DB_PASS = db.password;
   }
   const debugFlag = process.env.DHIS2_DEBUG;
   if (debugFlag && debugFlag !== '0' && debugFlag.toLowerCase() !== 'false') {
@@ -1425,6 +1894,284 @@ export class ProvisionService {
       job.status = 'failed';
       job.error = `edit-instance.sh exited with code ${exitCode}`;
       appendLine(job, `[backend] ${job.error}`);
+    }
+  }
+
+  /**
+   * Start a lifecycle (start / stop / restart) job. Returns the job id
+   * immediately; the wrapper script runs asynchronously and streams
+   * stdout/stderr into the job's log buffer (same pattern as
+   * `startJob` / `startEditJob` / `startDecommissionJob`).
+   */
+  startLifecycleJob(req: LifecycleRequest): JobSnapshot {
+    if (!this.cfg) {
+      throw new Error(
+        'Lifecycle actions are not configured. Set dhis2.orchestrator in app-config.yaml.',
+      );
+    }
+    const cfg = this.cfg;
+    const id = randomUUID();
+    const job: JobSnapshot = {
+      id,
+      status: 'queued',
+      startedAt: new Date().toISOString(),
+      lines: [],
+      request: {
+        name: req.name,
+        domain: req.domain,
+        version: '',
+        node: req.node,
+        vmid: req.vmid,
+      },
+    };
+    jobs.set(id, job);
+
+    this.runLifecycleJob(job, cfg, req).catch(err => {
+      job.status = 'failed';
+      job.error = err instanceof Error ? err.message : String(err);
+      job.finishedAt = new Date().toISOString();
+      appendLine(job, `[backend] FATAL: ${job.error}`);
+      this.logger.error(`DHIS2: lifecycle job ${id} crashed: ${job.error}`);
+    });
+
+    return snapshot(job);
+  }
+
+  private async runLifecycleJob(
+    job: JobSnapshot,
+    cfg: OrchestratorConfig,
+    req: LifecycleRequest,
+  ): Promise<void> {
+    job.status = 'running';
+    const lifecycleScript = path.join(
+      path.dirname(cfg.scriptPath),
+      'lifecycle-instance.sh',
+    );
+    appendLine(
+      job,
+      `[backend] Running lifecycle-instance.sh locally on the Backstage host for instance "${req.name}" (vmid=${req.vmid}, node=${req.node}, action=${req.action}).`,
+    );
+
+    const command = buildLifecycleCommand(cfg, req, lifecycleScript);
+    appendLine(
+      job,
+      `[backend] Executing: ${lifecycleScript} --vmid ${req.vmid} --node ${req.node} --action ${req.action} (secrets via env)`,
+    );
+
+    const exitCode = await runLocal(job, command);
+    job.exitCode = exitCode;
+    job.finishedAt = new Date().toISOString();
+
+    if (exitCode === 0) {
+      job.status = 'success';
+      appendLine(job, `[backend] lifecycle-instance.sh exited 0`);
+    } else {
+      job.status = 'failed';
+      job.error = `lifecycle-instance.sh exited with code ${exitCode}`;
+      appendLine(job, `[backend] ${job.error}`);
+    }
+  }
+
+  /**
+   * Start a clone job: duplicate an existing instance into a new LXC and
+   * reconfigure DB + nginx vhost so the clone is independently usable as
+   * a dev / test / staging environment. Returns the job id immediately.
+   *
+   * On success the new instance is persisted via `instanceStore.upsert`
+   * exactly like `runJob` does for fresh provisions.
+   */
+  startCloneJob(req: CloneRequest): JobSnapshot {
+    if (!this.cfg) {
+      throw new Error(
+        'Clone is not configured. Set dhis2.orchestrator in app-config.yaml.',
+      );
+    }
+    const cfg = this.cfg;
+    const id = randomUUID();
+    const job: JobSnapshot = {
+      id,
+      status: 'queued',
+      startedAt: new Date().toISOString(),
+      lines: [],
+      request: {
+        name: req.name,
+        domain: req.domain,
+        version: req.version ?? '',
+        node: req.node,
+        vmid: req.vmid,
+      },
+    };
+    jobs.set(id, job);
+
+    this.runCloneJob(job, cfg, req).catch(err => {
+      job.status = 'failed';
+      job.error = err instanceof Error ? err.message : String(err);
+      job.finishedAt = new Date().toISOString();
+      appendLine(job, `[backend] FATAL: ${job.error}`);
+      this.logger.error(`DHIS2: clone job ${id} crashed: ${job.error}`);
+    });
+
+    return snapshot(job);
+  }
+
+  private async runCloneJob(
+    job: JobSnapshot,
+    cfg: OrchestratorConfig,
+    req: CloneRequest,
+  ): Promise<void> {
+    job.status = 'running';
+    const cloneScript = path.join(
+      path.dirname(cfg.scriptPath),
+      'clone-instance.sh',
+    );
+    appendLine(
+      job,
+      `[backend] Cloning instance "${req.source.hostname}" (vmid=${req.source.vmid}, node=${req.source.node}) -> "${req.name}" (vmid=${req.vmid}, node=${req.node}, db_strategy=${req.dbStrategy}).`,
+    );
+
+    const command = buildCloneCommand(cfg, req, cloneScript);
+    appendLine(
+      job,
+      `[backend] Executing: ${cloneScript} --src-vmid ${req.source.vmid} --vmid ${req.vmid} --node ${req.node} --hostname ${req.hostname} --domain ${req.domain} --db-strategy ${req.dbStrategy} (secrets via env)`,
+    );
+
+    const exitCode = await runLocal(job, command);
+    job.exitCode = exitCode;
+    job.finishedAt = new Date().toISOString();
+
+    if (exitCode !== 0) {
+      job.status = 'failed';
+      job.error = `clone-instance.sh exited with code ${exitCode}`;
+      appendLine(job, `[backend] ${job.error}`);
+      return;
+    }
+
+    job.status = 'success';
+    appendLine(job, `[backend] clone-instance.sh exited 0`);
+
+    // Register the clone in the persisted instance store so it shows up
+    // alongside other DHIS2 instances. Mirrors the create-flow upsert in
+    // runJob().
+    const inst: PersistedInstance = {
+      id: `dhis2-${req.vmid}`,
+      name: req.name,
+      vmid: String(req.vmid),
+      node: req.node,
+      status: 'running',
+      version: req.version ?? '',
+      url: `https://${req.domain}`,
+      domain: req.domain,
+      database: {
+        name: req.database.name,
+        user: req.database.user,
+        host: req.database.host,
+        port: req.database.port,
+        password: req.database.password,
+        existing: req.dbStrategy === 'shared-keep',
+      },
+      resources: req.resources,
+      created: job.startedAt,
+      updated: job.finishedAt,
+    };
+    job.instance = inst;
+    await appendInstanceToState(this.instanceStore, inst, this.logger);
+  }
+
+  /**
+   * Start an upgrade job: swap the DHIS2 WAR inside an existing LXC for
+   * a newer release (or a pre-staged local file). Returns the job id
+   * immediately; the persisted instance record's `version` field is
+   * updated to `toVersion` on success.
+   */
+  startUpgradeJob(req: UpgradeRequest): JobSnapshot {
+    if (!this.cfg) {
+      throw new Error(
+        'Upgrade is not configured. Set dhis2.orchestrator in app-config.yaml.',
+      );
+    }
+    const cfg = this.cfg;
+    const id = randomUUID();
+    const job: JobSnapshot = {
+      id,
+      status: 'queued',
+      startedAt: new Date().toISOString(),
+      lines: [],
+      request: {
+        name: req.name,
+        domain: req.domain,
+        version: req.toVersion,
+        node: req.node,
+        vmid: req.vmid,
+      },
+    };
+    jobs.set(id, job);
+
+    this.runUpgradeJob(job, cfg, req).catch(err => {
+      job.status = 'failed';
+      job.error = err instanceof Error ? err.message : String(err);
+      job.finishedAt = new Date().toISOString();
+      appendLine(job, `[backend] FATAL: ${job.error}`);
+      this.logger.error(`DHIS2: upgrade job ${id} crashed: ${job.error}`);
+    });
+
+    return snapshot(job);
+  }
+
+  private async runUpgradeJob(
+    job: JobSnapshot,
+    cfg: OrchestratorConfig,
+    req: UpgradeRequest,
+  ): Promise<void> {
+    job.status = 'running';
+    const upgradeScript = path.join(
+      path.dirname(cfg.scriptPath),
+      'upgrade-instance.sh',
+    );
+    appendLine(
+      job,
+      `[backend] Upgrading instance "${req.name}" (vmid=${req.vmid}, node=${req.node}) -> DHIS2 ${req.toVersion}.`,
+    );
+
+    const command = buildUpgradeCommand(cfg, req, upgradeScript);
+    appendLine(
+      job,
+      `[backend] Executing: ${upgradeScript} --vmid ${req.vmid} --node ${req.node} --hostname ${req.hostname} --domain ${req.domain} --to-version ${req.toVersion}${
+        req.warFile ? ` --war-file ${req.warFile}` : ''
+      }${req.warUrl ? ` --war-url ${req.warUrl}` : ''} (secrets via env)`,
+    );
+
+    const exitCode = await runLocal(job, command);
+    job.exitCode = exitCode;
+    job.finishedAt = new Date().toISOString();
+
+    if (exitCode !== 0) {
+      job.status = 'failed';
+      job.error = `upgrade-instance.sh exited with code ${exitCode}`;
+      appendLine(job, `[backend] ${job.error}`);
+      return;
+    }
+
+    job.status = 'success';
+    appendLine(job, `[backend] upgrade-instance.sh exited 0`);
+
+    // Persist the new version so the catalog UI reflects the upgrade.
+    const updated = await updateInstanceInState(
+      this.instanceStore,
+      req.instanceId,
+      { version: req.toVersion, updated: job.finishedAt },
+      this.logger,
+    );
+    if (updated) {
+      job.instance = updated;
+      appendLine(
+        job,
+        `[backend] Persisted instance ${req.instanceId} version -> ${req.toVersion}.`,
+      );
+    } else {
+      appendLine(
+        job,
+        `[backend] WARN: instance ${req.instanceId} not found in registry — version not persisted.`,
+      );
     }
   }
 
