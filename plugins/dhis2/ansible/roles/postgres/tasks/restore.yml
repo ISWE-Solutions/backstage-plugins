@@ -423,7 +423,11 @@
   delegate_to: "{{ _dhis2_restore_workhost }}"
   become: "{{ not _dhis2_restore_remote }}"
   become_user: "{{ omit if _dhis2_restore_remote else 'postgres' }}"
-  when: dhis2_db_admin_user != dhis2_db_user
+  # Always run in local mode: the dump was loaded as the postgres superuser,
+  # so even when dhis2_db_admin_user == dhis2_db_user the restored objects
+  # are owned by postgres, not by the app role. In remote mode only run when
+  # a distinct admin role temporarily owned the restored objects.
+  when: (not _dhis2_restore_remote) or (dhis2_db_admin_user != dhis2_db_user)
   register: _dhis2_reassign_owner
   failed_when: false
 
@@ -442,7 +446,7 @@
   delegate_to: "{{ _dhis2_restore_workhost }}"
   become: "{{ not _dhis2_restore_remote }}"
   become_user: "{{ omit if _dhis2_restore_remote else 'postgres' }}"
-  when: dhis2_db_admin_user != dhis2_db_user
+  when: (not _dhis2_restore_remote) or (dhis2_db_admin_user != dhis2_db_user)
 
 - name: Restore | ANALYZE database (best-effort, local DB mode)
   ansible.builtin.command:
