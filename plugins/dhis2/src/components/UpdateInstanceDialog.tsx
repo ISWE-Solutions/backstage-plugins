@@ -313,7 +313,7 @@ export const EditInstanceDialog = ({
               Proxy configuration files
             </Typography>
             <Typography variant="caption" color="textSecondary">
-              These are the per-instance nginx files on the central proxy host: the upstream snippet ({proxyFilesState.upstreamPath || '<computed at load>'}) and the vhost / dhis.conf ({proxyFilesState.sitePath || '<computed at load>'}). Saving writes both files via SSH and runs {' '}<code>nginx -t &amp;&amp; systemctl reload nginx</code>.
+              These are the per-instance nginx files on the central proxy host: the upstream snippet ({proxyFilesState.upstreamPath || '<computed at load>'}) and the nginx vhost ({proxyFilesState.sitePath || '<computed at load>'}). Saving writes both files via SSH and runs {' '}<code>nginx -t &amp;&amp; systemctl reload nginx</code>. Note: this is <strong>not</strong> the DHIS2 <code>dhis.conf</code> inside the LXC — that file is regenerated from the Database fields above when you save.
             </Typography>
           </Grid>
           {proxyFilesState.error && (
@@ -347,7 +347,7 @@ export const EditInstanceDialog = ({
           </Grid>
           <Grid item xs={12}>
             <TextField
-              label={`dhis.conf / vhost (${proxyFilesState.siteExists ? 'editing' : 'new file'})`}
+              label={`nginx vhost (${proxyFilesState.siteExists ? 'editing' : 'new file'})`}
               fullWidth
               multiline
               minRows={8}
