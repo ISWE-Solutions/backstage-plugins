@@ -540,8 +540,10 @@ export class DHIS2Service {
       '2.39.7',
     ];
     try {
+      // Routed through the Backstage proxy (see `proxy.endpoints./dhis2-releases`
+      // in app-config.yaml) because releases.dhis2.org doesn't send CORS headers.
       const res = await fetch(
-        'https://releases.dhis2.org/v1/versions/stable.json',
+        '/api/proxy/dhis2-releases/v1/versions/stable.json',
         { method: 'GET', headers: { Accept: 'application/json' } },
       );
       if (!res.ok) return fallback;
