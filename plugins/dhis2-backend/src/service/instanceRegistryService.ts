@@ -105,10 +105,16 @@ export class InstanceRegistryService {
       const driftStatus: DriftStatus = tags.includes(DHIS2_PRIMARY_TAG)
         ? 'managed'
         : 'untagged';
+      const liveStatus = normaliseStatus(r.status) ?? inst.status;
+      // Proxmox is the source of truth for runtime state. Overwrite the
+      // persisted `status` with the live value so the UI reflects start /
+      // stop / restart actions immediately (the lifecycle job doesn't
+      // rewrite the persisted record — it just toggles the LXC via API).
       return {
         ...inst,
+        status: liveStatus,
         driftStatus,
-        liveStatus: normaliseStatus(r.status) ?? inst.status,
+        liveStatus,
       };
     });
   }

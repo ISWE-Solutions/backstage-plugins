@@ -1965,6 +1965,25 @@ export class ProvisionService {
     if (exitCode === 0) {
       job.status = 'success';
       appendLine(job, `[backend] lifecycle-instance.sh exited 0`);
+      // Persist the new runtime status so the registry reflects the
+      // action even before the next Proxmox reconcile picks it up.
+      try {
+        const inst = await this.findInstance(req.instanceId);
+        if (inst) {
+          const newStatus: PersistedInstance['status'] =
+            req.action === 'stop' ? 'stopped' : 'running';
+          if (inst.status !== newStatus) {
+            await this.instanceStore.upsert({ ...inst, status: newStatus });
+          }
+        }
+      } catch (err) {
+        appendLine(
+          job,
+          `[backend] WARN: failed to persist new status: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
     } else {
       job.status = 'failed';
       job.error = `lifecycle-instance.sh exited with code ${exitCode}`;
