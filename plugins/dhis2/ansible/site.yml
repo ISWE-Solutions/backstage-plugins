@@ -88,21 +88,43 @@
     # "Status code was 404" with no context to diagnose.
     - name: Verify DHIS2 deployment
       block:
-        - name: Wait for DHIS2 web endpoint to respond
-          ansible.builtin.uri:
-            # When dhis2_context_path is non-empty the WAR is deployed as
-            # /<segment>.war and Tomcat serves it at /<segment>; otherwise
-            # it's ROOT.war served at /.
-            url: >-
-              http://127.0.0.1:8080{{ ('/' ~ dhis2_context_path)
-                if (dhis2_context_path | default('', true) | length > 0)
-                else '' }}/dhis-web-commons/security/login.action
-            status_code: [200, 302]
-            validate_certs: false
+        # Poll the DHIS2 endpoint, but bail out fast if Tomcat logs a
+        # "Context [/...] startup failed" / "SEVERE" deploy error in
+        # catalina.out — those are unrecoverable and there's no point
+        # waiting the full 15 minutes for an endpoint that will never come up.
+        - name: Wait for DHIS2 web endpoint to respond (fail fast on Tomcat startup error)
+          ansible.builtin.shell: |
+            set -u
+            ctx='{{ ("/" ~ dhis2_context_path) if (dhis2_context_path | default("", true) | length > 0) else "" }}'
+            url="http://127.0.0.1:8080${ctx}/dhis-web-commons/security/login.action"
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$url" || echo 000)
+            if [ "$code" = "200" ] || [ "$code" = "302" ]; then
+              echo "HEALTHY $code"
+              exit 0
+            fi
+            # Short-circuit on unrecoverable Tomcat startup failures.
+            log=/opt/tomcat/logs/catalina.out
+            if [ -f "$log" ] && grep -E -q \
+              'Context \[[^]]*\] startup failed|One or more listeners failed to start|FATAL|ApplicationContext .* failed|BeanCreationException' \
+              "$log"; then
+              echo "FATAL Tomcat reported an unrecoverable startup failure (code=$code)"
+              grep -E -n \
+                'Context \[[^]]*\] startup failed|One or more listeners failed to start|FATAL|ApplicationContext .* failed|BeanCreationException|Caused by:' \
+                "$log" | tail -n 20
+              exit 2
+            fi
+            echo "PENDING $code"
+            exit 1
+          args:
+            executable: /bin/bash
           register: dhis2_health
           retries: 90
           delay: 10
-          until: dhis2_health.status in [200, 302]
+          # Retry while the script exits 1 (pending); succeed on exit 0;
+          # break immediately on exit 2 (fatal Tomcat startup error) so we
+          # surface the real cause instead of waiting 15 minutes.
+          until: dhis2_health.rc == 0 or dhis2_health.rc == 2
+          failed_when: dhis2_health.rc != 0
           changed_when: false
       rescue:
         - name: Diagnose — Tomcat service status
@@ -154,7 +176,11 @@
         - name: Fail the play with the original DHIS2 endpoint error
           ansible.builtin.fail:
             msg: >-
-              DHIS2 web endpoint did not become healthy within 15 minutes.
+              DHIS2 web endpoint did not become healthy
+              (rc={{ dhis2_health.rc | default('?') }};
+              {{ 'Tomcat reported an unrecoverable startup failure — see catalina.out tail above'
+                 if (dhis2_health.rc | default(0)) == 2
+                 else 'no 200/302 within 15 minutes' }}).
               See the diagnostic output above (Tomcat status, webapps
               listing, catalina.out tail, localhost log tail) for the
               underlying cause.
