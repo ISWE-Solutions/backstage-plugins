@@ -272,6 +272,17 @@ export const DHIS2InstancesPanel = ({
   const [nodeFilter, setNodeFilter] = useState<string>('all');
   const [hotfixOnly, setHotfixOnly] = useState(false);
 
+  // Lightweight "release info" dialog opened from the hotfix / upgrade
+  // chips beside an instance name. Shows links to the upstream release
+  // notes / GitHub release / WAR download and offers a one-click hand-off
+  // into the existing Upgrade dialog.
+  const [releaseInfo, setReleaseInfo] = useState<{
+    open: boolean;
+    instance: DHIS2Instance | null;
+    targetVersion: string;
+    kind: 'hotfix' | 'upgrade';
+  } | null>(null);
+
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const [busy, setBusy] = useState<Set<string>>(new Set());
@@ -903,29 +914,26 @@ export const DHIS2InstancesPanel = ({
                       {instance.name}
                     </Typography>
                     {hotfix && (
-                      <Tooltip
-                        title={`A newer patch (${hotfix}) is available in the ${instance.version
-                          .replace(/^2\./, '')
-                          .split('.')
-                          .slice(0, 2)
-                          .join('.')}.x line. Click to upgrade.`}
-                      >
+                      <Tooltip title="View release information for the available hotfix">
                         <Chip
                           label={`Hotfix → ${hotfix}`}
                           size="small"
                           clickable
                           icon={<SystemUpdateAltIcon style={{ fontSize: 16, color: '#fff' }} />}
                           onClick={() =>
-                            onUpgrade?.(instance, { defaultVersion: hotfix })
+                            setReleaseInfo({
+                              open: true,
+                              instance,
+                              targetVersion: hotfix,
+                              kind: 'hotfix',
+                            })
                           }
                           style={{ backgroundColor: '#ff9800', color: '#fff' }}
                         />
                       </Tooltip>
                     )}
                     {hotfixInfo?.majorUpgrade && (
-                      <Tooltip
-                        title={`A newer DHIS2 release (${hotfixInfo.majorUpgrade}) is available. Click to plan a major upgrade.`}
-                      >
+                      <Tooltip title="View release information for the newer DHIS2 release">
                         <Chip
                           label={`Upgrade → ${hotfixInfo.majorUpgrade}`}
                           size="small"
@@ -933,8 +941,11 @@ export const DHIS2InstancesPanel = ({
                           variant="outlined"
                           icon={<SystemUpdateAltIcon style={{ fontSize: 16 }} />}
                           onClick={() =>
-                            onUpgrade?.(instance, {
-                              defaultVersion: hotfixInfo.majorUpgrade ?? undefined,
+                            setReleaseInfo({
+                              open: true,
+                              instance,
+                              targetVersion: hotfixInfo.majorUpgrade!,
+                              kind: 'upgrade',
                             })
                           }
                           style={{ borderColor: '#1976d2', color: '#1976d2' }}
@@ -1506,6 +1517,116 @@ export const DHIS2InstancesPanel = ({
     </Dialog>
   );
 
+  const releaseInfoDialog = (() => {
+    const closeRelease = () => setReleaseInfo(null);
+    const target = releaseInfo?.targetVersion ?? '';
+    const cleanTarget = target.replace(/^2\./, '');
+    const major = cleanTarget.split('.')[0] || '';
+    const patch = cleanTarget.split('.')[1] || '0';
+    const hotfix = cleanTarget.split('.')[2] || '0';
+    const releaseNotesUrl = major
+      ? `https://docs.dhis2.org/en/full/use/dhis-core-version-${major}/release-notes.html`
+      : '';
+    const githubUrl = cleanTarget
+      ? `https://github.com/dhis2/dhis2-core/releases/tag/${cleanTarget}`
+      : '';
+    const warUrl = major
+      ? `https://releases.dhis2.org/${major}/dhis2-stable-${major}.${patch}.${hotfix}.war`
+      : '';
+    const downloadsUrl = 'https://dhis2.org/downloads/';
+    const instance = releaseInfo?.instance ?? null;
+    const isHotfix = releaseInfo?.kind === 'hotfix';
+    return (
+      <Dialog
+        open={!!releaseInfo?.open}
+        onClose={closeRelease}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          {isHotfix ? 'Hotfix' : 'Upgrade'} available: DHIS2 {target}
+        </DialogTitle>
+        <DialogContent dividers>
+          {instance && (
+            <Typography variant="body2" color="textSecondary" gutterBottom>
+              Instance <strong>{instance.name}</strong> is currently running
+              DHIS2 <strong>{instance.version}</strong>. A newer{' '}
+              {isHotfix ? 'patch in the same release line' : 'release line'}{' '}
+              is available.
+            </Typography>
+          )}
+          <Box mt={2}>
+            <Typography variant="subtitle2" gutterBottom>
+              Release information
+            </Typography>
+            <Typography variant="body2" component="div">
+              <ul style={{ paddingLeft: 18, marginTop: 4, marginBottom: 4 }}>
+                {releaseNotesUrl && (
+                  <li>
+                    <a
+                      href={releaseNotesUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Official release notes (v{major})
+                    </a>
+                  </li>
+                )}
+                {githubUrl && (
+                  <li>
+                    <a href={githubUrl} target="_blank" rel="noopener noreferrer">
+                      GitHub release {cleanTarget}
+                    </a>
+                  </li>
+                )}
+                {warUrl && (
+                  <li>
+                    <a href={warUrl} target="_blank" rel="noopener noreferrer">
+                      Direct WAR download
+                    </a>
+                  </li>
+                )}
+                <li>
+                  <a
+                    href={downloadsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    DHIS2 downloads page
+                  </a>
+                </li>
+              </ul>
+            </Typography>
+          </Box>
+          {!isHotfix && (
+            <Box mt={2}>
+              <Alert severity="info" variant="outlined">
+                Cross-version upgrades may require database migrations and
+                compatibility review. Always test in a staging clone first.
+              </Alert>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeRelease}>Close</Button>
+          {instance && onUpgrade && (
+            <Button
+              color="primary"
+              variant="contained"
+              startIcon={<SystemUpdateAltIcon />}
+              onClick={() => {
+                onUpgrade(instance, { defaultVersion: target });
+                closeRelease();
+              }}
+            >
+              Upgrade to {target}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+    );
+  })();
+
   return (
     <>
       {renderToolbar()}
@@ -1596,6 +1717,8 @@ export const DHIS2InstancesPanel = ({
       {confirmDialog}
       {proxySettingsDialog}
       {proxyLogsDialog}
+      {releaseInfoDialog}
+      {releaseInfoDialog}
       <TransferDatabaseDialog
         open={!!transferTarget}
         instance={transferTarget}
