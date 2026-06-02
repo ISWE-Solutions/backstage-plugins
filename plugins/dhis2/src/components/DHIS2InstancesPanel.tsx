@@ -898,10 +898,51 @@ export const DHIS2InstancesPanel = ({
                   inputProps={{ 'aria-label': `Select ${instance.name}` }}
                 />
                 <Box>
-                  <Typography variant="h5" gutterBottom>
-                    {instance.name}
-                  </Typography>
-                  <Typography variant="body2" color="textSecondary">
+                  <Box display="flex" alignItems="center" flexWrap="wrap" style={{ gap: 8 }}>
+                    <Typography variant="h5" style={{ marginRight: 4 }}>
+                      {instance.name}
+                    </Typography>
+                    {hotfix && (
+                      <Tooltip
+                        title={`A newer patch (${hotfix}) is available in the ${instance.version
+                          .replace(/^2\./, '')
+                          .split('.')
+                          .slice(0, 2)
+                          .join('.')}.x line. Click to upgrade.`}
+                      >
+                        <Chip
+                          label={`Hotfix → ${hotfix}`}
+                          size="small"
+                          clickable
+                          icon={<SystemUpdateAltIcon style={{ fontSize: 16, color: '#fff' }} />}
+                          onClick={() =>
+                            onUpgrade?.(instance, { defaultVersion: hotfix })
+                          }
+                          style={{ backgroundColor: '#ff9800', color: '#fff' }}
+                        />
+                      </Tooltip>
+                    )}
+                    {hotfixInfo?.majorUpgrade && (
+                      <Tooltip
+                        title={`A newer DHIS2 release (${hotfixInfo.majorUpgrade}) is available. Click to plan a major upgrade.`}
+                      >
+                        <Chip
+                          label={`Upgrade → ${hotfixInfo.majorUpgrade}`}
+                          size="small"
+                          clickable
+                          variant="outlined"
+                          icon={<SystemUpdateAltIcon style={{ fontSize: 16 }} />}
+                          onClick={() =>
+                            onUpgrade?.(instance, {
+                              defaultVersion: hotfixInfo.majorUpgrade ?? undefined,
+                            })
+                          }
+                          style={{ borderColor: '#1976d2', color: '#1976d2' }}
+                        />
+                      </Tooltip>
+                    )}
+                  </Box>
+                  <Typography variant="body2" color="textSecondary" style={{ marginTop: 4 }}>
                     <strong>Version:</strong> {instance.version} |{' '}
                     <strong>Node:</strong> {instance.node} |{' '}
                     <strong>VMID:</strong> {instance.vmid}
@@ -984,26 +1025,6 @@ export const DHIS2InstancesPanel = ({
                         size="small"
                         variant="outlined"
                         className={classes.statusChip}
-                      />
-                    </Tooltip>
-                  )}
-                  {hotfix && (
-                    <Tooltip
-                      title={`A newer patch (${hotfix}) is available in the ${instance.version.replace(/^2\./, '').split('.').slice(0, 2).join('.')}.x line. Click to upgrade.`}
-                    >
-                      <Chip
-                        label={`Hotfix → ${hotfix}`}
-                        size="small"
-                        clickable
-                        icon={<SystemUpdateAltIcon style={{ fontSize: 16 }} />}
-                        onClick={() =>
-                          onUpgrade?.(instance, { defaultVersion: hotfix })
-                        }
-                        style={{
-                          marginLeft: 8,
-                          backgroundColor: '#ff9800',
-                          color: '#fff',
-                        }}
                       />
                     </Tooltip>
                   )}
