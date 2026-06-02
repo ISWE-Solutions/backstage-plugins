@@ -1190,6 +1190,7 @@ export const DHIS2Page = () => {
       dbHost: string;
       dbPort: number;
       dbPassword: string;
+      sshKeyPath: string;
     },
   ) => {
     const steps: ProvisionStep[] = [
@@ -1245,7 +1246,9 @@ export const DHIS2Page = () => {
         } = {};
         const host = (p.host ?? '').trim();
         const sshUser = (p.sshUser ?? '').trim();
-        const sshKeyPath = (p.sshKeyPath ?? '').trim();
+        // Per-edit override wins over the global Settings key.
+        const sshKeyPath =
+          (draft.sshKeyPath ?? '').trim() || (p.sshKeyPath ?? '').trim();
         if (host) fields.host = host;
         if (Number.isInteger(p.sshPort) && p.sshPort > 0) {
           fields.sshPort = p.sshPort;

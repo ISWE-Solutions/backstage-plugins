@@ -185,6 +185,13 @@ interface EditDraft {
   dbHost: string;
   dbPort: number;
   dbPassword: string;
+  /**
+   * SSH private-key path used to reach the PVE host that runs
+   * `pct exec` against this instance's LXC. Defaults to
+   * `settings.proxy.sshKeyPath`; can be overridden per-edit when the
+   * default key isn't authorized on this particular node.
+   */
+  sshKeyPath: string;
 }
 
 const DEFAULT_PG_PORT = 5432;
@@ -652,6 +659,7 @@ export const DHIS2InstancesPanel = ({
         globalSettings.dhis2.postgresPort ??
         DEFAULT_PG_PORT,
       dbPassword: instance.database.password ?? '',
+      sshKeyPath: (globalSettings.proxy.sshKeyPath ?? '').trim(),
     });
     setProxyFilesState({
       loading: false,

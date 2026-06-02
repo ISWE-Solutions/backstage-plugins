@@ -1,6 +1,6 @@
 import { LoggerService } from '@backstage/backend-plugin-api';
 import { spawn } from 'child_process';
-import { createWriteStream, promises as fs } from 'fs';
+import { createWriteStream, existsSync, promises as fs } from 'fs';
 import { Readable } from 'stream';
 import * as os from 'os';
 import * as path from 'path';
@@ -1826,13 +1826,18 @@ export class ProvisionService {
     req: EditRequest,
   ): Promise<void> {
     job.status = 'running';
-    const editScript = path.join(
-      path.dirname(cfg.scriptPath),
-      'edit-instance.sh',
-    );
+    // The shipped wrapper is `update-instance.sh` (mirrors update.yml);
+    // older builds shipped `edit-instance.sh`, so accept either to keep
+    // out-of-tree deployments working.
+    const scriptsDir = path.dirname(cfg.scriptPath);
+    const updateCandidate = path.join(scriptsDir, 'update-instance.sh');
+    const legacyCandidate = path.join(scriptsDir, 'edit-instance.sh');
+    const editScript = existsSync(updateCandidate)
+      ? updateCandidate
+      : legacyCandidate;
     appendLine(
       job,
-      `[backend] Running edit-instance.sh locally on the Backstage host for instance "${req.name}" (vmid=${req.vmid}, node=${req.node}, domain=${req.domain}).`,
+      `[backend] Running ${path.basename(editScript)} locally on the Backstage host for instance "${req.name}" (vmid=${req.vmid}, node=${req.node}, domain=${req.domain}).`,
     );
     appendLine(
       job,

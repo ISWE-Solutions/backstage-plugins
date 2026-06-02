@@ -16,6 +16,8 @@ export interface EditDraft {
   dbHost: string;
   dbPort: number;
   dbPassword: string;
+  /** SSH private-key path used to reach the PVE host for `pct exec`. */
+  sshKeyPath: string;
 }
 
 export interface ProxyFilesState {
@@ -87,7 +89,15 @@ export const EditInstanceDialog = ({
       <DialogTitle>Update Instance {instance?.name ?? 'instance'}</DialogTitle>
       <DialogContent>
         <Grid container spacing={2}>
+          {/* ---------- Instance identity ---------- */}
           <Grid item xs={12}>
+            <Typography variant="subtitle2">Instance</Typography>
+            <Typography variant="caption" color="textSecondary">
+              Display name shown across Backstage and the DHIS2 version
+              label tracked in the registry.
+            </Typography>
+          </Grid>
+          <Grid item xs={12} sm={7}>
             <TextField
               label="Name"
               fullWidth
@@ -95,7 +105,7 @@ export const EditInstanceDialog = ({
               onChange={e => updateDraft({ name: e.target.value })}
             />
           </Grid>
-          <Grid item xs={12}>
+          <Grid item xs={12} sm={5}>
             <TextField
               label="DHIS2 version"
               select
@@ -110,6 +120,17 @@ export const EditInstanceDialog = ({
                 </MenuItem>
               ))}
             </TextField>
+          </Grid>
+
+          {/* ---------- LXC resources ---------- */}
+          <Grid item xs={12}>
+            <Typography variant="subtitle2" style={{ marginTop: 8 }}>
+              LXC resources
+            </Typography>
+            <Typography variant="caption" color="textSecondary">
+              Applied to the Proxmox container on save. Storage can only
+              grow — Proxmox does not support shrinking rootfs.
+            </Typography>
           </Grid>
           <Grid item xs={4}>
             <TextField
@@ -140,12 +161,16 @@ export const EditInstanceDialog = ({
               onChange={e => updateDraft({ storageGb: Math.max(5, Number(e.target.value) || 5) })}
             />
           </Grid>
+
+          {/* ---------- Database ---------- */}
           <Grid item xs={12}>
             <Typography variant="subtitle2" style={{ marginTop: 8 }}>
-              Source database
+              Database
             </Typography>
             <Typography variant="caption" color="textSecondary">
-              Connection details for this instance's PostgreSQL database. Used as the source for database transfers.
+              Connection details for this instance's PostgreSQL database.
+              Rendered into dhis.conf on save and used as the source for
+              database transfers.
             </Typography>
           </Grid>
           <Grid item xs={12} sm={8}>
@@ -190,6 +215,36 @@ export const EditInstanceDialog = ({
               value={draft.dbPassword}
               onChange={e => updateDraft({ dbPassword: e.target.value })}
               helperText="Stored on the orchestrator and used for database transfers."
+            />
+          </Grid>
+
+          {/* ---------- Container access (SSH) ---------- */}
+          <Grid item xs={12}>
+            <Typography variant="subtitle2" style={{ marginTop: 8 }}>
+              Container access (SSH)
+            </Typography>
+            <Typography variant="caption" color="textSecondary">
+              SSH private-key path on the Backstage host used to reach
+              the PVE node and run <code>pct exec</code> inside this
+              instance's LXC. Defaults to the global Settings ▸ Reverse
+              Proxy key; override here if a different key is authorized
+              on this node.
+            </Typography>
+          </Grid>
+          <Grid item xs={12}>
+            <TextField
+              label="SSH key path"
+              fullWidth
+              value={draft.sshKeyPath}
+              onChange={e => updateDraft({ sshKeyPath: e.target.value })}
+              placeholder={s.proxy.sshKeyPath || '/home/backstage/.ssh/id_ed25519'}
+              helperText="Absolute path to the SSH private key on the Backstage host."
+              InputProps={{
+                style: {
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                  fontSize: 13,
+                },
+              }}
             />
           </Grid>
           {(() => {
