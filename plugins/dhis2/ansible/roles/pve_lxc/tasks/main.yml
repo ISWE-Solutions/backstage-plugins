@@ -100,26 +100,39 @@
 # Some LXC templates ship without openssh-server (or with sshd masked),
 # which makes the subsequent `Wait for SSH` step time out and breaks the
 # whole bootstrap. Install + enable it directly via `pct exec` on the PVE
-# host so we don't depend on SSH-into-container being already functional.
+# node that owns the container, so we don't depend on SSH-into-container
+# being already functional.
+#
+# The first hop is the API host (`pve_ssh_host`, the only PVE node we are
+# guaranteed to reach from Backstage). From there we re-SSH into the
+# owning node (`pve_node`) over the cluster network and run `pct exec`.
+# Cluster members already have mutual root SSH set up for pvecm /
+# migration, so the inner hop does not need extra credentials.
 - name: Ensure openssh-server is installed inside the LXC (via pct exec)
+  vars:
+    _pve_install_sshd_script: |
+      set -e
+      if ! command -v sshd >/dev/null 2>&1 && ! dpkg -s openssh-server >/dev/null 2>&1; then
+        export DEBIAN_FRONTEND=noninteractive
+        for i in 1 2 3 4 5; do
+          apt-get update && apt-get install -y openssh-server && break
+          sleep 5
+        done
+      fi
+      systemctl unmask ssh 2>/dev/null || true
+      systemctl enable --now ssh
+    _pve_install_sshd_b64: "{{ _pve_install_sshd_script | b64encode }}"
   ansible.builtin.shell: |
     set -e
     ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
         {% if pve_ssh_port is defined %}-p {{ pve_ssh_port }}{% endif %} \
         {% if pve_ssh_key | default('', true) | length > 0 %}-i {{ pve_ssh_key }}{% endif %} \
         {{ pve_ssh_user | default('root') }}@{{ pve_ssh_host | default(pve_node) }} \
-        "pct exec {{ pve_vmid | int }} -- bash -lc '
-          set -e
-          if ! command -v sshd >/dev/null 2>&1 && ! dpkg -s openssh-server >/dev/null 2>&1; then
-            export DEBIAN_FRONTEND=noninteractive
-            for i in 1 2 3 4 5; do
-              apt-get update && apt-get install -y openssh-server && break
-              sleep 5
-            done
-          fi
-          systemctl unmask ssh 2>/dev/null || true
-          systemctl enable --now ssh
-        '"
+        bash -s <<'OUTER_EOF'
+    set -e
+    ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes {{ pve_node }} \
+        "pct exec {{ pve_vmid | int }} -- bash -c 'echo {{ _pve_install_sshd_b64 }} | base64 -d | bash'"
+    OUTER_EOF
   args:
     executable: /bin/bash
   register: pve_lxc_sshd_install
