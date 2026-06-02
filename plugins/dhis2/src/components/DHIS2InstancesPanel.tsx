@@ -36,6 +36,7 @@ import SettingsIcon from '@material-ui/icons/Settings';
 import DescriptionIcon from '@material-ui/icons/Description';
 import SettingsBackupRestoreIcon from '@material-ui/icons/SettingsBackupRestore';
 import BackupIcon from '@material-ui/icons/Backup';
+import BlockIcon from '@material-ui/icons/Block';
 import SwapHorizIcon from '@material-ui/icons/SwapHoriz';
 import FileCopyIcon from '@material-ui/icons/FileCopy';
 import SystemUpdateAltIcon from '@material-ui/icons/SystemUpdateAlt';
@@ -1212,7 +1213,7 @@ export const DHIS2InstancesPanel = ({
                     ) : disabledSites[instance.domain] ? (
                       <CheckCircleIcon />
                     ) : (
-                      <SettingsIcon />
+                      <BlockIcon />
                     )}
                   </IconButton>
                 </Tooltip>
