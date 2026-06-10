@@ -134,6 +134,8 @@ const deriveTomcatFromDhis2 = (version: string): '9' | '10' | undefined => {
   return major <= 41 ? '9' : '10';
 };
 
+const JAVA_HEAP_OPTIONS = ['2G', '4G', '8G', '12G', '16G', '24G', '32G', '64G'];
+
 const buildInitialInstance = (
   proxy: ProxyServerSettings,
 ): CreateInstanceRequest => ({
@@ -201,8 +203,6 @@ export const CreateInstanceDialog = ({
 
   // "Connect to an existing database" option.
   const [useExistingDb, setUseExistingDb] = useState(false);
-  const [ackExistingDbCompatibility, setAckExistingDbCompatibility] =
-    useState(false);
   // "Use a remote PostgreSQL server" master toggle. Default is OFF, in
   // which case the orchestrator installs PostgreSQL inside the new LXC
   // and the remote-host / shared-credentials / existing-database fields
@@ -455,9 +455,6 @@ export const CreateInstanceDialog = ({
     ) {
       return existingDbCompatibility.message;
     }
-    if (useExistingDb && !ackExistingDbCompatibility) {
-      return 'Confirm existing database compatibility with the selected DHIS2 version.';
-    }
     if (createDbAccount) {
       if (!newDbUser.trim())
         return 'New database account username is required.';
@@ -627,7 +624,6 @@ export const CreateInstanceDialog = ({
                     : deriveTomcatFromDhis2(v) ?? prev.tomcatVersion,
                 }));
                 if (useExistingDb && newInstance.database.name.trim()) {
-                  setAckExistingDbCompatibility(false);
                   setExistingDbCompatibility(null);
                   checkExistingDatabaseCompatibility(
                     newInstance.database.name,
@@ -754,7 +750,7 @@ export const CreateInstanceDialog = ({
           <Grid item xs={4}>
             <TextField
               fullWidth
-              type="number"
+              select
               label="Memory (MB)"
               value={newInstance.resources.memory}
               onChange={e =>
@@ -762,18 +758,24 @@ export const CreateInstanceDialog = ({
                   ...newInstance,
                   resources: {
                     ...newInstance.resources,
-                    memory: e.target.value === '' ? ('' as any) : parseInt(e.target.value, 10),
+                    memory: parseInt(e.target.value, 10),
                   },
                 })
               }
               className={classes.formField}
-              inputProps={{ min: 1024, max: 65536, step: 1024 }}
-            />
+            >
+              <MenuItem value={4096}>4GB</MenuItem>
+              <MenuItem value={8192}>8GB</MenuItem>
+              <MenuItem value={16384}>16GB</MenuItem>
+              <MenuItem value={32768}>32GB</MenuItem>
+              <MenuItem value={65536}>64GB</MenuItem>
+              <MenuItem value={131072}>128GB</MenuItem>
+            </TextField>
           </Grid>
           <Grid item xs={4}>
             <TextField
               fullWidth
-              type="number"
+              select
               label="Storage (GB)"
               value={newInstance.resources.storage}
               onChange={e =>
@@ -781,19 +783,28 @@ export const CreateInstanceDialog = ({
                   ...newInstance,
                   resources: {
                     ...newInstance.resources,
-                    storage: e.target.value === '' ? ('' as any) : parseInt(e.target.value, 10),
+                    storage: parseInt(e.target.value, 10),
                   },
                 })
               }
               className={classes.formField}
-              inputProps={{ min: 20, max: 1000 }}
-            />
+            >
+              <MenuItem value={20}>20GB</MenuItem>
+              <MenuItem value={40}>40GB</MenuItem>
+              <MenuItem value={60}>60GB</MenuItem>
+              <MenuItem value={80}>80GB</MenuItem>
+              <MenuItem value={100}>100GB</MenuItem>
+              <MenuItem value={120}>120GB</MenuItem>
+              <MenuItem value={140}>140GB</MenuItem>
+              <MenuItem value={160}>160GB</MenuItem>
+            </TextField>
           </Grid>
         </Grid>
         <Grid container spacing={2}>
           <Grid item xs={6}>
             <TextField
               fullWidth
+              select
               label="Java heap (Xmx)"
               value={dhis2Settings.javaHeap}
               onChange={e =>
@@ -803,8 +814,20 @@ export const CreateInstanceDialog = ({
                 })
               }
               className={classes.formField}
-              helperText="e.g. 4G"
-            />
+              helperText="Maximum JVM heap size for DHIS2"
+            >
+              {!JAVA_HEAP_OPTIONS.includes(dhis2Settings.javaHeap) &&
+                dhis2Settings.javaHeap && (
+                  <MenuItem value={dhis2Settings.javaHeap}>
+                    {dhis2Settings.javaHeap}
+                  </MenuItem>
+                )}
+              {JAVA_HEAP_OPTIONS.map(heap => (
+                <MenuItem key={heap} value={heap}>
+                  {heap}
+                </MenuItem>
+              ))}
+            </TextField>
           </Grid>
           <Grid item xs={6}>
             <TextField
@@ -1076,13 +1099,11 @@ export const CreateInstanceDialog = ({
                             },
                           },
                     );
-                    setAckExistingDbCompatibility(false);
                     setExistingDbCompatibility(null);
                   } else {
                     setAvailableDatabases([]);
                     setDatabasesError(null);
                     setDbTestResult(null);
-                    setAckExistingDbCompatibility(false);
                     setExistingDbCompatibility(null);
                   }
                 }}
@@ -1266,8 +1287,7 @@ export const CreateInstanceDialog = ({
                     name: selected,
                   },
                 });
-                // Compatibility confirmation is specific to the selected DB.
-                setAckExistingDbCompatibility(false);
+                // Re-run compatibility checks for the newly selected DB.
                 setExistingDbCompatibility(null);
                 checkExistingDatabaseCompatibility(selected);
               }}
@@ -1306,31 +1326,6 @@ export const CreateInstanceDialog = ({
                 : `Listed from ${dhis2Settings.postgresHost || '<host>'}:${dhis2Settings.postgresPort} as ${dhis2Settings.postgresAdminUser || '<admin>'}`}
             </FormHelperText>
           </FormControl>
-        )}
-        {useExistingDb && (
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={ackExistingDbCompatibility}
-                onChange={e =>
-                  setAckExistingDbCompatibility(e.target.checked)
-                }
-                color="secondary"
-              />
-            }
-            label={
-              <Box>
-                <Typography variant="body2">
-                  I confirm this database can be upgraded by the selected DHIS2
-                  version
-                </Typography>
-                <Typography variant="caption" color="textSecondary">
-                  Recommended: restore a backup into a staging environment and
-                  validate startup before production provisioning.
-                </Typography>
-              </Box>
-            }
-          />
         )}
         <FormControlLabel
           control={
