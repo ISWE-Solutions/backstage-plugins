@@ -215,6 +215,13 @@ export const CreateInstanceDialog = ({
   const [dbTestResult, setDbTestResult] = useState<
     { ok: boolean; message: string } | null
   >(null);
+  const [checkingCompatibility, setCheckingCompatibility] = useState(false);
+  const [existingDbCompatibility, setExistingDbCompatibility] = useState<{
+    ok: boolean;
+    compatible: boolean;
+    message: string;
+    checkedDatabase: string;
+  } | null>(null);
 
   // "Customize dhis.conf template" option.
   const [customizeDhisConf, setCustomizeDhisConf] = useState(false);
@@ -262,6 +269,7 @@ export const CreateInstanceDialog = ({
     setLoadingDatabases(true);
     setDatabasesError(null);
     setDbTestResult(null);
+    setExistingDbCompatibility(null);
 
     // Validate inputs before hitting the backend so users see clear,
     // actionable errors in the dialog instead of a vague network failure.
@@ -330,6 +338,70 @@ export const CreateInstanceDialog = ({
     }
   };
 
+  const checkExistingDatabaseCompatibility = async (
+    databaseName: string,
+    targetVersionOverride?: string,
+  ) => {
+    const selectedDb = databaseName.trim();
+    if (!selectedDb) {
+      setExistingDbCompatibility(null);
+      return;
+    }
+
+    const missing: string[] = [];
+    if (!dhis2Settings.postgresHost) missing.push('Postgres host');
+    if (!dhis2Settings.postgresPort) missing.push('Postgres port');
+    if (!dhis2Settings.postgresAdminUser) missing.push('PostgreSQL admin user');
+    if (!dhis2Settings.postgresAdminPassword)
+      missing.push('PostgreSQL admin password');
+    const targetVersion = targetVersionOverride ?? newInstance.version;
+    if (!targetVersion) missing.push('DHIS2 version');
+    if (missing.length > 0) {
+      setExistingDbCompatibility({
+        ok: false,
+        compatible: false,
+        message: `Provide ${missing.join(', ')} before checking compatibility.`,
+        checkedDatabase: selectedDb,
+      });
+      return;
+    }
+
+    setCheckingCompatibility(true);
+    try {
+      const baseUrl = await discoveryApi.getBaseUrl('dhis2');
+      const result = await dhis2Service.checkExistingDatabaseCompatibility(
+        {
+          host: dhis2Settings.postgresHost,
+          port: dhis2Settings.postgresPort,
+          user: dhis2Settings.postgresAdminUser,
+          password: dhis2Settings.postgresAdminPassword,
+          database: selectedDb,
+          targetVersion,
+        },
+        baseUrl,
+        backstageFetch,
+      );
+      setExistingDbCompatibility({
+        ok: result.ok,
+        compatible: result.compatible,
+        message: result.message,
+        checkedDatabase: selectedDb,
+      });
+    } catch (error) {
+      setExistingDbCompatibility({
+        ok: false,
+        compatible: false,
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Failed to check existing database compatibility.',
+        checkedDatabase: selectedDb,
+      });
+    } finally {
+      setCheckingCompatibility(false);
+    }
+  };
+
   const restoreValidationError = restoreEnabled
     ? validateRestoreSource(restoreSource) ??
       (restoreSource ? null : 'Pick a backup source.')
@@ -362,6 +434,26 @@ export const CreateInstanceDialog = ({
     }
     if (useExistingDb && !newInstance.database.name.trim()) {
       return 'Select an existing database.';
+    }
+    if (useExistingDb && checkingCompatibility) {
+      return 'Checking selected database compatibility...';
+    }
+    if (
+      useExistingDb &&
+      newInstance.database.name.trim() &&
+      (!existingDbCompatibility ||
+        existingDbCompatibility.checkedDatabase !==
+          newInstance.database.name.trim())
+    ) {
+      return 'Select a database and wait for compatibility check to complete.';
+    }
+    if (
+      useExistingDb &&
+      newInstance.database.name.trim() &&
+      existingDbCompatibility &&
+      (!existingDbCompatibility.ok || !existingDbCompatibility.compatible)
+    ) {
+      return existingDbCompatibility.message;
     }
     if (useExistingDb && !ackExistingDbCompatibility) {
       return 'Confirm existing database compatibility with the selected DHIS2 version.';
@@ -534,6 +626,14 @@ export const CreateInstanceDialog = ({
                     ? prev.tomcatVersion
                     : deriveTomcatFromDhis2(v) ?? prev.tomcatVersion,
                 }));
+                if (useExistingDb && newInstance.database.name.trim()) {
+                  setAckExistingDbCompatibility(false);
+                  setExistingDbCompatibility(null);
+                  checkExistingDatabaseCompatibility(
+                    newInstance.database.name,
+                    v,
+                  );
+                }
               }}
               className={classes.formField}
               required
@@ -828,6 +928,7 @@ export const CreateInstanceDialog = ({
                   setAvailableDatabases([]);
                   setDatabasesError(null);
                   setDbTestResult(null);
+                  setExistingDbCompatibility(null);
                 }
               }}
               color="primary"
@@ -976,11 +1077,13 @@ export const CreateInstanceDialog = ({
                           },
                     );
                     setAckExistingDbCompatibility(false);
+                    setExistingDbCompatibility(null);
                   } else {
                     setAvailableDatabases([]);
                     setDatabasesError(null);
                     setDbTestResult(null);
                     setAckExistingDbCompatibility(false);
+                    setExistingDbCompatibility(null);
                   }
                 }}
                 color="primary"
@@ -1007,6 +1110,23 @@ export const CreateInstanceDialog = ({
             style={{ marginTop: 8, marginBottom: 8 }}
           >
             {dbTestResult.message}
+          </Alert>
+        )}
+        {useExistingDb && checkingCompatibility && (
+          <Alert severity="info" style={{ marginTop: 8, marginBottom: 8 }}>
+            Checking selected database compatibility...
+          </Alert>
+        )}
+        {useExistingDb && existingDbCompatibility && !checkingCompatibility && (
+          <Alert
+            severity={
+              existingDbCompatibility.ok && existingDbCompatibility.compatible
+                ? 'success'
+                : 'error'
+            }
+            style={{ marginTop: 8, marginBottom: 8 }}
+          >
+            {existingDbCompatibility.message}
           </Alert>
         )}
         {!useExistingDb && (
@@ -1138,15 +1258,18 @@ export const CreateInstanceDialog = ({
             <Select
               value={newInstance.database.name}
               onChange={e => {
+                const selected = e.target.value as string;
                 setNewInstance({
                   ...newInstance,
                   database: {
                     ...newInstance.database,
-                    name: e.target.value as string,
+                    name: selected,
                   },
                 });
                 // Compatibility confirmation is specific to the selected DB.
                 setAckExistingDbCompatibility(false);
+                setExistingDbCompatibility(null);
+                checkExistingDatabaseCompatibility(selected);
               }}
               endAdornment={
                 <InputAdornment position="end" style={{ marginRight: 24 }}>

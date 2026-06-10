@@ -35,6 +35,11 @@ interface DbCredentials {
   password: string;
 }
 
+interface DbCompatibilityRequest extends DbCredentials {
+  database: string;
+  targetVersion?: string;
+}
+
 const CONNECT_TIMEOUT_MS = 15_000;
 const STATEMENT_TIMEOUT_MS = 10_000;
 
@@ -64,6 +69,27 @@ function parseCredentials(body: unknown): DbCredentials {
   }
 
   return { host: host.trim(), port: portNum, user: user.trim(), password };
+}
+
+function parseCompatibilityRequest(body: unknown): DbCompatibilityRequest {
+  const creds = parseCredentials(body);
+  const b = body as Record<string, unknown>;
+  const database =
+    typeof b.database === 'string' ? b.database.trim() : '';
+  if (!database) {
+    throw new InputError('"database" is required');
+  }
+
+  const targetVersion =
+    typeof b.targetVersion === 'string' && b.targetVersion.trim() !== ''
+      ? b.targetVersion.trim()
+      : undefined;
+
+  return {
+    ...creds,
+    database,
+    targetVersion,
+  };
 }
 
 async function withClient<T>(
@@ -244,6 +270,149 @@ export async function createRouter(
         `DHIS2: listDatabases FAILED on ${creds.host}:${creds.port} as ${creds.user}: ${message}${code ? ` [${code}]` : ''}`,
       );
       res.status(502).json({ error: message, code });
+    }
+  });
+
+  router.post('/databases/check-compatibility', async (req, res) => {
+    const request = parseCompatibilityRequest(req.body);
+    try {
+      const result = await withClient(
+        request,
+        request.database,
+        async client => {
+          const flywayTableResult = await client.query<{ present: boolean }>(
+            `SELECT to_regclass('public.flyway_schema_history') IS NOT NULL AS present`,
+          );
+          const hasFlywayHistory = Boolean(flywayTableResult.rows[0]?.present);
+
+          if (!hasFlywayHistory) {
+            return {
+              compatible: false,
+              message:
+                `Database "${request.database}" does not contain public.flyway_schema_history. ` +
+                'This usually means it is not a DHIS2 schema with an upgrade path that can be validated safely.',
+              details: {
+                database: request.database,
+                hasFlywayHistory: false,
+                targetVersion: request.targetVersion,
+              },
+            };
+          }
+
+          const failedMigrationsResult = await client.query<{ count: string }>(
+            `SELECT COUNT(*)::text AS count
+             FROM public.flyway_schema_history
+             WHERE success = false`,
+          );
+          const failedMigrations = Number(
+            failedMigrationsResult.rows[0]?.count ?? '0',
+          );
+          if (failedMigrations > 0) {
+            return {
+              compatible: false,
+              message:
+                `Database "${request.database}" has ${failedMigrations} failed Flyway migration(s). ` +
+                'Repair the schema history or restore a clean backup before provisioning.',
+              details: {
+                database: request.database,
+                hasFlywayHistory: true,
+                failedMigrations,
+                targetVersion: request.targetVersion,
+              },
+            };
+          }
+
+          const latestResult = await client.query<{
+            version: string | null;
+            description: string | null;
+          }>(
+            `SELECT version, description
+             FROM public.flyway_schema_history
+             WHERE success = true
+             ORDER BY installed_rank DESC
+             LIMIT 1`,
+          );
+          const latest = latestResult.rows[0];
+
+          const constraintResult = await client.query<{ present: boolean }>(
+            `SELECT EXISTS (
+               SELECT 1
+               FROM pg_constraint c
+               JOIN pg_namespace n ON n.oid = c.connamespace
+               WHERE n.nspname = 'public'
+                 AND c.conname = 'fk_organisationunit_fileresourceid'
+             ) AS present`,
+          );
+          const migrationMarkerResult = await client.query<{ present: boolean }>(
+            `SELECT EXISTS (
+               SELECT 1
+               FROM public.flyway_schema_history
+               WHERE success = true AND version = '2.37.14'
+             ) AS present`,
+          );
+
+          const hasKnownConstraint = Boolean(
+            constraintResult.rows[0]?.present,
+          );
+          const hasMigrationMarker = Boolean(
+            migrationMarkerResult.rows[0]?.present,
+          );
+
+          if (hasKnownConstraint && !hasMigrationMarker) {
+            return {
+              compatible: false,
+              message:
+                `Database "${request.database}" appears to have a partially-applied schema state ` +
+                '(constraint fk_organisationunit_fileresourceid exists but Flyway version 2.37.14 is not recorded). ' +
+                'Provisioning is likely to fail with duplicate-constraint errors.',
+              details: {
+                database: request.database,
+                hasFlywayHistory: true,
+                failedMigrations: 0,
+                latestFlywayVersion: latest?.version ?? null,
+                latestFlywayDescription: latest?.description ?? null,
+                targetVersion: request.targetVersion,
+              },
+            };
+          }
+
+          const versionSuffix = latest?.version
+            ? ` Last successful Flyway version: ${latest.version}.`
+            : '';
+          return {
+            compatible: true,
+            message:
+              `Database "${request.database}" passed compatibility preflight.` +
+              versionSuffix,
+            details: {
+              database: request.database,
+              hasFlywayHistory: true,
+              failedMigrations: 0,
+              latestFlywayVersion: latest?.version ?? null,
+              latestFlywayDescription: latest?.description ?? null,
+              targetVersion: request.targetVersion,
+            },
+          };
+        },
+      );
+
+      res.status(200).json({
+        ok: true,
+        compatible: result.compatible,
+        message: result.message,
+        details: result.details,
+      });
+    } catch (err) {
+      const { message, code } = describeError(err, request);
+      logger.warn(
+        `DHIS2: compatibility check FAILED on ${request.host}:${request.port}/${request.database} as ${request.user}: ${message}${code ? ` [${code}]` : ''}`,
+      );
+      res.status(200).json({
+        ok: false,
+        compatible: false,
+        message,
+        code,
+      });
     }
   });
 

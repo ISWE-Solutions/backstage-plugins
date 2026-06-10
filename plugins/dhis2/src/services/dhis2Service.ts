@@ -728,6 +728,74 @@ export class DHIS2Service {
   }
 
   /**
+   * Check whether a selected existing database appears compatible with
+   * the target DHIS2 version before provisioning starts.
+   *
+   * Backed by `POST <baseUrl>/databases/check-compatibility`.
+   */
+  async checkExistingDatabaseCompatibility(
+    params: {
+      host: string;
+      port: number;
+      user: string;
+      password: string;
+      database: string;
+      targetVersion?: string;
+    },
+    baseUrl: string,
+    fetchFn: typeof fetch = (...args) => fetch(...args),
+  ): Promise<{
+    ok: boolean;
+    compatible: boolean;
+    message: string;
+    code?: string;
+  }> {
+    const url = `${baseUrl.replace(/\/+$/, '')}/databases/check-compatibility`;
+    try {
+      const res = await fetchFn(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      });
+      const text = await res.text();
+      let body: any = {};
+      try {
+        body = text ? JSON.parse(text) : {};
+      } catch {
+        // fall through
+      }
+      if (!res.ok && typeof body?.ok !== 'boolean') {
+        return {
+          ok: false,
+          compatible: false,
+          message:
+            (body && (body.error || body.message)) ||
+            text ||
+            `HTTP ${res.status} ${res.statusText}`,
+        };
+      }
+      return {
+        ok: Boolean(body.ok),
+        compatible: Boolean(body.compatible),
+        message:
+          body.message ??
+          (body.compatible
+            ? 'Existing database is compatible.'
+            : 'Existing database is not compatible.'),
+        code: body.code,
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        compatible: false,
+        message: `Unable to reach DHIS2 backend at ${url}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      };
+    }
+  }
+
+  /**
    * Tail the live DHIS2 / Tomcat log files for an instance via the backend.
    *
    * The backend runs `pct exec <vmid> -- tail -n <lines> <path>` either
