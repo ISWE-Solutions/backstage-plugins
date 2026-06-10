@@ -226,15 +226,12 @@
     mode: "0640"
 
 - name: Configure Tomcat defaults (JAVA_OPTS + DHIS2_HOME)
-  ansible.builtin.copy:
+  ansible.builtin.template:
+    src: tomcat.defaults.j2
     dest: "{{ tomcat_defaults_file }}"
     owner: root
     group: root
     mode: "0644"
-    content: |
-      # Managed by the dhis2 Ansible role — edits will be overwritten.
-      JAVA_OPTS="{{ tomcat_java_opts }}"
-      DHIS2_HOME={{ dhis2_home }}
 
 - name: Ensure Tomcat is enabled and running
   ansible.builtin.systemd:

@@ -1253,51 +1253,55 @@ export const CreateInstanceDialog = ({
             </Grid>
           </Grid>
         )}
-        <Typography variant="h6" gutterBottom style={{ marginTop: 16 }}>
-          Initial Data
-        </Typography>
-        <RadioGroup
-          row
-          value={restoreEnabled ? 'restore' : 'empty'}
-          onChange={e => {
-            const next = e.target.value === 'restore';
-            setRestoreEnabled(next);
-            if (!next) setRestoreSource(undefined);
-          }}
-        >
-          <FormControlLabel
-            value="empty"
-            control={<Radio />}
-            label="Empty database (DHIS2 initialises the schema)"
-          />
-          <FormControlLabel
-            value="restore"
-            control={<Radio />}
-            label="Restore from an existing backup"
-          />
-        </RadioGroup>
-        {restoreEnabled && (
-          <Box mt={1} mb={2}>
-            <RestoreSourcePicker
-              value={restoreSource}
-              onChange={setRestoreSource}
-              nodes={nodes}
-            />
-            {restoreValidationError && (
-              <Typography variant="caption" color="error">
-                {restoreValidationError}
-              </Typography>
-            )}
-            <Typography
-              variant="caption"
-              color="textSecondary"
-              component="div"
-              style={{ marginTop: 8 }}
-            >
-              Note: the restored database keeps its own DHIS2 admin user and
-              password.
+        {!useExistingDb && (
+          <>
+            <Typography variant="h6" gutterBottom style={{ marginTop: 16 }}>
+              Initial Data
             </Typography>
-          </Box>
+            <RadioGroup
+              row
+              value={restoreEnabled ? 'restore' : 'empty'}
+              onChange={e => {
+                const next = e.target.value === 'restore';
+                setRestoreEnabled(next);
+                if (!next) setRestoreSource(undefined);
+              }}
+            >
+              <FormControlLabel
+                value="empty"
+                control={<Radio />}
+                label="Empty database (DHIS2 initialises the schema)"
+              />
+              <FormControlLabel
+                value="restore"
+                control={<Radio />}
+                label="Restore from an existing backup"
+              />
+            </RadioGroup>
+            {restoreEnabled && (
+              <Box mt={1} mb={2}>
+                <RestoreSourcePicker
+                  value={restoreSource}
+                  onChange={setRestoreSource}
+                  nodes={nodes}
+                />
+                {restoreValidationError && (
+                  <Typography variant="caption" color="error">
+                    {restoreValidationError}
+                  </Typography>
+                )}
+                <Typography
+                  variant="caption"
+                  color="textSecondary"
+                  component="div"
+                  style={{ marginTop: 8 }}
+                >
+                  Note: the restored database keeps its own DHIS2 admin user and
+                  password.
+                </Typography>
+              </Box>
+            )}
+          </>
         )}
         <Divider style={{ margin: '16px 0' }} />
         <Typography variant="subtitle2" color="textSecondary" gutterBottom>

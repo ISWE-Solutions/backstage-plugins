@@ -18,7 +18,7 @@ export interface DeleteInstanceDialogProps {
   open: boolean;
   instance: DHIS2Instance | null;
   onClose: () => void;
-  onConfirm: (opts: { backupDatabase: boolean }) => void;
+  onConfirm: (opts: { backupDatabase: boolean; maintainDatabase: boolean }) => void;
 }
 
 export const DeleteInstanceDialog = ({
@@ -37,8 +37,12 @@ export const DeleteInstanceDialog = ({
   // makes us actually drop the database during decommission.
   const canBackup = willDropDb;
   const [backupDatabase, setBackupDatabase] = useState<boolean>(canBackup);
+  const [maintainDatabase, setMaintainDatabase] = useState<boolean>(false);
   useEffect(() => {
-    if (open) setBackupDatabase(canBackup);
+    if (open) {
+      setBackupDatabase(canBackup);
+      setMaintainDatabase(false);
+    }
   }, [open, canBackup]);
 
   return (
@@ -115,6 +119,33 @@ export const DeleteInstanceDialog = ({
                 : `Unavailable: the database is local to the LXC and is not reachable from the Backstage backend host.`}
             </Typography>
           </Grid>
+          <Grid item xs={12}>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={maintainDatabase && willDropDb}
+                  disabled={!willDropDb}
+                  onChange={e => setMaintainDatabase(e.target.checked)}
+                  color="primary"
+                />
+              }
+              label={
+                <Typography variant="body2">
+                  Maintain database (do not drop)
+                </Typography>
+              }
+            />
+            <Typography
+              variant="caption"
+              color="textSecondary"
+              display="block"
+              style={{ marginLeft: 32 }}
+            >
+              {willDropDb
+                ? `Preserves the database on shared host "${remoteDbHost}" when deleting the instance. The LXC and Nginx vhost are still removed.`
+                : `Unavailable: the database is local to the LXC and will be removed with it.`}
+            </Typography>
+          </Grid>
         </Grid>
       </DialogContent>
       <DialogActions>
@@ -123,7 +154,10 @@ export const DeleteInstanceDialog = ({
           color="secondary"
           variant="contained"
           onClick={() =>
-            onConfirm({ backupDatabase: backupDatabase && canBackup })
+            onConfirm({
+              backupDatabase: backupDatabase && canBackup,
+              maintainDatabase: maintainDatabase && willDropDb,
+            })
           }
         >
           Delete Instance
