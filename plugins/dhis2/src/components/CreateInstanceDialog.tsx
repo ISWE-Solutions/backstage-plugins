@@ -176,7 +176,13 @@ export const CreateInstanceDialog = ({
     () => settingsService.load().proxy,
   );
   const [dhis2Settings, setDhis2Settings] = useState<DHIS2DefaultsSettings>(
-    () => settingsService.load().dhis2,
+    () => {
+      const loaded = settingsService.load().dhis2;
+      return {
+        ...loaded,
+        javaHeap: loaded.javaHeap?.trim() || '4G',
+      };
+    },
   );
 
   const [newInstance, setNewInstance] = useState<CreateInstanceRequest>(() =>
@@ -764,12 +770,12 @@ export const CreateInstanceDialog = ({
               }
               className={classes.formField}
             >
-              <MenuItem value={4096}>4GB</MenuItem>
-              <MenuItem value={8192}>8GB</MenuItem>
-              <MenuItem value={16384}>16GB</MenuItem>
-              <MenuItem value={32768}>32GB</MenuItem>
-              <MenuItem value={65536}>64GB</MenuItem>
-              <MenuItem value={131072}>128GB</MenuItem>
+              <MenuItem value={4096}>4096 MB</MenuItem>
+              <MenuItem value={8192}>8192 MB</MenuItem>
+              <MenuItem value={16384}>16384 MB</MenuItem>
+              <MenuItem value={32768}>32768 MB</MenuItem>
+              <MenuItem value={65536}>65536 MB</MenuItem>
+              <MenuItem value={131072}>131072 MB</MenuItem>
             </TextField>
           </Grid>
           <Grid item xs={4}>
