@@ -189,9 +189,8 @@ interface EditDraft {
   dbPassword: string;
   /**
    * SSH private-key path used to reach the PVE host that runs
-   * `pct exec` against this instance's LXC. Defaults to
-   * `settings.proxy.sshKeyPath`; can be overridden per-edit when the
-   * default key isn't authorized on this particular node.
+    * `pct exec` against this instance's LXC. Optional per-edit override;
+    * when empty the backend uses its configured default orchestrator key.
    */
   sshKeyPath: string;
   tomcatVersion: '9' | '10';
@@ -735,7 +734,7 @@ export const DHIS2InstancesPanel = ({
         globalSettings.dhis2.postgresPort ??
         DEFAULT_PG_PORT,
       dbPassword: instance.database.password ?? '',
-      sshKeyPath: (globalSettings.proxy.sshKeyPath ?? '').trim(),
+      sshKeyPath: '',
       tomcatVersion: (instance.tomcatVersion as '9' | '10' | undefined) ?? '9',
     });
     setProxyFilesState({

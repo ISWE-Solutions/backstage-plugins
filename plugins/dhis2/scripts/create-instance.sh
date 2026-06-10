@@ -42,6 +42,7 @@ Optional:
   --timezone <tz>           Default: Africa/Lusaka
   --postgres-version <int>  Default: 16
   --java-version <int>      Default: 17
+    --java-heap <size>        Tomcat max heap (Xmx), e.g. 4G
   --tomcat-version <9|10>   Apache Tomcat major version installed from
                             upstream archive. Default: 9. DHIS2 2.40/2.41
                             need 9 (javax); v42+ needs 10 (jakarta).
@@ -95,6 +96,7 @@ STORAGE=100
 TIMEZONE="Africa/Lusaka"
 POSTGRES_VERSION=16
 JAVA_VERSION=17
+JAVA_HEAP=""
 TOMCAT_VERSION=9
 ANSIBLE_USER="ansible"
 SKIP_CERTBOT=0
@@ -142,6 +144,7 @@ while [[ $# -gt 0 ]]; do
         --timezone) TIMEZONE="$2"; shift 2;;
         --postgres-version) POSTGRES_VERSION="$2"; shift 2;;
         --java-version) JAVA_VERSION="$2"; shift 2;;
+        --java-heap) JAVA_HEAP="$2"; shift 2;;
         --tomcat-version) TOMCAT_VERSION="$2"; shift 2;;
         --ssh-key) SSH_KEY="$2"; shift 2;;
         --ansible-user) ANSIBLE_USER="$2"; shift 2;;
@@ -545,6 +548,9 @@ email: $(yaml_escape "${EMAIL}")
 timezone: $(yaml_escape "${TIMEZONE}")
 postgresql_version: ${POSTGRES_VERSION}
 java_version: ${JAVA_VERSION}
+$(if [[ -n "${JAVA_HEAP}" ]]; then
+    printf 'dhis2_java_heap: %s\n' "$(yaml_escape "${JAVA_HEAP}")"
+fi)
 tomcat_version: ${TOMCAT_VERSION}
 
 # ---- Database credentials (consumed by postgres + dhis2 roles) ----

@@ -67,6 +67,14 @@
       - --strip-components=1
   when: not tomcat_installed_marker.stat.exists
 
+- name: Render Tomcat server.xml
+  ansible.builtin.template:
+    src: server.xml.j2
+    dest: "{{ tomcat_install_dir }}/conf/server.xml"
+    owner: "{{ tomcat_user }}"
+    group: "{{ tomcat_group }}"
+    mode: "0644"
+
 - name: Ensure Tomcat runtime directories are owned by the Tomcat user
   ansible.builtin.file:
     path: "{{ tomcat_install_dir }}/{{ item }}"

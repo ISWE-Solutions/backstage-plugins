@@ -11,6 +11,7 @@ import {
   LifecycleRequest,
   CloneRequest,
   UpgradeRequest,
+  deriveTomcatVersionForDhis2,
 } from './provisionService';
 import { InstanceRegistryService } from './instanceRegistryService';
 import {
@@ -383,10 +384,16 @@ export async function createRouter(
       skipCertbot: b.skipCertbot === true,
       deleteIfExists: b.deleteIfExists === true,
       deleteIfNameExists: b.deleteIfNameExists === true,
-      tomcatVersion:
-        typeof b.tomcatVersion === 'string' && b.tomcatVersion !== ''
-          ? b.tomcatVersion
-          : undefined,
+      tomcatVersion: (() => {
+        const raw =
+          typeof b.tomcatVersion === 'string' ? b.tomcatVersion.trim() : '';
+        if (raw === '9' || raw === '10') return raw as '9' | '10';
+        // Auto-derive from the DHIS2 version when omitted/blank so old
+        // clients (and any other caller) can't accidentally land an
+        // incompatible Tomcat/DHIS2 pair: 2.40/2.41 (javax) need 9, v42+
+        // (jakarta) need 10.
+        return deriveTomcatVersionForDhis2(String(b.version ?? ''));
+      })(),
       proxyOverride:
         b.proxyOverride && typeof b.proxyOverride === 'object'
           ? {
@@ -1246,6 +1253,12 @@ export async function createRouter(
       hostname: need('hostname', str(b.hostname)),
       domain: need('domain', str(b.domain)),
       version: str(b.version),
+      tomcatVersion: (() => {
+        const raw =
+          typeof b.tomcatVersion === 'string' ? b.tomcatVersion.trim() : '';
+        if (raw === '9' || raw === '10') return raw as '9' | '10';
+        return deriveTomcatVersionForDhis2(str(b.version));
+      })(),
       resources: { cpu, memory, storage },
       dbStrategy,
       database: {
@@ -1433,6 +1446,12 @@ export async function createRouter(
       name: str(b.name) ?? source.hostname,
       domain: source.domain,
       toVersion,
+      tomcatVersion: (() => {
+        const raw =
+          typeof b.tomcatVersion === 'string' ? b.tomcatVersion.trim() : '';
+        if (raw === '9' || raw === '10') return raw as '9' | '10';
+        return deriveTomcatVersionForDhis2(toVersion);
+      })(),
       warUrl: str(b.warUrl),
       warFile: str(b.warFile),
       backupDb:

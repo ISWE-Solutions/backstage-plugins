@@ -12,6 +12,8 @@
 # the prefix DHIS2 sees matches the prefix it emits in redirects (e.g.
 # /{{ host_proxy_path_segment }}/dhis-web-login).
 location /{{ host_proxy_path_segment }}/ {
+    access_log /var/log/nginx/{{ host_proxy_base_domain }}_{{ host_proxy_path_segment }}_access.log;
+    error_log  /var/log/nginx/{{ host_proxy_base_domain }}_{{ host_proxy_path_segment }}_error.log;
     proxy_pass http://{{ host_proxy_container_ip }}:8080;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
@@ -27,6 +29,8 @@ location /{{ host_proxy_path_segment }}/ {
 }
 
 location /{{ host_proxy_path_segment }}/dhis-web-commons-stream {
+    access_log /var/log/nginx/{{ host_proxy_base_domain }}_{{ host_proxy_path_segment }}_access.log;
+    error_log  /var/log/nginx/{{ host_proxy_base_domain }}_{{ host_proxy_path_segment }}_error.log;
     proxy_pass http://{{ host_proxy_container_ip }}:8080;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;

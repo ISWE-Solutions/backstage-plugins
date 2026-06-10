@@ -124,6 +124,16 @@ export interface CreateInstanceDialogProps {
   onSubmit: (payload: CreateInstanceSubmitPayload) => void;
 }
 
+// DHIS2 2.40/2.41 ship a javax-namespace WAR (needs Tomcat 9); v42+ moved to
+// jakarta and needs Tomcat 10. Accepts "2.41.8.1", "41.2.0", "41", "42".
+const deriveTomcatFromDhis2 = (version: string): '9' | '10' | undefined => {
+  const m = version.trim().match(/^(?:2\.)?(\d+)/);
+  if (!m) return undefined;
+  const major = Number(m[1]);
+  if (!Number.isFinite(major)) return undefined;
+  return major <= 41 ? '9' : '10';
+};
+
 const buildInitialInstance = (
   proxy: ProxyServerSettings,
 ): CreateInstanceRequest => ({
@@ -221,6 +231,11 @@ export const CreateInstanceDialog = ({
   const [deleteIfNameExists, setDeleteIfNameExists] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
+  // Tracks whether the operator has hand-picked a Tomcat major. When
+  // false, picking a new DHIS2 version auto-aligns Tomcat (9 for 2.40/41,
+  // 10 for v42+) so an incompatible pair can't slip through.
+  const [tomcatUserOverride, setTomcatUserOverride] = useState(false);
+
   // Initialise default node/version from props when they arrive.
   useEffect(() => {
     if (nodes.length > 0 && !newInstance.node) {
@@ -230,9 +245,16 @@ export const CreateInstanceDialog = ({
 
   useEffect(() => {
     if (versions.length > 0 && !newInstance.version) {
-      setNewInstance(prev => ({ ...prev, version: versions[0] }));
+      const v = versions[0];
+      setNewInstance(prev => ({
+        ...prev,
+        version: v,
+        tomcatVersion: tomcatUserOverride
+          ? prev.tomcatVersion
+          : deriveTomcatFromDhis2(v) ?? prev.tomcatVersion,
+      }));
     }
-  }, [versions, newInstance.version]);
+  }, [versions, newInstance.version, tomcatUserOverride]);
 
   const fetchExistingDatabases = async () => {
     setLoadingDatabases(true);
@@ -495,9 +517,16 @@ export const CreateInstanceDialog = ({
               select
               label="DHIS2 Version"
               value={newInstance.version}
-              onChange={e =>
-                setNewInstance({ ...newInstance, version: e.target.value })
-              }
+              onChange={e => {
+                const v = e.target.value;
+                setNewInstance(prev => ({
+                  ...prev,
+                  version: v,
+                  tomcatVersion: tomcatUserOverride
+                    ? prev.tomcatVersion
+                    : deriveTomcatFromDhis2(v) ?? prev.tomcatVersion,
+                }));
+              }}
               className={classes.formField}
               required
             >
@@ -514,14 +543,15 @@ export const CreateInstanceDialog = ({
               select
               label="Tomcat Version"
               value={newInstance.tomcatVersion ?? '9'}
-              onChange={e =>
+              onChange={e => {
+                setTomcatUserOverride(true);
                 setNewInstance({
                   ...newInstance,
                   tomcatVersion: e.target.value as '9' | '10',
-                })
-              }
+                });
+              }}
               className={classes.formField}
-              helperText="DHIS2 2.40/2.41 need 9 (javax); v42+ needs 10 (jakarta)."
+              helperText="Auto-selected from DHIS2 version (2.40/2.41 → 9 javax, v42+ → 10 jakarta). Override only if you know why."
               required
             >
               <MenuItem value="9">9</MenuItem>

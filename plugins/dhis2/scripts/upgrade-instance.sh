@@ -71,6 +71,7 @@ BACKUP_DB=1
 BACKUP_RETAIN="3"
 TOMCAT_SERVICE="tomcat"
 WEBAPPS_DIR="/opt/tomcat/webapps"
+TOMCAT_VERSION=""
 DB_HOST="localhost"
 DB_PORT="5432"
 DB_NAME=""
@@ -95,6 +96,7 @@ while [[ $# -gt 0 ]]; do
         --backup-retain) BACKUP_RETAIN="$2"; shift 2;;
         --tomcat-service) TOMCAT_SERVICE="$2"; shift 2;;
         --webapps-dir) WEBAPPS_DIR="$2"; shift 2;;
+        --tomcat-version) TOMCAT_VERSION="$2"; shift 2;;
         --db-host) DB_HOST="$2"; shift 2;;
         --db-port) DB_PORT="$2"; shift 2;;
         --db-name) DB_NAME="$2"; shift 2;;
@@ -115,6 +117,16 @@ for k in VMID NODE HOSTNAME_ INSTANCE_NAME DOMAIN TO_VERSION; do
         exit 2
     fi
 done
+
+if [[ -n "${TOMCAT_VERSION}" ]]; then
+    case "${TOMCAT_VERSION}" in
+        9|10) ;;
+        *)
+            echo "invalid --tomcat-version '${TOMCAT_VERSION}' (expected 9 or 10)" >&2
+            exit 2
+            ;;
+    esac
+fi
 
 if [[ ${BACKUP_DB} -eq 1 ]]; then
     if [[ -z "${DB_NAME}" || -z "${DB_USER}" ]]; then
@@ -201,6 +213,7 @@ upgrade_backup_retain: ${BACKUP_RETAIN}
 # ---- Tomcat layout ----
 tomcat_service_name: $(yaml_escape "${TOMCAT_SERVICE}")
 tomcat_webapps_dir: $(yaml_escape "${WEBAPPS_DIR}")
+$([[ -n "${TOMCAT_VERSION}" ]] && printf 'tomcat_version: "%s"\n' "${TOMCAT_VERSION}")
 
 # ---- DB connection (used by pg_dump when upgrade_backup_db=true) ----
 dhis2_db_host: $(yaml_escape "${DB_HOST}")

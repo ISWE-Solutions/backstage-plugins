@@ -79,10 +79,6 @@ export const EditInstanceDialog = ({
 
   const updateDraft = (patch: Partial<EditDraft>) => onDraftChange({ ...draft, ...patch });
   const s = settingsService.load();
-  const remoteDbHost = (draft.dbHost || s.dhis2.postgresHost || '').trim();
-  const willDropDb =
-    remoteDbHost.length > 0 &&
-    !['localhost', '127.0.0.1', '::1', 'postgres'].includes(remoteDbHost);
   const fmt = (v?: string | number) =>
     v === undefined || v === null || v === '' ? '(unset)' : String(v);
 
@@ -243,9 +239,9 @@ export const EditInstanceDialog = ({
             <Typography variant="caption" color="textSecondary">
               SSH private-key path on the Backstage host used to reach
               the PVE node and run <code>pct exec</code> inside this
-              instance's LXC. Defaults to the global Settings ▸ Reverse
-              Proxy key; override here if a different key is authorized
-              on this node.
+              instance's LXC. If left blank, the backend uses its
+              configured default orchestrator key. Override here when a
+              different key is authorized on this Proxmox node.
             </Typography>
           </Grid>
           <Grid item xs={12}>
@@ -254,8 +250,8 @@ export const EditInstanceDialog = ({
               fullWidth
               value={draft.sshKeyPath}
               onChange={e => updateDraft({ sshKeyPath: e.target.value })}
-              placeholder={s.proxy.sshKeyPath || '/home/backstage/.ssh/id_ed25519'}
-              helperText="Absolute path to the SSH private key on the Backstage host."
+              placeholder="/var/lib/backstage/.ssh/id_ed25519"
+              helperText="Optional absolute path on the Backstage host; leave blank to use the backend default orchestrator key."
               InputProps={{
                 style: {
                   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',

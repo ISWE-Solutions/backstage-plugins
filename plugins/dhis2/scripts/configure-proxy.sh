@@ -207,7 +207,9 @@ if [[ "${ROUTING_MODE}" == "path" ]]; then
 # inside the TLS server{} block. Drop a new file in ${UPSTREAM_DIR}
 # to add another instance — no edits to the base vhost are needed.
 location /${INSTANCE_NAME}/ {
-    proxy_pass http://${CONTAINER_IP}:8080/;
+    access_log /var/log/nginx/${BASE_DOMAIN}_${INSTANCE_NAME}_access.log;
+    error_log  /var/log/nginx/${BASE_DOMAIN}_${INSTANCE_NAME}_error.log;
+    proxy_pass http://${CONTAINER_IP}:8080;
     proxy_http_version 1.1;
     proxy_set_header Host \$host;
     proxy_set_header X-Real-IP \$remote_addr;
@@ -222,11 +224,14 @@ location /${INSTANCE_NAME}/ {
 }
 
 location /${INSTANCE_NAME}/dhis-web-commons-stream {
-    proxy_pass http://${CONTAINER_IP}:8080/dhis-web-commons-stream;
+    access_log /var/log/nginx/${BASE_DOMAIN}_${INSTANCE_NAME}_access.log;
+    error_log  /var/log/nginx/${BASE_DOMAIN}_${INSTANCE_NAME}_error.log;
+    proxy_pass http://${CONTAINER_IP}:8080;
     proxy_http_version 1.1;
     proxy_set_header Upgrade \$http_upgrade;
     proxy_set_header Connection "upgrade";
     proxy_set_header Host \$host;
+    proxy_set_header X-Forwarded-Prefix /${INSTANCE_NAME};
     proxy_read_timeout 86400;
 }
 EOF

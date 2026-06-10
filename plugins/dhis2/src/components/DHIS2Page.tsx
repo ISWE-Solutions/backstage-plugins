@@ -1272,7 +1272,6 @@ export const DHIS2Page = () => {
 
     const settings = settingsService.load();
     const pm = settings.proxmox;
-    const p = settings.proxy;
     const dbHost = draft.dbHost?.trim() || (settings.dhis2.postgresHost ?? '').trim() || 'localhost';
     const dbPort = Number.isInteger(draft.dbPort) && draft.dbPort > 0
       ? draft.dbPort
@@ -1297,21 +1296,11 @@ export const DHIS2Page = () => {
       restartTomcat: true,
       proxy: (() => {
         const fields: {
-          host?: string;
-          sshPort?: number;
-          sshUser?: string;
           sshKeyPath?: string;
         } = {};
-        const host = (p.host ?? '').trim();
-        const sshUser = (p.sshUser ?? '').trim();
-        // Per-edit override wins over the global Settings key.
-        const sshKeyPath =
-          (draft.sshKeyPath ?? '').trim() || (p.sshKeyPath ?? '').trim();
-        if (host) fields.host = host;
-        if (Number.isInteger(p.sshPort) && p.sshPort > 0) {
-          fields.sshPort = p.sshPort;
-        }
-        if (sshUser) fields.sshUser = sshUser;
+        // Edit flow only forwards an explicit override; when blank, the
+        // backend falls back to its configured orchestrator key.
+        const sshKeyPath = (draft.sshKeyPath ?? '').trim();
         if (sshKeyPath) fields.sshKeyPath = sshKeyPath;
         return Object.keys(fields).length > 0 ? fields : undefined;
       })(),

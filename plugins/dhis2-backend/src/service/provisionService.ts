@@ -472,6 +472,11 @@ export interface CloneRequest {
   domain: string;
   /** Optional new DHIS2 version label written into the registry. */
   version?: string;
+  /**
+   * Major Apache Tomcat version ('9' or '10'). When omitted the
+   * orchestrator derives it from `version` (≤41 → '9', else '10').
+   */
+  tomcatVersion?: '9' | '10';
   resources: { cpu: number; memory: number; storage: number };
   /**
    * DB strategy:
@@ -548,6 +553,14 @@ export interface UpgradeRequest {
   domain: string;
   /** Target DHIS2 version label (e.g. '2.41.3' or '41.2.0'). */
   toVersion: string;
+  /**
+   * Major Apache Tomcat version ('9' or '10'). When omitted the
+   * orchestrator derives it from `toVersion`. Persisted to the registry
+   * so the catalog reflects the new runtime; the upgrade playbook itself
+   * only swaps the WAR — a Tomcat-major switch still requires a
+   * re-provision today.
+   */
+  tomcatVersion?: '9' | '10';
   /** Optional explicit WAR URL. When empty the playbook derives it from toVersion. */
   warUrl?: string;
   /** Optional pre-staged WAR path on the PVE host. Takes precedence over warUrl. */
@@ -665,6 +678,19 @@ function generateSecurePassword(): string {
     .replace(/=+$/, '');
 }
 
+// DHIS2 2.40/2.41 ship a javax-namespace WAR (Tomcat 9 only); v42+ moved to
+// jakarta and requires Tomcat 10. Accepts "2.41.8.1", "41.2.0", "41", "42".
+export function deriveTomcatVersionForDhis2(
+  version: string | undefined,
+): '9' | '10' | undefined {
+  if (!version) return undefined;
+  const m = String(version).trim().match(/^(?:2\.)?(\d+)/);
+  if (!m) return undefined;
+  const major = Number(m[1]);
+  if (!Number.isFinite(major)) return undefined;
+  return major <= 41 ? '9' : '10';
+}
+
 function buildCommand(
   cfg: OrchestratorConfig,
   req: ProvisionRequest,
@@ -713,6 +739,12 @@ function buildCommand(
   }
   if (req.tomcatVersion && req.tomcatVersion.trim() !== '') {
     args.push('--tomcat-version', req.tomcatVersion.trim());
+  }
+  if (
+    req.dhis2Settings?.javaHeap &&
+    req.dhis2Settings.javaHeap.trim() !== ''
+  ) {
+    args.push('--java-heap', req.dhis2Settings.javaHeap.trim());
   }
   // The provision script also needs an SSH key (used by Ansible to talk to
   // the freshly-created LXC). Reuse the orchestrator key when configured so
@@ -944,19 +976,12 @@ function buildEditCommand(
   if (req.tomcatVersion === '9' || req.tomcatVersion === '10') {
     args.push('--tomcat-version', req.tomcatVersion);
   }
-  // SSH details for the PVE host that runs `pct push` / `pct exec`. The
-  // edit playbook does not touch the central proxy host (no nginx config
-  // changes), so only the Proxmox-side SSH fields are forwarded.
+  // SSH key override for the PVE host that runs `pct push` / `pct exec`.
+  // The edit playbook does not touch the central proxy host (no nginx
+  // changes), so we intentionally do NOT forward req.proxy.host/sshUser/
+  // sshPort as --pve-* args. update-instance.sh derives --pve-host from
+  // PROXMOX_API_URL by default, which is the correct pct endpoint.
   const proxy = req.proxy ?? {};
-  if (proxy.host && proxy.host.trim() !== '') {
-    args.push('--pve-host', proxy.host.trim());
-  }
-  if (proxy.sshPort && Number.isInteger(proxy.sshPort)) {
-    args.push('--pve-port', String(proxy.sshPort));
-  }
-  if (proxy.sshUser && proxy.sshUser.trim() !== '') {
-    args.push('--pve-user', proxy.sshUser.trim());
-  }
   const pveSshKey = normalizeSshPrivateKeyPath(proxy.sshKeyPath);
   if (pveSshKey) {
     args.push('--pve-ssh-key', pveSshKey);
@@ -1209,6 +1234,12 @@ function buildCloneCommand(
     args.push('--no-restart-tomcat');
   }
 
+  const effectiveTomcat =
+    req.tomcatVersion ?? deriveTomcatVersionForDhis2(req.version);
+  if (effectiveTomcat === '9' || effectiveTomcat === '10') {
+    args.push('--tomcat-version', effectiveTomcat);
+  }
+
   // SSH details for pct push/exec (target PVE host).
   args.push('--pve-host', proxy.host ?? pveHost);
   if (typeof proxy.sshPort === 'number') {
@@ -1324,6 +1355,11 @@ function buildUpgradeCommand(
   if (req.webappsDir && req.webappsDir.trim() !== '') {
     args.push('--webapps-dir', req.webappsDir.trim());
   }
+  const effectiveUpgradeTomcat =
+    req.tomcatVersion ?? deriveTomcatVersionForDhis2(req.toVersion);
+  if (effectiveUpgradeTomcat === '9' || effectiveUpgradeTomcat === '10') {
+    args.push('--tomcat-version', effectiveUpgradeTomcat);
+  }
   if (db.host && db.host.trim() !== '') {
     args.push('--db-host', db.host.trim());
   }
@@ -1341,11 +1377,10 @@ function buildUpgradeCommand(
     args.push('--db-user', db.user.trim());
   }
 
-  args.push('--pve-host', proxy.host ?? pveHost);
-  if (typeof proxy.sshPort === 'number') {
-    args.push('--pve-port', String(proxy.sshPort));
-  }
-  if (proxy.sshUser) args.push('--pve-user', proxy.sshUser);
+  // Upgrade uses `pct push` / `pct exec`, so it must SSH to the Proxmox
+  // node (or configured orchestrator PVE host), not the central nginx host.
+  // Keep proxy.sshKeyPath as an optional key override only.
+  args.push('--pve-host', pveHost);
   const pveSshKey = normalizeSshPrivateKeyPath(proxy.sshKeyPath);
   if (pveSshKey) {
     args.push('--pve-ssh-key', pveSshKey);
@@ -2359,10 +2394,18 @@ export class ProvisionService {
 
   /**
    * Tail the nginx access / error log for a single site on the central
-   * proxy host. The log file path is derived from the instance's base
-   * domain — matches what configure-proxy.sh writes:
+   * proxy host.
+   *
+   * Subdomain mode log paths:
    *   /var/log/nginx/<base-domain>_access.log
    *   /var/log/nginx/<base-domain>_error.log
+   *
+   * Path-based mode log paths (new format):
+   *   /var/log/nginx/<base-domain>_<instance>_access.log
+   *   /var/log/nginx/<base-domain>_<instance>_error.log
+   *
+   * For path-based instances we also fall back to the legacy base-domain
+   * files so older nginx configs remain readable until they are re-rendered.
    */
   async tailProxyLogs(
     instanceId: string | undefined,
@@ -2374,8 +2417,8 @@ export class ProvisionService {
     const requested = Number.isFinite(opts.lines) ? Number(opts.lines) : 200;
     const lines = Math.max(1, Math.min(5000, Math.floor(requested)));
 
-    // Resolve the on-disk log file.
-    let logPath: string;
+    // Resolve on-disk candidate log files.
+    let candidates: string[];
     if (instanceId) {
       const inst = await this.findInstance(instanceId);
       if (!inst) throw new Error(`Instance "${instanceId}" not found.`);
@@ -2387,33 +2430,53 @@ export class ProvisionService {
           `Refusing to tail logs: base domain "${baseDomain}" is unsafe as a filename.`,
         );
       }
-      logPath = `/var/log/nginx/${baseDomain}_${opts.kind}.log`;
+      const pathSegment = inst.domain.includes('/')
+        ? inst.domain.split('/').slice(1).join('/').trim().replace(/^\/+|\/+$/g, '')
+        : '';
+      if (pathSegment) {
+        if (!/^[A-Za-z0-9._-]+$/.test(pathSegment)) {
+          throw new Error(
+            `Refusing to tail logs: path segment "${pathSegment}" is unsafe as a filename.`,
+          );
+        }
+        candidates = [
+          `/var/log/nginx/${baseDomain}_${pathSegment}_${opts.kind}.log`,
+          `/var/log/nginx/${baseDomain}_${opts.kind}.log`,
+        ];
+      } else {
+        candidates = [`/var/log/nginx/${baseDomain}_${opts.kind}.log`];
+      }
     } else {
       // Global log files installed by the nginx package.
-      logPath =
+      candidates = [
         opts.kind === 'access'
           ? '/var/log/nginx/access.log'
-          : '/var/log/nginx/error.log';
+          : '/var/log/nginx/error.log',
+      ];
     }
 
-    // `sudo -n` so the unprivileged proxy SSH user can read root-owned
-    // logs without prompting. The proxy user must have a NOPASSWD sudo
-    // entry for /usr/bin/tail (typical for the dhis2 deployment user).
-    const remoteCmd =
-      `if [ -r ${shellQuote(logPath)} ]; then tail -n ${lines} ${shellQuote(logPath)}; ` +
-      `else sudo -n tail -n ${lines} ${shellQuote(logPath)}; fi`;
-    const r = await sshExec(access, remoteCmd);
-    if (r.code !== 0) {
-      const msg = (r.stderr || r.stdout || '').trim();
-      throw new Error(
-        `Failed to read ${opts.kind} log from ${access.user}@${access.host}:${logPath}` +
-          (msg ? `: ${msg}` : ` (exit ${r.code}).`),
-      );
+    const attempts: string[] = [];
+    for (const logPath of candidates) {
+      // `sudo -n` so the unprivileged proxy SSH user can read root-owned
+      // logs without prompting. The proxy user must have a NOPASSWD sudo
+      // entry for /usr/bin/tail (typical for the dhis2 deployment user).
+      const remoteCmd =
+        `if [ -r ${shellQuote(logPath)} ]; then tail -n ${lines} ${shellQuote(logPath)}; ` +
+        `else sudo -n tail -n ${lines} ${shellQuote(logPath)}; fi`;
+      const r = await sshExec(access, remoteCmd);
+      if (r.code !== 0) {
+        const msg = (r.stderr || r.stdout || '').trim();
+        attempts.push(`${logPath}${msg ? `: ${msg}` : ` (exit ${r.code})`}`);
+        continue;
+      }
+      const out = (r.stdout || '').replace(/\r\n/g, '\n');
+      const split = out.length > 0 ? out.split('\n') : [];
+      if (split.length > 0 && split[split.length - 1] === '') split.pop();
+      return { kind: opts.kind, path: logPath, lines: split };
     }
-    const out = (r.stdout || '').replace(/\r\n/g, '\n');
-    const split = out.length > 0 ? out.split('\n') : [];
-    if (split.length > 0 && split[split.length - 1] === '') split.pop();
-    return { kind: opts.kind, path: logPath, lines: split };
+    throw new Error(
+      `Failed to read ${opts.kind} log from ${access.user}@${access.host}. Tried: ${attempts.join(' | ')}`,
+    );
   }
 
   /**

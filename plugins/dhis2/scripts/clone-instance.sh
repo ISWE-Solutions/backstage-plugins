@@ -95,6 +95,7 @@ DB_USER=""
 PAUSE_SOURCE=1
 SHUTDOWN_TIMEOUT="60"
 RESTART_TOMCAT=1
+TOMCAT_VERSION=""
 PVE_HOST=""
 PVE_PORT="22"
 PVE_USER="root"
@@ -133,6 +134,7 @@ while [[ $# -gt 0 ]]; do
         --no-pause-source) PAUSE_SOURCE=0; shift;;
         --shutdown-timeout) SHUTDOWN_TIMEOUT="$2"; shift 2;;
         --no-restart-tomcat) RESTART_TOMCAT=0; shift;;
+        --tomcat-version) TOMCAT_VERSION="$2"; shift 2;;
         --pve-host) PVE_HOST="$2"; shift 2;;
         --pve-port) PVE_PORT="$2"; shift 2;;
         --pve-user) PVE_USER="$2"; shift 2;;
@@ -163,6 +165,16 @@ case "${DB_STRATEGY}" in
     colocated|shared-clone|shared-keep) ;;
     *) echo "--db-strategy must be one of: colocated, shared-clone, shared-keep" >&2; exit 2;;
 esac
+
+if [[ -n "${TOMCAT_VERSION}" ]]; then
+    case "${TOMCAT_VERSION}" in
+        9|10) ;;
+        *)
+            echo "invalid --tomcat-version '${TOMCAT_VERSION}' (expected 9 or 10)" >&2
+            exit 2
+            ;;
+    esac
+fi
 
 : "${PROXMOX_API_URL:?missing PROXMOX_API_URL}"
 : "${PROXMOX_USER:?missing PROXMOX_USER}"
@@ -272,6 +284,7 @@ dhis2_server_base_url: $(yaml_escape "${SERVER_BASE_URL}")
 clone_pause_source: $([[ "${PAUSE_SOURCE}" == "1" ]] && echo true || echo false)
 clone_shutdown_timeout: ${SHUTDOWN_TIMEOUT}
 restart_tomcat: $([[ "${RESTART_TOMCAT}" == "1" ]] && echo true || echo false)
+$([[ -n "${TOMCAT_VERSION}" ]] && printf 'tomcat_version: "%s"\n' "${TOMCAT_VERSION}")
 
 # ---- Proxy (Phase 7) ----
 proxy_ssh_host: $(yaml_escape "${PROXY_HOST:-${PVE_HOST}}")
