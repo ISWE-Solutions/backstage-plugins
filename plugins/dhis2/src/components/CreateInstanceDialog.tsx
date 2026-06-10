@@ -136,6 +136,11 @@ const deriveTomcatFromDhis2 = (version: string): '9' | '10' | undefined => {
 
 const JAVA_HEAP_OPTIONS = ['2G', '4G', '8G', '12G', '16G', '24G', '32G', '64G'];
 
+const normalizeJavaHeap = (value?: string): string => {
+  const normalized = (value ?? '').trim().toUpperCase();
+  return normalized || '4G';
+};
+
 const buildInitialInstance = (
   proxy: ProxyServerSettings,
 ): CreateInstanceRequest => ({
@@ -180,7 +185,7 @@ export const CreateInstanceDialog = ({
       const loaded = settingsService.load().dhis2;
       return {
         ...loaded,
-        javaHeap: loaded.javaHeap?.trim() || '4G',
+        javaHeap: normalizeJavaHeap(loaded.javaHeap),
       };
     },
   );
@@ -816,7 +821,7 @@ export const CreateInstanceDialog = ({
               onChange={e =>
                 setDhis2Settings({
                   ...dhis2Settings,
-                  javaHeap: e.target.value,
+                  javaHeap: normalizeJavaHeap(e.target.value),
                 })
               }
               className={classes.formField}
