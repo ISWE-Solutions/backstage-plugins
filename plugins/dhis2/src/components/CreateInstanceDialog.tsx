@@ -201,6 +201,8 @@ export const CreateInstanceDialog = ({
 
   // "Connect to an existing database" option.
   const [useExistingDb, setUseExistingDb] = useState(false);
+  const [ackExistingDbCompatibility, setAckExistingDbCompatibility] =
+    useState(false);
   // "Use a remote PostgreSQL server" master toggle. Default is OFF, in
   // which case the orchestrator installs PostgreSQL inside the new LXC
   // and the remote-host / shared-credentials / existing-database fields
@@ -357,6 +359,12 @@ export const CreateInstanceDialog = ({
         return 'DHIS2 role username is required.';
       if (!newInstance.database.password)
         return 'DHIS2 role password is required.';
+    }
+    if (useExistingDb && !newInstance.database.name.trim()) {
+      return 'Select an existing database.';
+    }
+    if (useExistingDb && !ackExistingDbCompatibility) {
+      return 'Confirm existing database compatibility with the selected DHIS2 version.';
     }
     if (createDbAccount) {
       if (!newDbUser.trim())
@@ -967,10 +975,12 @@ export const CreateInstanceDialog = ({
                             },
                           },
                     );
+                    setAckExistingDbCompatibility(false);
                   } else {
                     setAvailableDatabases([]);
                     setDatabasesError(null);
                     setDbTestResult(null);
+                    setAckExistingDbCompatibility(false);
                   }
                 }}
                 color="primary"
@@ -1024,6 +1034,14 @@ export const CreateInstanceDialog = ({
             className={classes.formField}
             InputLabelProps={{ shrink: true }}
           />
+        )}
+        {useExistingDb && (
+          <Alert severity="warning" style={{ marginTop: 8, marginBottom: 8 }}>
+            Existing database mode assumes the selected database is compatible
+            with the chosen DHIS2 version and has a supported upgrade path.
+            Incompatible schema state can fail during Flyway migrations at
+            startup.
+          </Alert>
         )}
         {useExistingDb && (
           <Grid container spacing={2}>
@@ -1119,15 +1137,17 @@ export const CreateInstanceDialog = ({
             <InputLabel>Database</InputLabel>
             <Select
               value={newInstance.database.name}
-              onChange={e =>
+              onChange={e => {
                 setNewInstance({
                   ...newInstance,
                   database: {
                     ...newInstance.database,
                     name: e.target.value as string,
                   },
-                })
-              }
+                });
+                // Compatibility confirmation is specific to the selected DB.
+                setAckExistingDbCompatibility(false);
+              }}
               endAdornment={
                 <InputAdornment position="end" style={{ marginRight: 24 }}>
                   <Tooltip title="Refresh database list">
@@ -1163,6 +1183,31 @@ export const CreateInstanceDialog = ({
                 : `Listed from ${dhis2Settings.postgresHost || '<host>'}:${dhis2Settings.postgresPort} as ${dhis2Settings.postgresAdminUser || '<admin>'}`}
             </FormHelperText>
           </FormControl>
+        )}
+        {useExistingDb && (
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={ackExistingDbCompatibility}
+                onChange={e =>
+                  setAckExistingDbCompatibility(e.target.checked)
+                }
+                color="secondary"
+              />
+            }
+            label={
+              <Box>
+                <Typography variant="body2">
+                  I confirm this database can be upgraded by the selected DHIS2
+                  version
+                </Typography>
+                <Typography variant="caption" color="textSecondary">
+                  Recommended: restore a backup into a staging environment and
+                  validate startup before production provisioning.
+                </Typography>
+              </Box>
+            }
+          />
         )}
         <FormControlLabel
           control={

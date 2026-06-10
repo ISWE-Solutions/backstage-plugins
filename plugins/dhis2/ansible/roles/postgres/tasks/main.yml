@@ -164,6 +164,20 @@
   become_user: "{{ omit if (dhis2_db_remote | default(false) | bool) else 'postgres' }}"
   no_log: "{{ not (dhis2_debug | default(false) | bool) }}"
 
+- name: Set stable session timeouts for DHIS2 database user
+  community.postgresql.postgresql_query:
+    query: |
+      ALTER ROLE "{{ dhis2_db_user }}" SET idle_in_transaction_session_timeout = 0;
+      ALTER ROLE "{{ dhis2_db_user }}" SET statement_timeout = 0;
+      ALTER ROLE "{{ dhis2_db_user }}" SET lock_timeout = 0;
+    login_host: "{{ dhis2_db_host if (dhis2_db_remote | default(false) | bool) else omit }}"
+    login_port: "{{ dhis2_db_port if (dhis2_db_remote | default(false) | bool) else omit }}"
+    login_user: "{{ dhis2_db_admin_user if (dhis2_db_remote | default(false) | bool) else omit }}"
+    login_password: "{{ dhis2_db_admin_password if (dhis2_db_remote | default(false) | bool) else omit }}"
+  delegate_to: "{{ '127.0.0.1' if (dhis2_db_remote | default(false) | bool) else inventory_hostname }}"
+  become: "{{ not (dhis2_db_remote | default(false) | bool) }}"
+  become_user: "{{ omit if (dhis2_db_remote | default(false) | bool) else 'postgres' }}"
+
 - name: Ensure provisioning admin role exists
   community.postgresql.postgresql_user:
     name: "{{ dhis2_db_admin_user }}"
