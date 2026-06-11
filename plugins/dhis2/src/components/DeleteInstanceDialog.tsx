@@ -37,11 +37,11 @@ export const DeleteInstanceDialog = ({
   // makes us actually drop the database during decommission.
   const canBackup = willDropDb;
   const [backupDatabase, setBackupDatabase] = useState<boolean>(canBackup);
-  const [maintainDatabase, setMaintainDatabase] = useState<boolean>(false);
+  const [maintainDatabase, setMaintainDatabase] = useState<boolean>(willDropDb);
   useEffect(() => {
     if (open) {
       setBackupDatabase(canBackup);
-      setMaintainDatabase(false);
+      setMaintainDatabase(willDropDb);
     }
   }, [open, canBackup]);
 

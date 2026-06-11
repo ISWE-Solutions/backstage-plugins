@@ -1002,7 +1002,7 @@ export const DHIS2Page = () => {
 
   const handleDeleteInstance = async (
     id: string,
-    opts: { backupDatabase?: boolean } = {},
+    opts: { backupDatabase?: boolean; maintainDatabase?: boolean } = {},
   ) => {
     const instance = instances.find(i => i.id === id);
     if (!instance) {
@@ -1049,10 +1049,31 @@ export const DHIS2Page = () => {
     const dropDb =
       remotePgHost.length > 0 &&
       !['localhost', '127.0.0.1', '::1', 'postgres'].includes(remotePgHost);
+    const shouldDropDb = dropDb && !opts.maintainDatabase;
+
+    // Guard: if we need to drop a remote database but the admin password is
+    // missing, fail immediately with a clear message instead of letting the
+    // Ansible playbook fail with an opaque PostgreSQL auth error.
+    if (shouldDropDb && !dhis2Cfg.postgresAdminPassword) {
+      const msg =
+        `Cannot decommission "${instance.name}": the instance uses a remote ` +
+        `PostgreSQL host (${remotePgHost}) but the PostgreSQL admin password ` +
+        `is not set in Settings. Add it in the DHIS2 Settings panel and retry.`;
+      appendProvisionLog(`ERROR: ${msg}`);
+      setProvisionError(msg);
+      setProvisionSteps(prev =>
+        prev.map(s =>
+          s.status === 'pending'
+            ? { ...s, status: 'error' as const, detail: msg }
+            : s,
+        ),
+      );
+      return;
+    }
 
     const payload = {
       skipProxyCleanup: false,
-      dropDatabase: dropDb,
+      dropDatabase: shouldDropDb,
       database: {
         name: instance.database.name,
         user: instance.database.user,
@@ -1061,7 +1082,7 @@ export const DHIS2Page = () => {
           instance.database.port ??
           (remotePgHost ? dhis2Cfg.postgresPort : undefined),
       },
-      databaseAdmin: dropDb
+      databaseAdmin: shouldDropDb
         ? {
             user: dhis2Cfg.postgresAdminUser || 'postgres',
             password: dhis2Cfg.postgresAdminPassword || '',
@@ -2147,6 +2168,7 @@ export const DHIS2Page = () => {
           onClose={() => setCreateDialogOpen(false)}
           nodes={nodes}
           versions={versions}
+          existingInstances={instances}
           onSubmit={handleCreateInstance}
         />
 

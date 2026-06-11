@@ -93,7 +93,18 @@
       ansible.builtin.debug:
         msg: >-
           db_remote={{ _db_remote }} dhis2_db_drop={{ dhis2_db_drop | default(false) }}
-
+    - name: Assert admin password is set when dropping a remote database
+      ansible.builtin.assert:
+        that:
+          - dhis2_db_admin_password | default('', true) | length > 0
+        fail_msg: >
+          dhis2_db_admin_password is empty — cannot connect to the shared
+          PostgreSQL host to drop the database. Set the PostgreSQL admin
+          password in the DHIS2 plugin Settings panel and retry.
+        success_msg: Admin credentials present, proceeding with database drop.
+      when:
+        - _db_remote | bool
+        - dhis2_db_drop | default(false) | bool
     - name: Drop the DHIS2 database on the shared server
       community.postgresql.postgresql_db:
         login_host: "{{ dhis2_db_host }}"

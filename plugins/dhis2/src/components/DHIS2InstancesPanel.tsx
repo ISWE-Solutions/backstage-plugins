@@ -129,7 +129,10 @@ export interface DHIS2InstancesPanelProps {
   onRestart: (id: string) => void;
   onViewLogs: (instance: DHIS2Instance) => void;
   onRestore: (instance: DHIS2Instance) => void;
-  onDelete: (id: string, opts?: { backupDatabase?: boolean }) => void;
+  onDelete: (
+    id: string,
+    opts?: { backupDatabase?: boolean; maintainDatabase?: boolean },
+  ) => void;
   /**
    * Optional Edit handler owned by the page so it can reuse the same
    * streaming activity-log dialog as Create / Delete.
@@ -1380,9 +1383,9 @@ export const DHIS2InstancesPanel = ({
       open={!!deleteTarget}
       instance={deleteTarget}
       onClose={() => setDeleteTarget(null)}
-      onConfirm={({ backupDatabase }) => {
+      onConfirm={({ backupDatabase, maintainDatabase }) => {
         if (!deleteTarget) return;
-        onDelete(deleteTarget.id, { backupDatabase });
+        onDelete(deleteTarget.id, { backupDatabase, maintainDatabase });
         setDeleteTarget(null);
       }}
     />

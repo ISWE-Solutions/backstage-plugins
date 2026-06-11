@@ -40,6 +40,7 @@ import {
 } from '@backstage/core-plugin-api';
 import {
   CreateInstanceRequest,
+  DHIS2Instance,
   ProxmoxNode,
   ProxyServerSettings,
   DHIS2DefaultsSettings,
@@ -116,6 +117,8 @@ export interface CreateInstanceDialogProps {
   onClose: () => void;
   nodes: ProxmoxNode[];
   versions: string[];
+  /** Existing instances used to prevent duplicate names cluster-wide. */
+  existingInstances?: DHIS2Instance[];
   /**
    * Called with the fully-prepared create-instance payload when the user
    * clicks "Create Instance". The dialog closes itself and resets its
@@ -171,6 +174,7 @@ export const CreateInstanceDialog = ({
   onClose,
   nodes,
   versions,
+  existingInstances = [],
   onSubmit,
 }: CreateInstanceDialogProps) => {
   const classes = useStyles();
@@ -250,6 +254,14 @@ export const CreateInstanceDialog = ({
   // logical name. Gated behind the same confirmation prompt.
   const [deleteIfNameExists, setDeleteIfNameExists] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [confirmDeleteVmid, setConfirmDeleteVmid] = useState<number | null>(
+    null,
+  );
+  const [loadingConfirmDeleteVmid, setLoadingConfirmDeleteVmid] =
+    useState(false);
+  const [confirmDeleteVmidError, setConfirmDeleteVmidError] = useState<
+    string | null
+  >(null);
 
   // Tracks whether the operator has hand-picked a Tomcat major. When
   // false, picking a new DHIS2 version auto-aligns Tomcat (9 for 2.40/41,
@@ -423,6 +435,12 @@ export const CreateInstanceDialog = ({
   // like '"name" is required'.
   const formValidationError: string | null = (() => {
     if (!newInstance.name.trim()) return 'Instance name is required.';
+    const nameConflict = existingInstances.find(
+      i => i.name.trim().toLowerCase() === newInstance.name.trim().toLowerCase(),
+    );
+    if (nameConflict) {
+      return `An instance named "${nameConflict.name}" already exists on node ${nameConflict.node}. Choose a different name.`;
+    }
     if (!newInstance.version) return 'DHIS2 version is required.';
     if (!newInstance.node) return 'Proxmox node is required.';
     if (useRemoteDb) {
@@ -487,6 +505,47 @@ export const CreateInstanceDialog = ({
   const handleSubmit = () => {
     if (deleteIfExists || deleteIfNameExists) {
       setConfirmDeleteOpen(true);
+      setConfirmDeleteVmid(null);
+      setConfirmDeleteVmidError(null);
+      setLoadingConfirmDeleteVmid(true);
+      const settings = settingsService.load();
+      const pm = settings.proxmox;
+      const apiUrl = (pm.apiUrl ?? '').trim();
+      const tokenId = (pm.tokenId ?? '').trim();
+      const tokenSecret = (pm.tokenSecret ?? '').trim();
+      const username = (pm.username ?? '').trim();
+      const proxmoxOverrides: {
+        apiUrl?: string;
+        apiUser?: string;
+        apiTokenId?: string;
+        apiTokenSecret?: string;
+        validateApiCerts?: boolean;
+      } = {};
+      if (apiUrl) proxmoxOverrides.apiUrl = apiUrl;
+      if (pm.authMethod === 'token') {
+        if (tokenId) proxmoxOverrides.apiTokenId = tokenId;
+        if (tokenSecret) proxmoxOverrides.apiTokenSecret = tokenSecret;
+        if (!tokenId.includes('!') && username) {
+          proxmoxOverrides.apiUser = username;
+        }
+      }
+      proxmoxOverrides.validateApiCerts = Boolean(pm.verifyTls);
+      const effectiveOverrides =
+        Object.keys(proxmoxOverrides).length > 0 ? proxmoxOverrides : undefined;
+      discoveryApi
+        .getBaseUrl('dhis2')
+        .then(baseUrl =>
+          dhis2Service.getNextVmid(baseUrl, effectiveOverrides, backstageFetch),
+        )
+        .then(vmid => setConfirmDeleteVmid(vmid))
+        .catch(error => {
+          setConfirmDeleteVmidError(
+            error instanceof Error
+              ? error.message
+              : 'Failed to fetch next VMID.',
+          );
+        })
+        .finally(() => setLoadingConfirmDeleteVmid(false));
       return;
     }
     doSubmit();
@@ -1912,9 +1971,18 @@ export const CreateInstanceDialog = ({
         </Alert>
         <Typography variant="body2">
           Proceed with deleting any existing instance at VMID{' '}
-          <strong>{settingsService.load().proxmox.vmidStart || 200}</strong>{' '}
+          <strong>
+            {loadingConfirmDeleteVmid
+              ? '...'
+              : confirmDeleteVmid ?? 'next available'}
+          </strong>{' '}
           and creating <strong>{newInstance.name || '(unnamed)'}</strong>?
         </Typography>
+        {confirmDeleteVmidError && (
+          <Typography variant="caption" color="error">
+            {confirmDeleteVmidError}
+          </Typography>
+        )}
       </DialogContent>
       <DialogActions>
         <Button onClick={() => setConfirmDeleteOpen(false)}>Cancel</Button>
