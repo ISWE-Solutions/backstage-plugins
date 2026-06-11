@@ -288,6 +288,32 @@ export const CreateInstanceDialog = ({
     }
   }, [versions, newInstance.version, tomcatUserOverride]);
 
+  // Ensure compatibility is checked even when the selected database value
+  // is already present (for example, first load with a pre-filled value),
+  // where re-selecting the same option would not fire onChange.
+  useEffect(() => {
+    const selectedDb = newInstance.database.name.trim();
+    if (!useExistingDb || !selectedDb) return;
+    if (checkingCompatibility) return;
+    if (
+      existingDbCompatibility &&
+      existingDbCompatibility.checkedDatabase === selectedDb
+    ) {
+      return;
+    }
+    checkExistingDatabaseCompatibility(selectedDb);
+  }, [
+    useExistingDb,
+    newInstance.database.name,
+    newInstance.version,
+    checkingCompatibility,
+    existingDbCompatibility,
+    dhis2Settings.postgresHost,
+    dhis2Settings.postgresPort,
+    dhis2Settings.postgresAdminUser,
+    dhis2Settings.postgresAdminPassword,
+  ]);
+
   const fetchExistingDatabases = async () => {
     setLoadingDatabases(true);
     setDatabasesError(null);
