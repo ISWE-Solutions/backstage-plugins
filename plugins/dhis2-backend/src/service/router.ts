@@ -806,6 +806,18 @@ export async function createRouter(
       res.status(400).json({ error: message });
       return;
     }
+
+    const requestedName = payload.name.trim().toLowerCase();
+    const existingByName = (await provisionService.listInstances()).find(
+      i => i.name.trim().toLowerCase() === requestedName,
+    );
+    if (existingByName) {
+      res.status(409).json({
+        error: `Instance name \"${existingByName.name}\" already exists (node ${existingByName.node}, vmid ${existingByName.vmid}). Choose a different name.`,
+      });
+      return;
+    }
+
     const job = provisionService.startJob(payload);
     logger.info(
       `DHIS2: provision job ${job.id} started for ${payload.name} (vmid=${payload.vmid}, node=${payload.node})`,
