@@ -639,10 +639,32 @@ function normalizeSshPrivateKeyPath(pathLike?: string): string | undefined {
   return trimmed.endsWith('.pub') ? trimmed.slice(0, -4) : trimmed;
 }
 
+/**
+ * Thrown by startJob/startCloneJob when the requested instance name or
+ * vmid is already claimed by another in-flight provision/clone job.
+ * Callers (router.ts) map this to an HTTP 409.
+ */
+export class ConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ConflictError';
+  }
+}
+
 const MAX_LOG_LINES = 5000;
 
 // In-memory job registry. Single-process Backstage backend — fine for now.
 const jobs = new Map<string, JobSnapshot>();
+
+// In-memory locks guarding against concurrent-request races that a
+// listInstances()-based snapshot check alone can't catch: two requests
+// submitted close together can both read the same (not-yet-persisted)
+// state and both pass validation. These Sets track names/vmids that are
+// currently claimed by an in-flight provision/clone job; entries are
+// added atomically before the job starts and always removed in a
+// try/finally once the job settles (success or failure).
+const namesBeingProvisioned = new Set<string>();
+const vmidsBeingProvisioned = new Set<string>();
 
 function snapshot(job: JobSnapshot): JobSnapshot {
   return {
@@ -1487,6 +1509,18 @@ export class ProvisionService {
     }
   }
 
+  /**
+   * Like `listInstances()`, but propagates a failed read instead of
+   * swallowing it into an empty array. Callers that use the result to
+   * validate that a given instanceId exists (e.g. DatabaseTransferService)
+   * need to tell "genuinely no instances" apart from "the DB read failed" —
+   * conflating the two fails open and lets an unvalidated instanceId
+   * through on a transient DB error.
+   */
+  async listInstancesOrThrow(): Promise<PersistedInstance[]> {
+    return await this.instanceStore.list();
+  }
+
   getJob(id: string): JobSnapshot | null {
     const j = jobs.get(id);
     return j ? snapshot(j) : null;
@@ -1504,6 +1538,26 @@ export class ProvisionService {
       );
     }
     const cfg = this.cfg;
+
+    // Atomically claim the instance name and vmid for the duration of this
+    // job. Guards against two concurrent /instances/provision requests for
+    // the same name (or vmid) both passing the listInstances()-based check
+    // before either has persisted — see the finally below for release.
+    const normalizedName = req.name.trim().toLowerCase();
+    const vmidKey = String(req.vmid);
+    if (namesBeingProvisioned.has(normalizedName)) {
+      throw new ConflictError(
+        `Instance name "${req.name}" is already being provisioned by another in-flight request.`,
+      );
+    }
+    if (vmidsBeingProvisioned.has(vmidKey)) {
+      throw new ConflictError(
+        `vmid=${req.vmid} is already claimed by another in-flight provision/clone job.`,
+      );
+    }
+    namesBeingProvisioned.add(normalizedName);
+    vmidsBeingProvisioned.add(vmidKey);
+
     const id = randomUUID();
     // Auto-generate a strong admin password when the caller didn't supply
     // one, and surface it via the job log so the operator can record it.
@@ -1550,14 +1604,21 @@ export class ProvisionService {
       );
     }
 
-    // Fire-and-forget. All errors are captured into the job snapshot.
-    this.runJob(job, cfg, req).catch(err => {
-      job.status = 'failed';
-      job.error = err instanceof Error ? err.message : String(err);
-      job.finishedAt = new Date().toISOString();
-      appendLine(job, `[backend] FATAL: ${job.error}`);
-      this.logger.error(`DHIS2: provision job ${id} crashed: ${job.error}`);
-    });
+    // Fire-and-forget. All errors are captured into the job snapshot. The
+    // name/vmid reservation made above is released once the job settles,
+    // regardless of outcome, so a later request can reuse them.
+    this.runJob(job, cfg, req)
+      .catch(err => {
+        job.status = 'failed';
+        job.error = err instanceof Error ? err.message : String(err);
+        job.finishedAt = new Date().toISOString();
+        appendLine(job, `[backend] FATAL: ${job.error}`);
+        this.logger.error(`DHIS2: provision job ${id} crashed: ${job.error}`);
+      })
+      .finally(() => {
+        namesBeingProvisioned.delete(normalizedName);
+        vmidsBeingProvisioned.delete(vmidKey);
+      });
 
     return snapshot(job);
   }
@@ -2058,6 +2119,19 @@ export class ProvisionService {
       );
     }
     const cfg = this.cfg;
+
+    // Atomically claim the target vmid for the duration of this job.
+    // Guards against two concurrent clone/provision requests both passing
+    // a one-time listInstances() snapshot check for the same free vmid
+    // before either has persisted — released in the finally below.
+    const vmidKey = String(req.vmid);
+    if (vmidsBeingProvisioned.has(vmidKey)) {
+      throw new ConflictError(
+        `vmid=${req.vmid} is already claimed by another in-flight provision/clone job.`,
+      );
+    }
+    vmidsBeingProvisioned.add(vmidKey);
+
     const id = randomUUID();
     const job: JobSnapshot = {
       id,
@@ -2074,13 +2148,17 @@ export class ProvisionService {
     };
     jobs.set(id, job);
 
-    this.runCloneJob(job, cfg, req).catch(err => {
-      job.status = 'failed';
-      job.error = err instanceof Error ? err.message : String(err);
-      job.finishedAt = new Date().toISOString();
-      appendLine(job, `[backend] FATAL: ${job.error}`);
-      this.logger.error(`DHIS2: clone job ${id} crashed: ${job.error}`);
-    });
+    this.runCloneJob(job, cfg, req)
+      .catch(err => {
+        job.status = 'failed';
+        job.error = err instanceof Error ? err.message : String(err);
+        job.finishedAt = new Date().toISOString();
+        appendLine(job, `[backend] FATAL: ${job.error}`);
+        this.logger.error(`DHIS2: clone job ${id} crashed: ${job.error}`);
+      })
+      .finally(() => {
+        vmidsBeingProvisioned.delete(vmidKey);
+      });
 
     return snapshot(job);
   }

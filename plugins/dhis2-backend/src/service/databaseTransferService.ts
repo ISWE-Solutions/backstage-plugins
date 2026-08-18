@@ -1,7 +1,7 @@
 import { LoggerService } from '@backstage/backend-plugin-api';
 import { spawn } from 'child_process';
 import { randomUUID } from 'crypto';
-import { ProvisionService } from './provisionService';
+import { ProvisionService, PersistedInstance } from './provisionService';
 
 export type TransferStatus = 'queued' | 'running' | 'success' | 'failed';
 
@@ -160,8 +160,20 @@ export class DatabaseTransferService {
     validateEndpoint('source', req.source);
     validateEndpoint('target', req.target);
 
-    // Confirm the referenced instance exists, when persisted state is on.
-    const instances = await this.provisionService.listInstances();
+    // Confirm the referenced instance exists. Use the throwing variant so a
+    // transient DB read failure propagates as an error and rejects this
+    // request, instead of being conflated with "no instances persisted"
+    // and silently skipping validation (fail-open).
+    let instances: PersistedInstance[];
+    try {
+      instances = await this.provisionService.listInstancesOrThrow();
+    } catch (err) {
+      throw new Error(
+        `Failed to validate instance ${req.instanceId}: could not read the instance list (${
+          err instanceof Error ? err.message : String(err)
+        })`,
+      );
+    }
     if (instances.length > 0 && !instances.some(i => i.id === req.instanceId)) {
       // Soft check: only fail when we have a persisted list to compare
       // against. If listInstances returned empty (no state file configured)
