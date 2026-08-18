@@ -317,6 +317,15 @@ export class IPAMService {
       updatedAt: new Date().toISOString(),
     };
     mockIPAddresses.push(newIP);
+
+    const subnet = mockSubnets.find(s => s.id === newIP.subnetId);
+    if (subnet) {
+      subnet.usedIPs += 1;
+      subnet.availableIPs = subnet.totalIPs - subnet.usedIPs;
+      subnet.utilizationPercent = (subnet.usedIPs / subnet.totalIPs) * 100;
+      subnet.updatedAt = new Date().toISOString();
+    }
+
     return newIP;
   }
 

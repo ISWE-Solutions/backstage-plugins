@@ -100,11 +100,17 @@ export const AddIPDialog: React.FC<AddIPDialogProps> = ({
     return ip.split('.').every(octet => parseInt(octet) >= 0 && parseInt(octet) <= 255);
   };
 
+  const isValidMAC = (mac: string) => {
+    const macRegex = /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/;
+    return macRegex.test(mac);
+  };
+
   const isFormValid = () => {
     return (
       formData.ipAddress &&
       isValidIP(formData.ipAddress) &&
-      formData.subnetId
+      formData.subnetId &&
+      (formData.macAddress === '' || isValidMAC(formData.macAddress))
     );
   };
 
@@ -226,6 +232,12 @@ export const AddIPDialog: React.FC<AddIPDialogProps> = ({
                 value={formData.macAddress}
                 onChange={e => handleChange('macAddress', e.target.value)}
                 placeholder="00:1A:2B:3C:4D:5E"
+                error={formData.macAddress !== '' && !isValidMAC(formData.macAddress)}
+                helperText={
+                  formData.macAddress !== '' && !isValidMAC(formData.macAddress)
+                    ? 'Invalid MAC address format'
+                    : ''
+                }
                 className={classes.field}
               />
             </Grid>
