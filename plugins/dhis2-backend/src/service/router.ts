@@ -12,6 +12,7 @@ import {
   CloneRequest,
   UpgradeRequest,
   deriveTomcatVersionForDhis2,
+  ConflictError,
 } from './provisionService';
 import { InstanceRegistryService } from './instanceRegistryService';
 import {
@@ -818,7 +819,16 @@ export async function createRouter(
       return;
     }
 
-    const job = provisionService.startJob(payload);
+    let job;
+    try {
+      job = provisionService.startJob(payload);
+    } catch (err) {
+      if (err instanceof ConflictError) {
+        res.status(409).json({ error: err.message });
+        return;
+      }
+      throw err;
+    }
     logger.info(
       `DHIS2: provision job ${job.id} started for ${payload.name} (vmid=${payload.vmid}, node=${payload.node})`,
     );
@@ -1528,7 +1538,16 @@ export async function createRouter(
       });
       return;
     }
-    const job = provisionService.startCloneJob(payload);
+    let job;
+    try {
+      job = provisionService.startCloneJob(payload);
+    } catch (err) {
+      if (err instanceof ConflictError) {
+        res.status(409).json({ error: err.message });
+        return;
+      }
+      throw err;
+    }
     logger.info(
       `DHIS2: clone job ${job.id} started: src=${payload.source.vmid}@${payload.source.node} -> ${payload.name} (vmid=${payload.vmid}, node=${payload.node}, db_strategy=${payload.dbStrategy})`,
     );
