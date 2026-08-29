@@ -43,14 +43,14 @@ export class SettingsService {
         // single conf.d directory (which nginx auto-includes).
         nginxConfigPath: ['/etc/nginx/sites-available'],
       } as any;
-      (Object.keys(stalePlaceholders) as Array<keyof typeof merged.proxy>).forEach(
-        key => {
-          const current = merged.proxy[key] as unknown as string;
-          if (stalePlaceholders[key].includes(current)) {
-            (merged.proxy as any)[key] = DEFAULT_SETTINGS.proxy[key];
-          }
-        },
-      );
+      (
+        Object.keys(stalePlaceholders) as Array<keyof typeof merged.proxy>
+      ).forEach(key => {
+        const current = merged.proxy[key] as unknown as string;
+        if (stalePlaceholders[key].includes(current)) {
+          (merged.proxy as any)[key] = DEFAULT_SETTINGS.proxy[key];
+        }
+      });
       // Older builds defaulted proxmox.verifyTls to true, which then
       // forwards as validateApiCerts=true into every provision request
       // and causes CERTIFICATE_VERIFY_FAILED against PVE's stock

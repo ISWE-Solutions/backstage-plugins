@@ -30,25 +30,25 @@
 # ---------------------------------------------------------------------------
 # Phase 1 — resize LXC via Proxmox REST API
 # ---------------------------------------------------------------------------
-- name: "Phase 1 — update LXC resources via Proxmox API"
+- name: 'Phase 1 — update LXC resources via Proxmox API'
   hosts: localhost
   connection: local
   gather_facts: false
   vars:
-    _pve_api_base: "https://{{ pve_api_host }}/api2/json"
-    _pve_auth: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+    _pve_api_base: 'https://{{ pve_api_host }}/api2/json'
+    _pve_auth: 'PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}'
   tasks:
-    - name: "Update LXC {{ pve_vmid }} cores/memory"
+    - name: 'Update LXC {{ pve_vmid }} cores/memory'
       ansible.builtin.uri:
-        url: "{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/config"
+        url: '{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/config'
         method: PUT
         headers:
-          Authorization: "{{ _pve_auth }}"
+          Authorization: '{{ _pve_auth }}'
         body_format: form-urlencoded
         body:
-          cores: "{{ dhis2_cores | int }}"
-          memory: "{{ dhis2_memory_mb | int }}"
-        validate_certs: "{{ pve_validate_certs | default(false) }}"
+          cores: '{{ dhis2_cores | int }}'
+          memory: '{{ dhis2_memory_mb | int }}'
+        validate_certs: '{{ pve_validate_certs | default(false) }}'
         status_code: [200]
       register: _cfg_update
       changed_when: true
@@ -65,17 +65,17 @@
     # We treat that as informational rather than failing the play so
     # operators can lower the storage value in the UI without breaking
     # the rest of the edit flow.
-    - name: "Resize rootfs to {{ dhis2_storage_gb }}G (grow only)"
+    - name: 'Resize rootfs to {{ dhis2_storage_gb }}G (grow only)'
       ansible.builtin.uri:
-        url: "{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/resize"
+        url: '{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/resize'
         method: PUT
         headers:
-          Authorization: "{{ _pve_auth }}"
+          Authorization: '{{ _pve_auth }}'
         body_format: form-urlencoded
         body:
           disk: rootfs
-          size: "{{ dhis2_storage_gb | int }}G"
-        validate_certs: "{{ pve_validate_certs | default(false) }}"
+          size: '{{ dhis2_storage_gb | int }}G'
+        validate_certs: '{{ pve_validate_certs | default(false) }}'
         status_code: [200, 400, 500]
       register: _disk_resize
       when:
@@ -96,34 +96,34 @@
 # ---------------------------------------------------------------------------
 # Phase 2a — register the PVE host for the pct-based config update
 # ---------------------------------------------------------------------------
-- name: "Phase 2a — register PVE host for pct push/exec"
+- name: 'Phase 2a — register PVE host for pct push/exec'
   hosts: localhost
   connection: local
   gather_facts: false
   tasks:
     - name: Add PVE host to pve_hosts group
       ansible.builtin.add_host:
-        name: "{{ pve_ssh_host }}"
+        name: '{{ pve_ssh_host }}'
         groups:
           - pve_hosts
-        ansible_host: "{{ pve_ssh_host }}"
-        ansible_port: "{{ pve_ssh_port | default(22) }}"
+        ansible_host: '{{ pve_ssh_host }}'
+        ansible_port: '{{ pve_ssh_port | default(22) }}'
         ansible_user: "{{ pve_ssh_user | default('root') }}"
-        ansible_ssh_private_key_file: "{{ pve_ssh_key | default(omit, true) }}"
+        ansible_ssh_private_key_file: '{{ pve_ssh_key | default(omit, true) }}'
         ansible_python_interpreter: /usr/bin/python3
       changed_when: false
 
 # ---------------------------------------------------------------------------
 # Phase 2b — re-render dhis.conf inside the LXC and restart Tomcat
 # ---------------------------------------------------------------------------
-- name: "Phase 2 — apply DHIS2 config changes inside LXC"
+- name: 'Phase 2 — apply DHIS2 config changes inside LXC'
   hosts: pve_hosts
   gather_facts: false
   become: false
   vars:
-    _dhis_conf_path: "/opt/dhis2/dhis.conf"
+    _dhis_conf_path: '/opt/dhis2/dhis.conf'
     _files_dir: "{{ dhis2_files_dir | default('/opt/dhis2/files') }}"
-    _stage_path: "/tmp/dhis2-{{ pve_vmid }}-dhis.conf"
+    _stage_path: '/tmp/dhis2-{{ pve_vmid }}-dhis.conf'
   tasks:
     - name: Stage rendered dhis.conf on PVE host
       ansible.builtin.copy:
@@ -156,34 +156,34 @@
           system.monitoring.url =
           system.monitoring.username =
           system.monitoring.password =
-        dest: "{{ _stage_path }}"
-        mode: "0600"
+        dest: '{{ _stage_path }}'
+        mode: '0600'
 
-    - name: "Ensure /opt/dhis2 exists inside LXC {{ pve_vmid }}"
+    - name: 'Ensure /opt/dhis2 exists inside LXC {{ pve_vmid }}'
       ansible.builtin.command:
-        cmd: "pct exec {{ pve_vmid }} -- mkdir -p /opt/dhis2"
+        cmd: 'pct exec {{ pve_vmid }} -- mkdir -p /opt/dhis2'
       become: true
       changed_when: false
 
-    - name: "Push dhis.conf into LXC {{ pve_vmid }}"
+    - name: 'Push dhis.conf into LXC {{ pve_vmid }}'
       ansible.builtin.command:
-        cmd: "pct push {{ pve_vmid }} {{ _stage_path }} {{ _dhis_conf_path }} --perms 600"
+        cmd: 'pct push {{ pve_vmid }} {{ _stage_path }} {{ _dhis_conf_path }} --perms 600'
       become: true
 
-    - name: "Fix dhis.conf ownership inside LXC {{ pve_vmid }}"
+    - name: 'Fix dhis.conf ownership inside LXC {{ pve_vmid }}'
       ansible.builtin.command:
-        cmd: "pct exec {{ pve_vmid }} -- chown tomcat:tomcat {{ _dhis_conf_path }}"
+        cmd: 'pct exec {{ pve_vmid }} -- chown tomcat:tomcat {{ _dhis_conf_path }}'
       become: true
       changed_when: false
 
     - name: Remove staged dhis.conf from PVE host
       ansible.builtin.file:
-        path: "{{ _stage_path }}"
+        path: '{{ _stage_path }}'
         state: absent
 
-    - name: "Restart Tomcat inside LXC {{ pve_vmid }} to apply new config"
+    - name: 'Restart Tomcat inside LXC {{ pve_vmid }} to apply new config'
       ansible.builtin.command:
-        cmd: "pct exec {{ pve_vmid }} -- systemctl restart tomcat"
+        cmd: 'pct exec {{ pve_vmid }} -- systemctl restart tomcat'
       become: true
       when: restart_tomcat | default(true) | bool
 

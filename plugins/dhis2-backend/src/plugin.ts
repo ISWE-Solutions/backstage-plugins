@@ -60,10 +60,7 @@ function defaultScriptPath(): string | undefined {
   const candidates = [
     '/opt/backstage/plugins/dhis2/scripts/create-instance.sh',
     '/opt/dhis2-backstage/plugins/dhis2/scripts/create-instance.sh',
-    path.resolve(
-      process.cwd(),
-      'plugins/dhis2/scripts/create-instance.sh',
-    ),
+    path.resolve(process.cwd(), 'plugins/dhis2/scripts/create-instance.sh'),
   ];
   for (const candidate of candidates) {
     if (fileExists(candidate)) return candidate;
@@ -114,8 +111,7 @@ export const dhis2Plugin = createBackendPlugin({
             sub?.getOptionalString('scriptPath') ?? ''
           ).trim();
 
-          const user =
-            configuredUser || (isLocal ? defaultUser() : '');
+          const user = configuredUser || (isLocal ? defaultUser() : '');
           const privateKeyFile =
             configuredKey || (isLocal ? defaultPrivateKey() ?? '' : '');
           const scriptPath =

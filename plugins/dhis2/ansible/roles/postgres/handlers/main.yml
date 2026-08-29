@@ -12,7 +12,7 @@
 - name: Restart PostgreSQL
   listen: Restart PostgreSQL
   ansible.builtin.command:
-    cmd: "systemctl restart --no-block postgresql@{{ postgresql_version }}-main.service"
+    cmd: 'systemctl restart --no-block postgresql@{{ postgresql_version }}-main.service'
   changed_when: true
 
 - name: Wait for PostgreSQL to accept connections after restart
@@ -29,7 +29,7 @@
 - name: Dump recent PostgreSQL journal on restart failure
   listen: Restart PostgreSQL
   ansible.builtin.command:
-    cmd: "journalctl -u postgresql@{{ postgresql_version }}-main -n 100 --no-pager"
+    cmd: 'journalctl -u postgresql@{{ postgresql_version }}-main -n 100 --no-pager'
   register: pg_journal_on_failure
   changed_when: false
   failed_when: false

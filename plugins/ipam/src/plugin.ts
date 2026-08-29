@@ -15,8 +15,7 @@ export const ipamPlugin = createPlugin({
 export const IPAMPage = ipamPlugin.provide(
   createRoutableExtension({
     name: 'IPAMPage',
-    component: () =>
-      import('./components/IPAMPage').then(m => m.IPAMPage),
+    component: () => import('./components/IPAMPage').then(m => m.IPAMPage),
     mountPoint: rootRouteRef,
   }),
 );

@@ -68,11 +68,11 @@ export class AnsibleService {
    * Backend contract (when implemented):
    *   POST {baseUrl}/provision
    *   body: ProvisionParams (secrets ARE in the body; the backend forwards
-  *         them via env vars to create-instance.sh — they never appear
+   *         them via env vars to create-instance.sh — they never appear
    *         in `ps`).
    *   200 : AnsibleTask
    */
-  async provisionInstance(params: ProvisionParams): Promise<AnsibleTask> {
+  async provisionInstance(_params: ProvisionParams): Promise<AnsibleTask> {
     // Stub: in production this hits the backend route above. For now we
     // mint a deterministic taskId so the UI can render an in-progress card.
     const taskId = `ansible-${Date.now()}`;
@@ -98,7 +98,7 @@ export class AnsibleService {
   }
 
   /**
-  * Stream stdout/stderr from the running create-instance.sh as
+   * Stream stdout/stderr from the running create-instance.sh as
    * structured log lines (one per Server-Sent-Event / newline-delimited JSON).
    *
    * Backend contract:

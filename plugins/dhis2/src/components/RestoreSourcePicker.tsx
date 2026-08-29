@@ -13,15 +13,8 @@ import {
   makeStyles,
 } from '@material-ui/core';
 import CloudUploadIcon from '@material-ui/icons/CloudUpload';
-import {
-  DHIS2Instance,
-  DumpFormat,
-  RestoreSource,
-} from '../types';
-import {
-  detectDumpFormat,
-  restoreService,
-} from '../services/restoreService';
+import { DHIS2Instance, DumpFormat, RestoreSource } from '../types';
+import { detectDumpFormat, restoreService } from '../services/restoreService';
 import { settingsService } from '../services/settingsService';
 
 const useStyles = makeStyles(theme => ({
@@ -73,7 +66,13 @@ export interface RestoreSourcePickerProps {
 function defaultForKind(kind: RestoreSourceKind): RestoreSource {
   switch (kind) {
     case 'upload':
-      return { kind: 'upload', uploadToken: '', originalFilename: '', sizeBytes: 0, format: 'custom' };
+      return {
+        kind: 'upload',
+        uploadToken: '',
+        originalFilename: '',
+        sizeBytes: 0,
+        format: 'custom',
+      };
     case 'url':
       return { kind: 'url', url: '', format: 'custom' };
     case 's3': {
@@ -219,19 +218,26 @@ const UploadSource = ({ value, onChange }: SubProps<'upload'>) => {
   return (
     <Box>
       <Box
-        className={`${classes.uploadBox} ${dragActive ? classes.uploadActive : ''}`}
+        className={`${classes.uploadBox} ${
+          dragActive ? classes.uploadActive : ''
+        }`}
         onDragOver={e => {
           e.preventDefault();
           setDragActive(true);
         }}
         onDragLeave={() => setDragActive(false)}
         onDrop={onDrop}
-        onClick={() => document.getElementById('dhis2-restore-upload-input')?.click()}
+        onClick={() =>
+          document.getElementById('dhis2-restore-upload-input')?.click()
+        }
       >
         <CloudUploadIcon fontSize="large" color="action" />
         <Typography variant="body1">
           {value.uploadToken
-            ? `Uploaded: ${value.originalFilename} (${(value.sizeBytes / 1024 ** 2).toFixed(1)} MB)`
+            ? `Uploaded: ${value.originalFilename} (${(
+                value.sizeBytes /
+                1024 ** 2
+              ).toFixed(1)} MB)`
             : 'Click or drag a dump file here (.sql, .sql.gz, .dump, .backup, .tar.gz)'}
         </Typography>
         <input
@@ -410,7 +416,9 @@ const S3Source = ({ value, onChange }: SubProps<'s3'>) => {
               fullWidth
               label="Access key ID"
               value={value.accessKeyId ?? ''}
-              onChange={e => onChange({ ...value, accessKeyId: e.target.value })}
+              onChange={e =>
+                onChange({ ...value, accessKeyId: e.target.value })
+              }
               className={classes.field}
               required
             />
@@ -421,7 +429,9 @@ const S3Source = ({ value, onChange }: SubProps<'s3'>) => {
               type="password"
               label="Secret access key"
               value={value.secretAccessKey ?? ''}
-              onChange={e => onChange({ ...value, secretAccessKey: e.target.value })}
+              onChange={e =>
+                onChange({ ...value, secretAccessKey: e.target.value })
+              }
               className={classes.field}
               required
             />
@@ -466,7 +476,9 @@ const InstanceSource = ({ value, onChange }: SubProps<'instance'>) => {
           select
           label="Source instance to clone"
           value={value.sourceInstanceId}
-          onChange={e => onChange({ ...value, sourceInstanceId: e.target.value })}
+          onChange={e =>
+            onChange({ ...value, sourceInstanceId: e.target.value })
+          }
           className={classes.field}
           required
           helperText="Only running instances are listed (live pg_dump)."
@@ -488,7 +500,9 @@ const InstanceSource = ({ value, onChange }: SubProps<'instance'>) => {
         control={
           <Checkbox
             checked={Boolean(value.includeFiles)}
-            onChange={e => onChange({ ...value, includeFiles: e.target.checked })}
+            onChange={e =>
+              onChange({ ...value, includeFiles: e.target.checked })
+            }
           />
         }
         label="Also copy the DHIS2 files dir (uploaded resources)"
@@ -507,4 +521,3 @@ export const RestoreSourceClearButton = (props: {
     Clear restore source
   </Button>
 );
-

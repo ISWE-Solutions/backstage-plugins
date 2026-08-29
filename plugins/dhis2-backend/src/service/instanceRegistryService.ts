@@ -150,9 +150,7 @@ export class InstanceRegistryService {
         unreachableReason: message,
       };
     }
-    const registeredKey = new Set(
-      registered.map(i => `${i.node}/${i.vmid}`),
-    );
+    const registeredKey = new Set(registered.map(i => `${i.node}/${i.vmid}`));
     const lxcs = resources.filter(r => r.type === 'lxc');
     const unmanaged: ProxmoxClusterResource[] = [];
     for (const r of lxcs) {

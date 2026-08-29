@@ -278,7 +278,10 @@ export class IPAMService {
 
   async getStatistics(): Promise<IPAMStatistics> {
     const totalSubnets = mockSubnets.length;
-    const totalIPs = mockSubnets.reduce((sum, subnet) => sum + subnet.totalIPs, 0);
+    const totalIPs = mockSubnets.reduce(
+      (sum, subnet) => sum + subnet.totalIPs,
+      0,
+    );
     const allocatedIPs = mockIPAddresses.filter(
       ip => ip.status === IPStatus.ALLOCATED,
     ).length;
@@ -309,7 +312,9 @@ export class IPAMService {
     };
   }
 
-  async addIPAddress(ip: Omit<IPAddress, 'id' | 'createdAt' | 'updatedAt'>): Promise<IPAddress> {
+  async addIPAddress(
+    ip: Omit<IPAddress, 'id' | 'createdAt' | 'updatedAt'>,
+  ): Promise<IPAddress> {
     const newIP: IPAddress = {
       ...ip,
       id: `ip-${Date.now()}`,
@@ -329,7 +334,9 @@ export class IPAMService {
     return newIP;
   }
 
-  async addSubnet(subnet: Omit<Subnet, 'id' | 'createdAt' | 'updatedAt'>): Promise<Subnet> {
+  async addSubnet(
+    subnet: Omit<Subnet, 'id' | 'createdAt' | 'updatedAt'>,
+  ): Promise<Subnet> {
     const newSubnet: Subnet = {
       ...subnet,
       id: `subnet-${Date.now()}`,
@@ -340,7 +347,9 @@ export class IPAMService {
     return newSubnet;
   }
 
-  async addVLAN(vlan: Omit<VLAN, 'id' | 'createdAt' | 'updatedAt'>): Promise<VLAN> {
+  async addVLAN(
+    vlan: Omit<VLAN, 'id' | 'createdAt' | 'updatedAt'>,
+  ): Promise<VLAN> {
     const newVLAN: VLAN = {
       ...vlan,
       id: `vlan-${Date.now()}`,

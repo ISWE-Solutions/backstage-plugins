@@ -24,13 +24,16 @@
 - name: Harden sshd (no root login, no password auth)
   ansible.builtin.lineinfile:
     path: /etc/ssh/sshd_config
-    regexp: "{{ item.regexp }}"
-    line: "{{ item.line }}"
+    regexp: '{{ item.regexp }}'
+    line: '{{ item.line }}'
     state: present
   loop:
-    - { regexp: "^#?PermitRootLogin",                line: "PermitRootLogin no" }
-    - { regexp: "^#?PasswordAuthentication",         line: "PasswordAuthentication no" }
-    - { regexp: "^#?ChallengeResponseAuthentication", line: "ChallengeResponseAuthentication no" }
+    - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin no' }
+    - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
+    - {
+        regexp: '^#?ChallengeResponseAuthentication',
+        line: 'ChallengeResponseAuthentication no',
+      }
   notify: Restart sshd
 
 - name: Create non-root ansible user
@@ -46,13 +49,13 @@
     content: "{{ ansible_user_target | default('ansible') }} ALL=(ALL) NOPASSWD:ALL\n"
     owner: root
     group: root
-    mode: "0440"
-    validate: "/usr/sbin/visudo -cf %s"
+    mode: '0440'
+    validate: '/usr/sbin/visudo -cf %s'
 
 - name: Authorize orchestrator SSH key for ansible user
   ansible.posix.authorized_key:
     user: "{{ ansible_user_target | default('ansible') }}"
-    key: "{{ ansible_user_pubkey }}"
+    key: '{{ ansible_user_pubkey }}'
     state: present
 
 - name: Ensure ssh service is enabled and running

@@ -10,9 +10,7 @@ const nodeFetch: any = (globalThis as any).fetch;
 // in environments where undici is unavailable.
 // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
 const { Agent: UndiciAgent } = require('undici') as {
-  Agent: new (opts: {
-    connect?: { rejectUnauthorized?: boolean };
-  }) => unknown;
+  Agent: new (opts: { connect?: { rejectUnauthorized?: boolean } }) => unknown;
 };
 
 /**
@@ -137,7 +135,10 @@ async function request<T>(
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(
-        `Proxmox ${method} ${path} failed (HTTP ${res.status}): ${text.slice(0, 200)}`,
+        `Proxmox ${method} ${path} failed (HTTP ${res.status}): ${text.slice(
+          0,
+          200,
+        )}`,
       );
     }
     const json = (await res.json()) as { data?: T };
@@ -182,7 +183,9 @@ export async function getLxcConfig(
     (await request<Record<string, unknown>>(
       c,
       'GET',
-      `/nodes/${encodeURIComponent(node)}/lxc/${encodeURIComponent(String(vmid))}/config`,
+      `/nodes/${encodeURIComponent(node)}/lxc/${encodeURIComponent(
+        String(vmid),
+      )}/config`,
     )) ?? {}
   );
 }
@@ -217,7 +220,9 @@ export async function ensureLxcTags(
   await request(
     c,
     'PUT',
-    `/nodes/${encodeURIComponent(node)}/lxc/${encodeURIComponent(String(vmid))}/config`,
+    `/nodes/${encodeURIComponent(node)}/lxc/${encodeURIComponent(
+      String(vmid),
+    )}/config`,
     { tags: merged },
   );
   return merged;
@@ -260,7 +265,9 @@ export async function getLxcIpv4(
   >(
     c,
     'GET',
-    `/nodes/${encodeURIComponent(node)}/lxc/${encodeURIComponent(String(vmid))}/interfaces`,
+    `/nodes/${encodeURIComponent(node)}/lxc/${encodeURIComponent(
+      String(vmid),
+    )}/interfaces`,
   );
   if (!Array.isArray(data)) return undefined;
   for (const iface of data) {

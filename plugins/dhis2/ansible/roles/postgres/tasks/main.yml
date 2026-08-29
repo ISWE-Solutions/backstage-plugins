@@ -43,9 +43,9 @@
 - name: Install PostgreSQL packages
   ansible.builtin.apt:
     name:
-      - "postgresql-{{ postgresql_version }}"
-      - "postgresql-contrib-{{ postgresql_version }}"
-      - "postgresql-{{ postgresql_version }}-postgis-3"
+      - 'postgresql-{{ postgresql_version }}'
+      - 'postgresql-contrib-{{ postgresql_version }}'
+      - 'postgresql-{{ postgresql_version }}-postgis-3'
       - python3-psycopg2
     state: present
     update_cache: true
@@ -100,10 +100,10 @@
         state: stopped
     - name: Drop the default cluster
       ansible.builtin.command:
-        cmd: "pg_dropcluster --stop {{ postgresql_version }} main"
+        cmd: 'pg_dropcluster --stop {{ postgresql_version }} main'
     - name: Recreate the default cluster with en_US.UTF-8
       ansible.builtin.command:
-        cmd: "pg_createcluster --locale en_US.UTF-8 {{ postgresql_version }} main"
+        cmd: 'pg_createcluster --locale en_US.UTF-8 {{ postgresql_version }} main'
     - name: Start PostgreSQL after recreating the cluster
       ansible.builtin.systemd:
         name: postgresql
@@ -116,13 +116,13 @@
 # (often 10-20 min), which previously appeared as a stalled provision.
 - name: Apply PostgreSQL tuning parameters
   ansible.builtin.lineinfile:
-    path: "/etc/postgresql/{{ postgresql_version }}/main/postgresql.conf"
+    path: '/etc/postgresql/{{ postgresql_version }}/main/postgresql.conf'
     regexp: "^#?\\s*{{ item.key }}\\s*="
-    line: "{{ item.key }} = {{ item.value }}"
+    line: '{{ item.key }} = {{ item.value }}'
     state: present
   loop:
-    - { key: "max_connections", value: "{{ postgresql_max_connections }}" }
-    - { key: "shared_buffers", value: "{{ postgresql_shared_buffers }}" }
+    - { key: 'max_connections', value: '{{ postgresql_max_connections }}' }
+    - { key: 'shared_buffers', value: '{{ postgresql_shared_buffers }}' }
   notify: Restart PostgreSQL
   when: not (dhis2_db_remote | default(false) | bool)
 
@@ -136,15 +136,15 @@
 
 - name: Verify orchestrator can reach the configured PostgreSQL host
   community.postgresql.postgresql_ping:
-    login_host: "{{ dhis2_db_host }}"
-    login_port: "{{ dhis2_db_port }}"
-    login_user: "{{ dhis2_db_admin_user }}"
-    login_password: "{{ dhis2_db_admin_password }}"
+    login_host: '{{ dhis2_db_host }}'
+    login_port: '{{ dhis2_db_port }}'
+    login_user: '{{ dhis2_db_admin_user }}'
+    login_password: '{{ dhis2_db_admin_password }}'
     db: postgres
   delegate_to: 127.0.0.1
   become: false
   when: dhis2_db_remote | default(false) | bool
-  no_log: "{{ not (dhis2_debug | default(false) | bool) }}"
+  no_log: '{{ not (dhis2_debug | default(false) | bool) }}'
 
 # ---------------------------------------------------------------------------
 # DB-management tasks (apply in both modes; conditional become / delegate).
@@ -152,17 +152,17 @@
 
 - name: Create DHIS2 database user
   community.postgresql.postgresql_user:
-    name: "{{ dhis2_db_user }}"
-    password: "{{ dhis2_db_password }}"
+    name: '{{ dhis2_db_user }}'
+    password: '{{ dhis2_db_password }}'
     state: present
-    login_host: "{{ dhis2_db_host if (dhis2_db_remote | default(false) | bool) else omit }}"
-    login_port: "{{ dhis2_db_port if (dhis2_db_remote | default(false) | bool) else omit }}"
-    login_user: "{{ dhis2_db_admin_user if (dhis2_db_remote | default(false) | bool) else omit }}"
-    login_password: "{{ dhis2_db_admin_password if (dhis2_db_remote | default(false) | bool) else omit }}"
+    login_host: '{{ dhis2_db_host if (dhis2_db_remote | default(false) | bool) else omit }}'
+    login_port: '{{ dhis2_db_port if (dhis2_db_remote | default(false) | bool) else omit }}'
+    login_user: '{{ dhis2_db_admin_user if (dhis2_db_remote | default(false) | bool) else omit }}'
+    login_password: '{{ dhis2_db_admin_password if (dhis2_db_remote | default(false) | bool) else omit }}'
   delegate_to: "{{ '127.0.0.1' if (dhis2_db_remote | default(false) | bool) else inventory_hostname }}"
-  become: "{{ not (dhis2_db_remote | default(false) | bool) }}"
+  become: '{{ not (dhis2_db_remote | default(false) | bool) }}'
   become_user: "{{ omit if (dhis2_db_remote | default(false) | bool) else 'postgres' }}"
-  no_log: "{{ not (dhis2_debug | default(false) | bool) }}"
+  no_log: '{{ not (dhis2_debug | default(false) | bool) }}'
 
 - name: Set stable session timeouts for DHIS2 database user
   community.postgresql.postgresql_query:
@@ -170,27 +170,27 @@
       ALTER ROLE "{{ dhis2_db_user }}" SET idle_in_transaction_session_timeout = 0;
       ALTER ROLE "{{ dhis2_db_user }}" SET statement_timeout = 0;
       ALTER ROLE "{{ dhis2_db_user }}" SET lock_timeout = 0;
-    login_host: "{{ dhis2_db_host if (dhis2_db_remote | default(false) | bool) else omit }}"
-    login_port: "{{ dhis2_db_port if (dhis2_db_remote | default(false) | bool) else omit }}"
-    login_user: "{{ dhis2_db_admin_user if (dhis2_db_remote | default(false) | bool) else omit }}"
-    login_password: "{{ dhis2_db_admin_password if (dhis2_db_remote | default(false) | bool) else omit }}"
+    login_host: '{{ dhis2_db_host if (dhis2_db_remote | default(false) | bool) else omit }}'
+    login_port: '{{ dhis2_db_port if (dhis2_db_remote | default(false) | bool) else omit }}'
+    login_user: '{{ dhis2_db_admin_user if (dhis2_db_remote | default(false) | bool) else omit }}'
+    login_password: '{{ dhis2_db_admin_password if (dhis2_db_remote | default(false) | bool) else omit }}'
   delegate_to: "{{ '127.0.0.1' if (dhis2_db_remote | default(false) | bool) else inventory_hostname }}"
-  become: "{{ not (dhis2_db_remote | default(false) | bool) }}"
+  become: '{{ not (dhis2_db_remote | default(false) | bool) }}'
   become_user: "{{ omit if (dhis2_db_remote | default(false) | bool) else 'postgres' }}"
 
 - name: Ensure provisioning admin role exists
   community.postgresql.postgresql_user:
-    name: "{{ dhis2_db_admin_user }}"
-    password: "{{ dhis2_db_admin_password }}"
+    name: '{{ dhis2_db_admin_user }}'
+    password: '{{ dhis2_db_admin_password }}'
     state: present
-    login_host: "{{ dhis2_db_host if (dhis2_db_remote | default(false) | bool) else omit }}"
-    login_port: "{{ dhis2_db_port if (dhis2_db_remote | default(false) | bool) else omit }}"
-    login_user: "{{ dhis2_db_admin_user if (dhis2_db_remote | default(false) | bool) else omit }}"
-    login_password: "{{ dhis2_db_admin_password if (dhis2_db_remote | default(false) | bool) else omit }}"
+    login_host: '{{ dhis2_db_host if (dhis2_db_remote | default(false) | bool) else omit }}'
+    login_port: '{{ dhis2_db_port if (dhis2_db_remote | default(false) | bool) else omit }}'
+    login_user: '{{ dhis2_db_admin_user if (dhis2_db_remote | default(false) | bool) else omit }}'
+    login_password: '{{ dhis2_db_admin_password if (dhis2_db_remote | default(false) | bool) else omit }}'
   delegate_to: "{{ '127.0.0.1' if (dhis2_db_remote | default(false) | bool) else inventory_hostname }}"
-  become: "{{ not (dhis2_db_remote | default(false) | bool) }}"
+  become: '{{ not (dhis2_db_remote | default(false) | bool) }}'
   become_user: "{{ omit if (dhis2_db_remote | default(false) | bool) else 'postgres' }}"
-  no_log: "{{ not (dhis2_debug | default(false) | bool) }}"
+  no_log: '{{ not (dhis2_debug | default(false) | bool) }}'
   when:
     # In remote mode the admin role is assumed to already exist on the
     # shared host (and we are authenticating as it). Only auto-provision
@@ -202,49 +202,49 @@
 
 - name: Create DHIS2 database
   community.postgresql.postgresql_db:
-    name: "{{ dhis2_db_name }}"
-    owner: "{{ dhis2_db_user }}"
+    name: '{{ dhis2_db_name }}'
+    owner: '{{ dhis2_db_user }}'
     encoding: UTF-8
     lc_collate: en_US.UTF-8
     lc_ctype: en_US.UTF-8
     template: template0
     state: present
-    login_host: "{{ dhis2_db_host if (dhis2_db_remote | default(false) | bool) else omit }}"
-    login_port: "{{ dhis2_db_port if (dhis2_db_remote | default(false) | bool) else omit }}"
-    login_user: "{{ dhis2_db_admin_user if (dhis2_db_remote | default(false) | bool) else omit }}"
-    login_password: "{{ dhis2_db_admin_password if (dhis2_db_remote | default(false) | bool) else omit }}"
+    login_host: '{{ dhis2_db_host if (dhis2_db_remote | default(false) | bool) else omit }}'
+    login_port: '{{ dhis2_db_port if (dhis2_db_remote | default(false) | bool) else omit }}'
+    login_user: '{{ dhis2_db_admin_user if (dhis2_db_remote | default(false) | bool) else omit }}'
+    login_password: '{{ dhis2_db_admin_password if (dhis2_db_remote | default(false) | bool) else omit }}'
   delegate_to: "{{ '127.0.0.1' if (dhis2_db_remote | default(false) | bool) else inventory_hostname }}"
-  become: "{{ not (dhis2_db_remote | default(false) | bool) }}"
+  become: '{{ not (dhis2_db_remote | default(false) | bool) }}'
   become_user: "{{ omit if (dhis2_db_remote | default(false) | bool) else 'postgres' }}"
   when: not (dhis2_db_existing | default(false) | bool)
 
 - name: Install required PostgreSQL extensions
   community.postgresql.postgresql_ext:
-    name: "{{ item }}"
-    db: "{{ dhis2_db_name }}"
+    name: '{{ item }}'
+    db: '{{ dhis2_db_name }}'
     state: present
-    login_host: "{{ dhis2_db_host if (dhis2_db_remote | default(false) | bool) else omit }}"
-    login_port: "{{ dhis2_db_port if (dhis2_db_remote | default(false) | bool) else omit }}"
-    login_user: "{{ dhis2_db_admin_user if (dhis2_db_remote | default(false) | bool) else omit }}"
-    login_password: "{{ dhis2_db_admin_password if (dhis2_db_remote | default(false) | bool) else omit }}"
-  loop: "{{ postgresql_extensions }}"
+    login_host: '{{ dhis2_db_host if (dhis2_db_remote | default(false) | bool) else omit }}'
+    login_port: '{{ dhis2_db_port if (dhis2_db_remote | default(false) | bool) else omit }}'
+    login_user: '{{ dhis2_db_admin_user if (dhis2_db_remote | default(false) | bool) else omit }}'
+    login_password: '{{ dhis2_db_admin_password if (dhis2_db_remote | default(false) | bool) else omit }}'
+  loop: '{{ postgresql_extensions }}'
   delegate_to: "{{ '127.0.0.1' if (dhis2_db_remote | default(false) | bool) else inventory_hostname }}"
-  become: "{{ not (dhis2_db_remote | default(false) | bool) }}"
+  become: '{{ not (dhis2_db_remote | default(false) | bool) }}'
   become_user: "{{ omit if (dhis2_db_remote | default(false) | bool) else 'postgres' }}"
 
 - name: Grant database privileges to DHIS2 user
   community.postgresql.postgresql_privs:
-    db: "{{ dhis2_db_name }}"
-    roles: "{{ dhis2_db_user }}"
+    db: '{{ dhis2_db_name }}'
+    roles: '{{ dhis2_db_user }}'
     type: database
     privs: ALL
     state: present
-    login_host: "{{ dhis2_db_host if (dhis2_db_remote | default(false) | bool) else omit }}"
-    login_port: "{{ dhis2_db_port if (dhis2_db_remote | default(false) | bool) else omit }}"
-    login_user: "{{ dhis2_db_admin_user if (dhis2_db_remote | default(false) | bool) else omit }}"
-    login_password: "{{ dhis2_db_admin_password if (dhis2_db_remote | default(false) | bool) else omit }}"
+    login_host: '{{ dhis2_db_host if (dhis2_db_remote | default(false) | bool) else omit }}'
+    login_port: '{{ dhis2_db_port if (dhis2_db_remote | default(false) | bool) else omit }}'
+    login_user: '{{ dhis2_db_admin_user if (dhis2_db_remote | default(false) | bool) else omit }}'
+    login_password: '{{ dhis2_db_admin_password if (dhis2_db_remote | default(false) | bool) else omit }}'
   delegate_to: "{{ '127.0.0.1' if (dhis2_db_remote | default(false) | bool) else inventory_hostname }}"
-  become: "{{ not (dhis2_db_remote | default(false) | bool) }}"
+  become: '{{ not (dhis2_db_remote | default(false) | bool) }}'
   become_user: "{{ omit if (dhis2_db_remote | default(false) | bool) else 'postgres' }}"
 
 - name: Restore database backup if requested

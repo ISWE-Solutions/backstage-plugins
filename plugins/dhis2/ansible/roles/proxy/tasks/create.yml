@@ -28,25 +28,25 @@
 
 - name: Ensure nginx config directories exist
   ansible.builtin.file:
-    path: "{{ item }}"
+    path: '{{ item }}'
     state: directory
     owner: root
     group: root
-    mode: "0755"
+    mode: '0755'
   loop:
-    - "{{ host_proxy_upstream_dir }}"
-    - "{{ host_proxy_sites_available }}"
-    - "{{ host_proxy_sites_enabled }}"
+    - '{{ host_proxy_upstream_dir }}'
+    - '{{ host_proxy_sites_available }}'
+    - '{{ host_proxy_sites_enabled }}'
 
 # Webroot for certbot --webroot. Needs to exist before nginx tries to
 # serve /.well-known/acme-challenge/ out of it.
 - name: Ensure certbot webroot exists
   ansible.builtin.file:
-    path: "{{ host_proxy_webroot }}"
+    path: '{{ host_proxy_webroot }}'
     state: directory
     owner: root
     group: root
-    mode: "0755"
+    mode: '0755'
   when: not host_proxy_skip_certbot | bool
 
 # Detect whether the base-domain cert already exists. The base vhost
@@ -58,12 +58,12 @@
 # create.
 - name: Check whether base-domain TLS cert already exists
   ansible.builtin.stat:
-    path: "/etc/letsencrypt/live/{{ host_proxy_base_domain }}/fullchain.pem"
+    path: '/etc/letsencrypt/live/{{ host_proxy_base_domain }}/fullchain.pem'
   register: host_proxy_cert_stat
 
 - name: Set cert_present fact (pre-certbot)
   ansible.builtin.set_fact:
-    host_proxy_cert_present: "{{ host_proxy_cert_stat.stat.exists | bool }}"
+    host_proxy_cert_present: '{{ host_proxy_cert_stat.stat.exists | bool }}'
 
 # Path-based mode: per-instance file contains only a 'location /<inst>/'
 # block; the base vhost terminates TLS and includes
@@ -72,10 +72,10 @@
 - name: Write per-instance location snippet (path-based)
   ansible.builtin.template:
     src: per_instance_path.conf.j2
-    dest: "{{ host_proxy_upstream_file }}"
+    dest: '{{ host_proxy_upstream_file }}'
     owner: root
     group: root
-    mode: "0644"
+    mode: '0644'
   when: host_proxy_routing_mode == 'path'
   notify: reload nginx
 
@@ -87,14 +87,14 @@
 # copy from the previous layout before writing the new one.
 - name: Remove stale <base>.conf site file from previous layout
   ansible.builtin.file:
-    path: "{{ host_proxy_site_file }}.conf"
+    path: '{{ host_proxy_site_file }}.conf'
     state: absent
   when: host_proxy_routing_mode == 'path'
   notify: reload nginx
 
 - name: Remove stale <base>.conf sites-enabled symlink from previous layout
   ansible.builtin.file:
-    path: "{{ host_proxy_site_link }}.conf"
+    path: '{{ host_proxy_site_link }}.conf'
     state: absent
   when: host_proxy_routing_mode == 'path'
   notify: reload nginx
@@ -102,10 +102,10 @@
 - name: Write shared base vhost (path-based)
   ansible.builtin.template:
     src: base_path_vhost.conf.j2
-    dest: "{{ host_proxy_site_file }}"
+    dest: '{{ host_proxy_site_file }}'
     owner: root
     group: root
-    mode: "0644"
+    mode: '0644'
   when: host_proxy_routing_mode == 'path'
   notify: reload nginx
 
@@ -114,20 +114,20 @@
 - name: Write upstream file (subdomain)
   ansible.builtin.template:
     src: subdomain_upstream.conf.j2
-    dest: "{{ host_proxy_upstream_file }}"
+    dest: '{{ host_proxy_upstream_file }}'
     owner: root
     group: root
-    mode: "0644"
+    mode: '0644'
   when: host_proxy_routing_mode == 'subdomain'
   notify: reload nginx
 
 - name: Write site file (subdomain)
   ansible.builtin.template:
     src: subdomain_vhost.conf.j2
-    dest: "{{ host_proxy_site_file }}"
+    dest: '{{ host_proxy_site_file }}'
     owner: root
     group: root
-    mode: "0644"
+    mode: '0644'
   when: host_proxy_routing_mode == 'subdomain'
   notify: reload nginx
 
@@ -138,8 +138,8 @@
 # symlinking a file onto itself.
 - name: Enable site via sites-enabled symlink
   ansible.builtin.file:
-    src: "{{ host_proxy_site_file }}"
-    dest: "{{ host_proxy_site_link }}"
+    src: '{{ host_proxy_site_file }}'
+    dest: '{{ host_proxy_site_link }}'
     state: link
     force: true
   when: host_proxy_sites_available != host_proxy_sites_enabled
@@ -156,7 +156,7 @@
 # Reload nginx first so the just-written bootstrap vhost (HTTP-only)
 # is active and serving /.well-known/acme-challenge/ out of the webroot.
 - name: Reload nginx so the bootstrap vhost serves ACME challenges
-  ansible.builtin.command: "{{ host_proxy_nginx_reload_cmd }}"
+  ansible.builtin.command: '{{ host_proxy_nginx_reload_cmd }}'
   when:
     - not host_proxy_skip_certbot | bool
     - not host_proxy_cert_present | bool
@@ -171,8 +171,9 @@
       --non-interactive --agree-tos
       --email {{ host_proxy_email | quote }}
   register: host_proxy_certbot
-  changed_when: "'Successfully received certificate' in host_proxy_certbot.stdout
-                  or 'Renewing' in host_proxy_certbot.stdout"
+  changed_when:
+    "'Successfully received certificate' in host_proxy_certbot.stdout
+    or 'Renewing' in host_proxy_certbot.stdout"
   failed_when:
     - host_proxy_certbot.rc != 0
     - "'not yet due for renewal' not in host_proxy_certbot.stdout"
@@ -185,13 +186,13 @@
 # without breaking nginx on the first.
 - name: Re-check base-domain TLS cert after certbot
   ansible.builtin.stat:
-    path: "/etc/letsencrypt/live/{{ host_proxy_base_domain }}/fullchain.pem"
+    path: '/etc/letsencrypt/live/{{ host_proxy_base_domain }}/fullchain.pem'
   register: host_proxy_cert_stat_post
   when: not host_proxy_skip_certbot | bool
 
 - name: Update cert_present fact (post-certbot)
   ansible.builtin.set_fact:
-    host_proxy_cert_present: "{{ host_proxy_cert_stat_post.stat.exists | bool }}"
+    host_proxy_cert_present: '{{ host_proxy_cert_stat_post.stat.exists | bool }}'
   when:
     - not host_proxy_skip_certbot | bool
     - host_proxy_cert_stat_post is defined
@@ -199,10 +200,10 @@
 - name: Re-write shared base vhost with SSL enabled (path-based)
   ansible.builtin.template:
     src: base_path_vhost.conf.j2
-    dest: "{{ host_proxy_site_file }}"
+    dest: '{{ host_proxy_site_file }}'
     owner: root
     group: root
-    mode: "0644"
+    mode: '0644'
   when:
     - host_proxy_routing_mode == 'path'
     - host_proxy_cert_present | bool
@@ -211,10 +212,10 @@
 - name: Re-write site file with SSL enabled (subdomain)
   ansible.builtin.template:
     src: subdomain_vhost.conf.j2
-    dest: "{{ host_proxy_site_file }}"
+    dest: '{{ host_proxy_site_file }}'
     owner: root
     group: root
-    mode: "0644"
+    mode: '0644'
   when:
     - host_proxy_routing_mode == 'subdomain'
     - host_proxy_cert_present | bool
@@ -225,7 +226,7 @@
 # server_name / file path in the output than buried in journalctl after
 # a failed reload.
 - name: Validate nginx configuration
-  ansible.builtin.command: "{{ host_proxy_nginx_validate_cmd }}"
+  ansible.builtin.command: '{{ host_proxy_nginx_validate_cmd }}'
   register: host_proxy_nginx_t
   changed_when: false
 

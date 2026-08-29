@@ -67,7 +67,10 @@ export class ProxmoxService {
   /**
    * Get container details
    */
-  async getContainer(_node: string, _vmid: string): Promise<LXCContainer | null> {
+  async getContainer(
+    _node: string,
+    _vmid: string,
+  ): Promise<LXCContainer | null> {
     // In production: GET /api2/json/nodes/{node}/lxc/{vmid}/status/current
     return null;
   }
@@ -162,7 +165,10 @@ export class ProxmoxService {
   /**
    * Get container configuration
    */
-  async getContainerConfig(_node: string, _vmid: string): Promise<LXCConfig | null> {
+  async getContainerConfig(
+    _node: string,
+    _vmid: string,
+  ): Promise<LXCConfig | null> {
     // In production: GET /api2/json/nodes/{node}/lxc/{vmid}/config
     return null;
   }

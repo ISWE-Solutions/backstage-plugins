@@ -192,8 +192,8 @@ interface EditDraft {
   dbPassword: string;
   /**
    * SSH private-key path used to reach the PVE host that runs
-    * `pct exec` against this instance's LXC. Optional per-edit override;
-    * when empty the backend uses its configured default orchestrator key.
+   * `pct exec` against this instance's LXC. Optional per-edit override;
+   * when empty the backend uses its configured default orchestrator key.
    */
   sshKeyPath: string;
   tomcatVersion: '9' | '10';
@@ -208,9 +208,11 @@ const DEFAULT_PG_PORT = 5432;
  */
 const driftChipFor = (
   status: DHIS2Instance['driftStatus'],
-):
-  | { label: string; tooltip: string; color: 'default' | 'secondary' }
-  | null => {
+): {
+  label: string;
+  tooltip: string;
+  color: 'default' | 'secondary';
+} | null => {
   switch (status) {
     case 'missing':
       return {
@@ -305,7 +307,9 @@ function buildProxyLogFilename(v: LogsView): string {
     const base = v.path.split('/').pop() || `nginx-${v.kind}.log`;
     return `${base.replace(/\.log$/, '')}-${stamp}.log`;
   }
-  const scope = v.domain ? v.domain.replace(/[^A-Za-z0-9._-]+/g, '_') : 'global';
+  const scope = v.domain
+    ? v.domain.replace(/[^A-Za-z0-9._-]+/g, '_')
+    : 'global';
   return `nginx-${v.kind}-${scope}-${stamp}.log`;
 }
 
@@ -404,9 +408,8 @@ export const DHIS2InstancesPanel = ({
     () => settingsService.load().proxy,
   );
   const [proxySettingsOpen, setProxySettingsOpen] = useState(false);
-  const [proxyDraft, setProxyDraft] = useState<ProxyServerSettings>(
-    proxyDefaults,
-  );
+  const [proxyDraft, setProxyDraft] =
+    useState<ProxyServerSettings>(proxyDefaults);
   const [proxyBusy, setProxyBusy] = useState<string | null>(null);
   const [disabledSites, setDisabledSites] = useState<Record<string, boolean>>(
     {},
@@ -563,7 +566,10 @@ export const DHIS2InstancesPanel = ({
 
   useEffect(() => {
     if (versions.length === 0) {
-      dhis2Service.getVersions().then(setVersions).catch(() => {});
+      dhis2Service
+        .getVersions()
+        .then(setVersions)
+        .catch(() => {});
     }
   }, [versions.length]);
 
@@ -593,8 +599,7 @@ export const DHIS2InstancesPanel = ({
   }, [instances, versions]);
 
   const instancesWithHotfix = useMemo(
-    () =>
-      instances.filter(i => !!hotfixByInstance.get(i.id)?.hotfix),
+    () => instances.filter(i => !!hotfixByInstance.get(i.id)?.hotfix),
     [instances, hotfixByInstance],
   );
 
@@ -612,7 +617,14 @@ export const DHIS2InstancesPanel = ({
         i.database.name.toLowerCase().includes(q)
       );
     });
-  }, [instances, search, statusFilter, nodeFilter, hotfixOnly, hotfixByInstance]);
+  }, [
+    instances,
+    search,
+    statusFilter,
+    nodeFilter,
+    hotfixOnly,
+    hotfixByInstance,
+  ]);
 
   const selectedInstances = filtered.filter(i => selected.has(i.id));
 
@@ -656,14 +668,17 @@ export const DHIS2InstancesPanel = ({
       () => onRestart(instance.id),
     );
 
-  const handleDelete = (instance: DHIS2Instance) =>
-    setDeleteTarget(instance);
+  const handleDelete = (instance: DHIS2Instance) => setDeleteTarget(instance);
 
   const handleRefreshOne = (instance: DHIS2Instance) =>
-    runAction(`refresh:${instance.id}`, `Refresh ${instance.name}`, async () => {
-      await dhis2Service.refreshInstance(instance.id);
-      onChanged?.();
-    });
+    runAction(
+      `refresh:${instance.id}`,
+      `Refresh ${instance.name}`,
+      async () => {
+        await dhis2Service.refreshInstance(instance.id);
+        onChanged?.();
+      },
+    );
 
   const handleBackup = (instance: DHIS2Instance) =>
     runAction(`backup:${instance.id}`, `Backup ${instance.name}`, async () => {
@@ -874,7 +889,11 @@ export const DHIS2InstancesPanel = ({
         variant="outlined"
         size="small"
         startIcon={
-          proxyBusy === 'test' ? <CircularProgress size={14} /> : <CheckCircleIcon />
+          proxyBusy === 'test' ? (
+            <CircularProgress size={14} />
+          ) : (
+            <CheckCircleIcon />
+          )
         }
         onClick={handleTestProxyConfig}
         disabled={!!proxyBusy}
@@ -885,7 +904,11 @@ export const DHIS2InstancesPanel = ({
         variant="outlined"
         size="small"
         startIcon={
-          proxyBusy === 'reload' ? <CircularProgress size={14} /> : <AutorenewIcon />
+          proxyBusy === 'reload' ? (
+            <CircularProgress size={14} />
+          ) : (
+            <AutorenewIcon />
+          )
         }
         onClick={handleReloadProxyNginx}
         disabled={!!proxyBusy}
@@ -996,7 +1019,12 @@ export const DHIS2InstancesPanel = ({
                   inputProps={{ 'aria-label': `Select ${instance.name}` }}
                 />
                 <Box>
-                  <Box display="flex" alignItems="center" flexWrap="wrap" style={{ gap: 8 }}>
+                  <Box
+                    display="flex"
+                    alignItems="center"
+                    flexWrap="wrap"
+                    style={{ gap: 8 }}
+                  >
                     <Typography variant="h5" style={{ marginRight: 4 }}>
                       {instance.name}
                     </Typography>
@@ -1006,7 +1034,11 @@ export const DHIS2InstancesPanel = ({
                           label={`Hotfix → ${hotfix}`}
                           size="small"
                           clickable
-                          icon={<SystemUpdateAltIcon style={{ fontSize: 16, color: '#fff' }} />}
+                          icon={
+                            <SystemUpdateAltIcon
+                              style={{ fontSize: 16, color: '#fff' }}
+                            />
+                          }
                           onClick={() =>
                             setReleaseInfo({
                               open: true,
@@ -1026,7 +1058,9 @@ export const DHIS2InstancesPanel = ({
                           size="small"
                           clickable
                           variant="outlined"
-                          icon={<SystemUpdateAltIcon style={{ fontSize: 16 }} />}
+                          icon={
+                            <SystemUpdateAltIcon style={{ fontSize: 16 }} />
+                          }
                           onClick={() =>
                             setReleaseInfo({
                               open: true,
@@ -1040,7 +1074,11 @@ export const DHIS2InstancesPanel = ({
                       </Tooltip>
                     )}
                   </Box>
-                  <Typography variant="body2" color="textSecondary" style={{ marginTop: 4 }}>
+                  <Typography
+                    variant="body2"
+                    color="textSecondary"
+                    style={{ marginTop: 4 }}
+                  >
                     <strong>Version:</strong> {instance.version} |{' '}
                     <strong>Node:</strong> {instance.node} |{' '}
                     <strong>VMID:</strong> {instance.vmid}
@@ -1078,7 +1116,11 @@ export const DHIS2InstancesPanel = ({
                   </Typography>
                   <Typography variant="body2" color="textSecondary">
                     <strong>Public URL:</strong>{' '}
-                    <a href={publicUrl} target="_blank" rel="noopener noreferrer">
+                    <a
+                      href={publicUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
                       {publicUrl}
                     </a>
                   </Typography>
@@ -1103,7 +1145,12 @@ export const DHIS2InstancesPanel = ({
                 </Box>
               </Box>
               <Box display="flex" flexDirection="column" alignItems="flex-end">
-                <Box display="flex" alignItems="center" flexWrap="wrap" justifyContent="flex-end">
+                <Box
+                  display="flex"
+                  alignItems="center"
+                  flexWrap="wrap"
+                  justifyContent="flex-end"
+                >
                   <Chip
                     label={instance.status}
                     color={getInstanceStatusColor(instance.status)}
@@ -1138,7 +1185,9 @@ export const DHIS2InstancesPanel = ({
                     </Tooltip>
                   )}
                   <Chip
-                    label={proxyDefaults.mode === 'subdomain' ? 'subdomain' : 'path'}
+                    label={
+                      proxyDefaults.mode === 'subdomain' ? 'subdomain' : 'path'
+                    }
                     size="small"
                     variant="outlined"
                     className={classes.statusChip}
@@ -1169,185 +1218,190 @@ export const DHIS2InstancesPanel = ({
                   )}
                 </Box>
                 <Box className={classes.actionButtons} style={{ marginTop: 8 }}>
-                <Tooltip title="Open DHIS2 in new tab">
-                  <IconButton
-                    onClick={() =>
-                      window.open(
-                        instance.url,
-                        '_blank',
-                        'noopener,noreferrer',
-                      )
-                    }
-                  >
-                    <OpenInNewIcon />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Refresh status">
-                  <IconButton
-                    onClick={() => handleRefreshOne(instance)}
-                    disabled={isBusy('refresh')}
-                  >
-                    {isBusy('refresh') ? (
-                      <CircularProgress size={20} />
-                    ) : (
-                      <RefreshIcon />
-                    )}
-                  </IconButton>
-                </Tooltip>
-                {instance.status === 'stopped' && (
-                  <Tooltip title="Start">
+                  <Tooltip title="Open DHIS2 in new tab">
                     <IconButton
-                      color="primary"
-                      onClick={() => onStart(instance.id)}
+                      onClick={() =>
+                        window.open(
+                          instance.url,
+                          '_blank',
+                          'noopener,noreferrer',
+                        )
+                      }
                     >
-                      <PlayArrowIcon />
+                      <OpenInNewIcon />
                     </IconButton>
                   </Tooltip>
-                )}
-                {instance.status === 'running' && (
-                  <Tooltip title="Stop">
+                  <Tooltip title="Refresh status">
+                    <IconButton
+                      onClick={() => handleRefreshOne(instance)}
+                      disabled={isBusy('refresh')}
+                    >
+                      {isBusy('refresh') ? (
+                        <CircularProgress size={20} />
+                      ) : (
+                        <RefreshIcon />
+                      )}
+                    </IconButton>
+                  </Tooltip>
+                  {instance.status === 'stopped' && (
+                    <Tooltip title="Start">
+                      <IconButton
+                        color="primary"
+                        onClick={() => onStart(instance.id)}
+                      >
+                        <PlayArrowIcon />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                  {instance.status === 'running' && (
+                    <Tooltip title="Stop">
+                      <IconButton
+                        color="secondary"
+                        onClick={() => handleStop(instance)}
+                      >
+                        <StopIcon />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                  {instance.status === 'running' && (
+                    <Tooltip title="Restart">
+                      <IconButton onClick={() => handleRestart(instance)}>
+                        <ReplayIcon />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                  {instance.status === 'running' && (
+                    <Tooltip title="View logs">
+                      <IconButton onClick={() => onViewLogs(instance)}>
+                        <DescriptionIcon />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                  <Tooltip title="View nginx access log for this site">
+                    <IconButton
+                      onClick={() => void openProxyLogs('access', instance)}
+                    >
+                      <ListAltIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="View nginx error log for this site">
+                    <IconButton
+                      onClick={() => void openProxyLogs('error', instance)}
+                    >
+                      <ErrorOutlineIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Reload nginx for this site">
+                    <IconButton
+                      disabled={isProxyBusy('reload')}
+                      onClick={() => reloadProxySite(instance.domain)}
+                    >
+                      {isProxyBusy('reload') ? (
+                        <CircularProgress size={20} />
+                      ) : (
+                        <AutorenewIcon />
+                      )}
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Renew SSL certificate">
+                    <IconButton
+                      disabled={isProxyBusy('ssl')}
+                      onClick={() => renewProxySsl(instance.domain)}
+                    >
+                      {isProxyBusy('ssl') ? (
+                        <CircularProgress size={20} />
+                      ) : (
+                        <VpnLockIcon />
+                      )}
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip
+                    title={
+                      disabledSites[instance.domain]
+                        ? 'Enable site'
+                        : 'Disable site'
+                    }
+                  >
+                    <IconButton
+                      disabled={isProxyBusy('toggle')}
+                      onClick={() =>
+                        toggleProxySite(
+                          instance.domain,
+                          !!disabledSites[instance.domain],
+                        )
+                      }
+                    >
+                      {isProxyBusy('toggle') ? (
+                        <CircularProgress size={20} />
+                      ) : disabledSites[instance.domain] ? (
+                        <CheckCircleIcon />
+                      ) : (
+                        <BlockIcon />
+                      )}
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Backup now">
+                    <IconButton
+                      onClick={() => handleBackup(instance)}
+                      disabled={isBusy('backup')}
+                    >
+                      {isBusy('backup') ? (
+                        <CircularProgress size={20} />
+                      ) : (
+                        <BackupIcon />
+                      )}
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Restore from backup">
+                    <IconButton onClick={() => onRestore(instance)}>
+                      <SettingsBackupRestoreIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Transfer database to another server">
+                    <IconButton onClick={() => setTransferTarget(instance)}>
+                      <SwapHorizIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Clone to new environment">
+                    <span>
+                      <IconButton
+                        onClick={() => onClone?.(instance)}
+                        disabled={!onClone}
+                      >
+                        <FileCopyIcon />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                  <Tooltip title="Upgrade DHIS2 WAR">
+                    <span>
+                      <IconButton
+                        onClick={() => onUpgrade?.(instance)}
+                        disabled={!onUpgrade}
+                      >
+                        <SystemUpdateAltIcon />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                  <Tooltip title="Edit settings">
+                    <IconButton
+                      onClick={() => handleOpenEdit(instance)}
+                      disabled={isBusy('edit')}
+                    >
+                      {isBusy('edit') ? (
+                        <CircularProgress size={20} />
+                      ) : (
+                        <SettingsIcon />
+                      )}
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Delete">
                     <IconButton
                       color="secondary"
-                      onClick={() => handleStop(instance)}
+                      onClick={() => handleDelete(instance)}
                     >
-                      <StopIcon />
+                      <DeleteIcon />
                     </IconButton>
                   </Tooltip>
-                )}
-                {instance.status === 'running' && (
-                  <Tooltip title="Restart">
-                    <IconButton onClick={() => handleRestart(instance)}>
-                      <ReplayIcon />
-                    </IconButton>
-                  </Tooltip>
-                )}
-                {instance.status === 'running' && (
-                  <Tooltip title="View logs">
-                    <IconButton onClick={() => onViewLogs(instance)}>
-                      <DescriptionIcon />
-                    </IconButton>
-                  </Tooltip>
-                )}
-                <Tooltip title="View nginx access log for this site">
-                  <IconButton
-                    onClick={() => void openProxyLogs('access', instance)}
-                  >
-                    <ListAltIcon />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="View nginx error log for this site">
-                  <IconButton
-                    onClick={() => void openProxyLogs('error', instance)}
-                  >
-                    <ErrorOutlineIcon />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Reload nginx for this site">
-                  <IconButton
-                    disabled={isProxyBusy('reload')}
-                    onClick={() => reloadProxySite(instance.domain)}
-                  >
-                    {isProxyBusy('reload') ? (
-                      <CircularProgress size={20} />
-                    ) : (
-                      <AutorenewIcon />
-                    )}
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Renew SSL certificate">
-                  <IconButton
-                    disabled={isProxyBusy('ssl')}
-                    onClick={() => renewProxySsl(instance.domain)}
-                  >
-                    {isProxyBusy('ssl') ? (
-                      <CircularProgress size={20} />
-                    ) : (
-                      <VpnLockIcon />
-                    )}
-                  </IconButton>
-                </Tooltip>
-                <Tooltip
-                  title={
-                    disabledSites[instance.domain] ? 'Enable site' : 'Disable site'
-                  }
-                >
-                  <IconButton
-                    disabled={isProxyBusy('toggle')}
-                    onClick={() =>
-                      toggleProxySite(instance.domain, !!disabledSites[instance.domain])
-                    }
-                  >
-                    {isProxyBusy('toggle') ? (
-                      <CircularProgress size={20} />
-                    ) : disabledSites[instance.domain] ? (
-                      <CheckCircleIcon />
-                    ) : (
-                      <BlockIcon />
-                    )}
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Backup now">
-                  <IconButton
-                    onClick={() => handleBackup(instance)}
-                    disabled={isBusy('backup')}
-                  >
-                    {isBusy('backup') ? (
-                      <CircularProgress size={20} />
-                    ) : (
-                      <BackupIcon />
-                    )}
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Restore from backup">
-                  <IconButton onClick={() => onRestore(instance)}>
-                    <SettingsBackupRestoreIcon />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Transfer database to another server">
-                  <IconButton onClick={() => setTransferTarget(instance)}>
-                    <SwapHorizIcon />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Clone to new environment">
-                  <span>
-                    <IconButton
-                      onClick={() => onClone?.(instance)}
-                      disabled={!onClone}
-                    >
-                      <FileCopyIcon />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-                <Tooltip title="Upgrade DHIS2 WAR">
-                  <span>
-                    <IconButton
-                      onClick={() => onUpgrade?.(instance)}
-                      disabled={!onUpgrade}
-                    >
-                      <SystemUpdateAltIcon />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-                <Tooltip title="Edit settings">
-                  <IconButton
-                    onClick={() => handleOpenEdit(instance)}
-                    disabled={isBusy('edit')}
-                  >
-                    {isBusy('edit') ? (
-                      <CircularProgress size={20} />
-                    ) : (
-                      <SettingsIcon />
-                    )}
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Delete">
-                  <IconButton
-                    color="secondary"
-                    onClick={() => handleDelete(instance)}
-                  >
-                    <DeleteIcon />
-                  </IconButton>
-                </Tooltip>
                 </Box>
               </Box>
             </Box>
@@ -1468,7 +1522,12 @@ export const DHIS2InstancesPanel = ({
   }
 
   const proxySettingsDialog = (
-    <Dialog open={proxySettingsOpen} onClose={closeProxySettings} maxWidth="sm" fullWidth>
+    <Dialog
+      open={proxySettingsOpen}
+      onClose={closeProxySettings}
+      maxWidth="sm"
+      fullWidth
+    >
       <DialogTitle>Reverse Proxy Settings</DialogTitle>
       <DialogContent>
         <Grid container spacing={2}>
@@ -1488,7 +1547,9 @@ export const DHIS2InstancesPanel = ({
               type="number"
               fullWidth
               value={proxyDraft.sshPort}
-              onChange={e => updateProxyDraft('sshPort', Number(e.target.value) || 22)}
+              onChange={e =>
+                updateProxyDraft('sshPort', Number(e.target.value) || 22)
+              }
             />
           </Grid>
           <Grid item xs={6}>
@@ -1544,7 +1605,9 @@ export const DHIS2InstancesPanel = ({
               label="Nginx config directory"
               fullWidth
               value={proxyDraft.nginxConfigPath}
-              onChange={e => updateProxyDraft('nginxConfigPath', e.target.value)}
+              onChange={e =>
+                updateProxyDraft('nginxConfigPath', e.target.value)
+              }
               helperText="e.g. /etc/nginx/upstream — directory for per-instance snippets (one <instance>.conf per instance, no subfolders). Created if missing."
               placeholder="/etc/nginx/upstream"
             />
@@ -1554,7 +1617,9 @@ export const DHIS2InstancesPanel = ({
               label="Nginx reload command"
               fullWidth
               value={proxyDraft.nginxReloadCommand}
-              onChange={e => updateProxyDraft('nginxReloadCommand', e.target.value)}
+              onChange={e =>
+                updateProxyDraft('nginxReloadCommand', e.target.value)
+              }
               placeholder="sudo systemctl reload nginx"
             />
           </Grid>
@@ -1570,7 +1635,12 @@ export const DHIS2InstancesPanel = ({
   );
 
   const proxyLogsDialog = (
-    <Dialog open={proxyLogsView.open} onClose={closeProxyLogs} maxWidth="md" fullWidth>
+    <Dialog
+      open={proxyLogsView.open}
+      onClose={closeProxyLogs}
+      maxWidth="md"
+      fullWidth
+    >
       <DialogTitle>
         Nginx {proxyLogsView.kind === 'access' ? 'access' : 'error'} log
         {proxyLogsView.domain ? ` — ${proxyLogsView.domain}` : ' — global'}
@@ -1597,7 +1667,9 @@ export const DHIS2InstancesPanel = ({
             No log entries.
           </Typography>
         ) : (
-          <Box className={classes.logViewer}>{proxyLogsView.lines.join('\n')}</Box>
+          <Box className={classes.logViewer}>
+            {proxyLogsView.lines.join('\n')}
+          </Box>
         )}
       </DialogContent>
       <DialogActions>
@@ -1662,8 +1734,8 @@ export const DHIS2InstancesPanel = ({
             <Typography variant="body2" color="textSecondary" gutterBottom>
               Instance <strong>{instance.name}</strong> is currently running
               DHIS2 <strong>{instance.version}</strong>. A newer{' '}
-              {isHotfix ? 'patch in the same release line' : 'release line'}{' '}
-              is available.
+              {isHotfix ? 'patch in the same release line' : 'release line'} is
+              available.
             </Typography>
           )}
           <Box mt={2}>
@@ -1685,7 +1757,11 @@ export const DHIS2InstancesPanel = ({
                 )}
                 {githubUrl && (
                   <li>
-                    <a href={githubUrl} target="_blank" rel="noopener noreferrer">
+                    <a
+                      href={githubUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
                       GitHub release {cleanTarget}
                     </a>
                   </li>
@@ -1758,8 +1834,8 @@ export const DHIS2InstancesPanel = ({
                 {unmanagedContainers.length === 1 ? ' is' : ' are'} not in the
                 Backstage registry.
               </strong>{' '}
-              They were likely created outside this plugin. Investigate or
-              adopt them so they appear in this list.
+              They were likely created outside this plugin. Investigate or adopt
+              them so they appear in this list.
             </Typography>
             <Typography variant="caption" component="div">
               {unmanagedContainers
@@ -1795,8 +1871,8 @@ export const DHIS2InstancesPanel = ({
                 {instancesWithHotfix.length === 1 ? 'is' : 'are'} missing a
                 DHIS2 hotfix.
               </strong>{' '}
-              A newer patch is available within the same release line.
-              Click the orange chip on each card to upgrade.
+              A newer patch is available within the same release line. Click the
+              orange chip on each card to upgrade.
             </Typography>
             <Typography variant="caption" component="div">
               {instancesWithHotfix

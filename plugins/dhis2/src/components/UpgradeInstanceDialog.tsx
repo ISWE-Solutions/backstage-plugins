@@ -177,8 +177,8 @@ export const UpgradeInstanceDialog = ({
           <Typography variant="body2" color="textSecondary">
             Stops Tomcat inside the LXC, archives the current WAR under{' '}
             <code>/opt/dhis2/backups/pre-upgrade-&lt;timestamp&gt;/</code>,
-            pushes the new WAR, and restarts Tomcat with a health probe.
-            Plan for ~1–2 minutes of downtime while DHIS2 re-explodes.
+            pushes the new WAR, and restarts Tomcat with a health probe. Plan
+            for ~1–2 minutes of downtime while DHIS2 re-explodes.
           </Typography>
         </Box>
 

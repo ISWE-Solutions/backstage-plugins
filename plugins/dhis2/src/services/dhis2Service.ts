@@ -38,7 +38,10 @@ async function fetchWithLifecycleRetry(
         body?.error?.message ||
         body?.message ||
         '';
-      if (typeof message === 'string' && /has not started up yet/i.test(message)) {
+      if (
+        typeof message === 'string' &&
+        /has not started up yet/i.test(message)
+      ) {
         isStartup = true;
       }
     } catch {
@@ -53,27 +56,157 @@ async function fetchWithLifecycleRetry(
 }
 
 const MOCK_NODES: ProxmoxNode[] = [
-  { node: 'pve1', status: 'online', cpu: 0.22, maxcpu: 16, mem: 12_884_901_888, maxmem: 68_719_476_736, disk: 53_687_091_200, maxdisk: 536_870_912_000 },
-  { node: 'pve2', status: 'online', cpu: 0.14, maxcpu: 16, mem: 9_663_676_416, maxmem: 68_719_476_736, disk: 42_949_672_960, maxdisk: 536_870_912_000 },
-  { node: 'pve3', status: 'online', cpu: 0.08, maxcpu: 16, mem: 5_368_709_120, maxmem: 68_719_476_736, disk: 34_359_738_368, maxdisk: 536_870_912_000 },
+  {
+    node: 'pve1',
+    status: 'online',
+    cpu: 0.22,
+    maxcpu: 16,
+    mem: 12_884_901_888,
+    maxmem: 68_719_476_736,
+    disk: 53_687_091_200,
+    maxdisk: 536_870_912_000,
+  },
+  {
+    node: 'pve2',
+    status: 'online',
+    cpu: 0.14,
+    maxcpu: 16,
+    mem: 9_663_676_416,
+    maxmem: 68_719_476_736,
+    disk: 42_949_672_960,
+    maxdisk: 536_870_912_000,
+  },
+  {
+    node: 'pve3',
+    status: 'online',
+    cpu: 0.08,
+    maxcpu: 16,
+    mem: 5_368_709_120,
+    maxmem: 68_719_476_736,
+    disk: 34_359_738_368,
+    maxdisk: 536_870_912_000,
+  },
 ];
 
 const MOCK_STORAGES: ProxmoxStorage[] = [
-  { storage: 'local', type: 'dir', content: 'iso,vztmpl,backup', active: 1, enabled: 1 },
-  { storage: 'local-lvm', type: 'lvmthin', content: 'rootdir,images', active: 1, enabled: 1 },
+  {
+    storage: 'local',
+    type: 'dir',
+    content: 'iso,vztmpl,backup',
+    active: 1,
+    enabled: 1,
+  },
+  {
+    storage: 'local-lvm',
+    type: 'lvmthin',
+    content: 'rootdir,images',
+    active: 1,
+    enabled: 1,
+  },
 ];
 
 const MOCK_CONTAINERS: ClusterContainer[] = [
-  { vmid: 100, name: 'dhis2-prod', node: 'pve1', status: 'running', type: 'lxc', cpu: 0.12, maxcpu: 4, mem: 4_294_967_296, maxmem: 8_589_934_592, disk: 21_474_836_480, maxdisk: 107_374_182_400, uptime: 432_000 },
-  { vmid: 101, name: 'dhis2-test', node: 'pve2', status: 'running', type: 'lxc', cpu: 0.05, maxcpu: 2, mem: 2_147_483_648, maxmem: 4_294_967_296, disk: 10_737_418_240, maxdisk: 53_687_091_200, uptime: 86_400 },
-  { vmid: 102, name: 'dhis2-dev', node: 'pve1', status: 'stopped', type: 'lxc', cpu: 0, maxcpu: 2, mem: 0, maxmem: 4_294_967_296, disk: 0, maxdisk: 53_687_091_200, uptime: 0 },
-  { vmid: 110, name: 'nginx-proxy', node: 'pve3', status: 'running', type: 'lxc', cpu: 0.02, maxcpu: 2, mem: 536_870_912, maxmem: 2_147_483_648, disk: 2_147_483_648, maxdisk: 21_474_836_480, uptime: 864_000 },
+  {
+    vmid: 100,
+    name: 'dhis2-prod',
+    node: 'pve1',
+    status: 'running',
+    type: 'lxc',
+    cpu: 0.12,
+    maxcpu: 4,
+    mem: 4_294_967_296,
+    maxmem: 8_589_934_592,
+    disk: 21_474_836_480,
+    maxdisk: 107_374_182_400,
+    uptime: 432_000,
+  },
+  {
+    vmid: 101,
+    name: 'dhis2-test',
+    node: 'pve2',
+    status: 'running',
+    type: 'lxc',
+    cpu: 0.05,
+    maxcpu: 2,
+    mem: 2_147_483_648,
+    maxmem: 4_294_967_296,
+    disk: 10_737_418_240,
+    maxdisk: 53_687_091_200,
+    uptime: 86_400,
+  },
+  {
+    vmid: 102,
+    name: 'dhis2-dev',
+    node: 'pve1',
+    status: 'stopped',
+    type: 'lxc',
+    cpu: 0,
+    maxcpu: 2,
+    mem: 0,
+    maxmem: 4_294_967_296,
+    disk: 0,
+    maxdisk: 53_687_091_200,
+    uptime: 0,
+  },
+  {
+    vmid: 110,
+    name: 'nginx-proxy',
+    node: 'pve3',
+    status: 'running',
+    type: 'lxc',
+    cpu: 0.02,
+    maxcpu: 2,
+    mem: 536_870_912,
+    maxmem: 2_147_483_648,
+    disk: 2_147_483_648,
+    maxdisk: 21_474_836_480,
+    uptime: 864_000,
+  },
 ];
 
 const MOCK_VMS: ClusterContainer[] = [
-  { vmid: 200, name: 'postgres-prod', node: 'pve1', status: 'running', type: 'qemu', cpu: 0.18, maxcpu: 8, mem: 17_179_869_184, maxmem: 34_359_738_368, disk: 0, maxdisk: 214_748_364_800, uptime: 1_209_600 },
-  { vmid: 201, name: 'observability', node: 'pve2', status: 'running', type: 'qemu', cpu: 0.09, maxcpu: 4, mem: 8_589_934_592, maxmem: 17_179_869_184, disk: 0, maxdisk: 107_374_182_400, uptime: 604_800 },
-  { vmid: 202, name: 'gitlab-runner', node: 'pve3', status: 'stopped', type: 'qemu', cpu: 0, maxcpu: 4, mem: 0, maxmem: 8_589_934_592, disk: 0, maxdisk: 53_687_091_200, uptime: 0 },
+  {
+    vmid: 200,
+    name: 'postgres-prod',
+    node: 'pve1',
+    status: 'running',
+    type: 'qemu',
+    cpu: 0.18,
+    maxcpu: 8,
+    mem: 17_179_869_184,
+    maxmem: 34_359_738_368,
+    disk: 0,
+    maxdisk: 214_748_364_800,
+    uptime: 1_209_600,
+  },
+  {
+    vmid: 201,
+    name: 'observability',
+    node: 'pve2',
+    status: 'running',
+    type: 'qemu',
+    cpu: 0.09,
+    maxcpu: 4,
+    mem: 8_589_934_592,
+    maxmem: 17_179_869_184,
+    disk: 0,
+    maxdisk: 107_374_182_400,
+    uptime: 604_800,
+  },
+  {
+    vmid: 202,
+    name: 'gitlab-runner',
+    node: 'pve3',
+    status: 'stopped',
+    type: 'qemu',
+    cpu: 0,
+    maxcpu: 4,
+    mem: 0,
+    maxmem: 8_589_934_592,
+    disk: 0,
+    maxdisk: 53_687_091_200,
+    uptime: 0,
+  },
 ];
 
 function buildProxmoxAuthHeader(s: ProxmoxClusterSettings): string | null {
@@ -297,10 +430,7 @@ export class DHIS2Service {
         console.warn(`${error} Using mock nodes.`);
         return { nodes: MOCK_NODES, source: 'mock', error };
       }
-      url = `${proxmox.backstageProxyPath.replace(
-        /\/+$/,
-        '',
-      )}/api2/json/nodes`;
+      url = `${proxmox.backstageProxyPath.replace(/\/+$/, '')}/api2/json/nodes`;
       // Auth header is injected by the backend proxy from env vars.
     } else {
       const auth = buildProxmoxAuthHeader(proxmox);
@@ -308,7 +438,12 @@ export class DHIS2Service {
         const error =
           'Proxmox API not fully configured (need API URL + API token).';
         console.warn(`${error} Using mock nodes.`);
-        return { nodes: MOCK_NODES, source: 'mock', error, url: proxmox.apiUrl };
+        return {
+          nodes: MOCK_NODES,
+          source: 'mock',
+          error,
+          url: proxmox.apiUrl,
+        };
       }
       url = `${proxmox.apiUrl.replace(/\/+$/, '')}/api2/json/nodes`;
       headers.Authorization = auth;
@@ -327,13 +462,13 @@ export class DHIS2Service {
       try {
         parsed = JSON.parse(rawBody);
       } catch (e) {
-        throw new Error(
-          `Response was not valid JSON: ${(e as Error).message}`,
-        );
+        throw new Error(`Response was not valid JSON: ${(e as Error).message}`);
       }
       const durationMs = Math.round(performance.now() - started);
       console.info(
-        `[dhis2] fetched ${parsed.data?.length ?? 0} Proxmox node(s) from ${url} in ${durationMs}ms`,
+        `[dhis2] fetched ${
+          parsed.data?.length ?? 0
+        } Proxmox node(s) from ${url} in ${durationMs}ms`,
       );
       return {
         nodes: parsed.data ?? [],
@@ -382,11 +517,17 @@ export class DHIS2Service {
 
     if (proxmox.useBackstageProxy) {
       if (!proxmox.backstageProxyPath) return MOCK_STORAGES;
-      url = `${proxmox.backstageProxyPath.replace(/\/+$/, '')}/api2/json/nodes/${encodeURIComponent(node)}/storage`;
+      url = `${proxmox.backstageProxyPath.replace(
+        /\/+$/,
+        '',
+      )}/api2/json/nodes/${encodeURIComponent(node)}/storage`;
     } else {
       const auth = buildProxmoxAuthHeader(proxmox);
       if (!proxmox.apiUrl || !auth) return MOCK_STORAGES;
-      url = `${proxmox.apiUrl.replace(/\/+$/, '')}/api2/json/nodes/${encodeURIComponent(node)}/storage`;
+      url = `${proxmox.apiUrl.replace(
+        /\/+$/,
+        '',
+      )}/api2/json/nodes/${encodeURIComponent(node)}/storage`;
       headers.Authorization = auth;
     }
 
@@ -587,7 +728,10 @@ export class DHIS2Service {
       if (out.size === 0) return fallback;
       // Sort newest-first using a numeric tuple comparison.
       const toTuple = (v: string) =>
-        v.replace(/^2\./, '').split('.').map(p => parseInt(p, 10) || 0);
+        v
+          .replace(/^2\./, '')
+          .split('.')
+          .map(p => parseInt(p, 10) || 0);
       return [...out].sort((a, b) => {
         const at = toTuple(a);
         const bt = toTuple(b);
@@ -924,7 +1068,8 @@ export class DHIS2Service {
         timestamp: t(5),
         level: 'info',
         action: 'system',
-        message: 'Orchestrator started, connected to Proxmox cluster (3 nodes online)',
+        message:
+          'Orchestrator started, connected to Proxmox cluster (3 nodes online)',
         user: 'system',
       },
       {
@@ -952,7 +1097,8 @@ export class DHIS2Service {
         timestamp: t(30),
         level: 'info',
         action: 'proxy-update',
-        message: 'Wrote nginx site config /etc/nginx/conf.d/hmis-staging.conf and reloaded',
+        message:
+          'Wrote nginx site config /etc/nginx/conf.d/hmis-staging.conf and reloaded',
         instanceId: 'dhis2-004',
         instanceName: 'hmis-staging',
       },
@@ -971,7 +1117,8 @@ export class DHIS2Service {
         timestamp: t(360),
         level: 'warn',
         action: 'backup',
-        message: 'Backup completed with warnings: 2 large tables exceeded the 30m budget',
+        message:
+          'Backup completed with warnings: 2 large tables exceeded the 30m budget',
         instanceId: 'dhis2-001',
         instanceName: 'DHIS2 Production',
         details: { sizeBytes: 5_872_402_944, durationSec: 1923 },
@@ -1437,7 +1584,9 @@ export class DHIS2Service {
   ): Promise<{ written: string[]; reload?: { ok: boolean; output: string } }> {
     const res = await fetchWithLifecycleRetry(
       fetchFn,
-      `${baseUrl}/instances/${encodeURIComponent(instanceId)}/proxy-files/write`,
+      `${baseUrl}/instances/${encodeURIComponent(
+        instanceId,
+      )}/proxy-files/write`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1629,7 +1778,11 @@ export class DHIS2Service {
         const err = body?.error;
         if (typeof err === 'string' && err.trim()) {
           msg = err;
-        } else if (err && typeof err === 'object' && typeof err.message === 'string') {
+        } else if (
+          err &&
+          typeof err === 'object' &&
+          typeof err.message === 'string'
+        ) {
           msg = err.message;
         }
       } catch {
@@ -1648,9 +1801,10 @@ export class DHIS2Service {
     jobId: string,
     fetchFn: typeof fetch = (...args) => fetch(...args),
   ): Promise<TransferJobSnapshot> {
-    const url = `${baseUrl.replace(/\/+$/, '')}/databases/transfers/${encodeURIComponent(
-      jobId,
-    )}`;
+    const url = `${baseUrl.replace(
+      /\/+$/,
+      '',
+    )}/databases/transfers/${encodeURIComponent(jobId)}`;
     const res = await fetchWithLifecycleRetry(fetchFn, url);
     if (!res.ok) {
       throw new Error(`Failed to load transfer job (HTTP ${res.status})`);
@@ -1683,7 +1837,7 @@ export interface ProvisionInstancePayload {
   deleteIfExists?: boolean;
   /**
    * Major Apache Tomcat version (`'9'` or `'10'`) the orchestrator should
-  * install inside the new LXC. Forwarded to `create-instance.sh
+   * install inside the new LXC. Forwarded to `create-instance.sh
    * --tomcat-version` and consumed by the Ansible `dhis2` role.
    */
   tomcatVersion?: '9' | '10';
@@ -1765,7 +1919,6 @@ export interface ProxyFilesSnapshot {
   upstream: { path: string; content: string; exists: boolean };
   site: { path: string; content: string; exists: boolean };
 }
-
 
 /**
  * Payload sent to POST /api/dhis2/instances/:id/decommission.

@@ -12,19 +12,21 @@ The DHIS2 Orchestration Plugin allows you to create, manage, and orchestrate DHI
 ✅ **Shared Nginx Proxy** - Centralized SSL and domain routing  
 ✅ **Multi-Node Support** - Distribute instances across Proxmox cluster nodes  
 ✅ **Version Selection** - Choose from multiple DHIS2 versions  
-✅ **Dashboard** - Monitor all instances, nodes, and proxy configuration  
+✅ **Dashboard** - Monitor all instances, nodes, and proxy configuration
 
 ## Quick Demo (Mock Data)
 
 The plugin includes mock data so you can explore the UI immediately:
 
 1. **Start Backstage:**
+
    ```bash
    cd /home/chisanga/backstage
    yarn dev
    ```
 
 2. **Access the Plugin:**
+
    - Open http://localhost:3000
    - Click "DHIS2" in the sidebar (cloud icon)
    - Or navigate directly to http://localhost:3000/dhis2
@@ -41,6 +43,7 @@ The plugin includes mock data so you can explore the UI immediately:
 To use this plugin with real infrastructure:
 
 ### 1. Proxmox VE Cluster
+
 - **Version:** 7.0 or later
 - **Access:** API token with appropriate permissions
 - **Storage:** Local or shared storage for containers
@@ -48,6 +51,7 @@ To use this plugin with real infrastructure:
 - **Template:** Ubuntu 22.04 LXC template
 
 ### 2. Nginx Proxy Server
+
 - **OS:** Linux (Ubuntu/Debian recommended)
 - **Software:** Nginx, Certbot
 - **Access:** SSH access with key-based authentication
@@ -55,6 +59,7 @@ To use this plugin with real infrastructure:
 - **DNS:** Wildcard DNS or per-domain records
 
 ### 3. Backend API Service
+
 - **Runtime:** Node.js 18+ or similar
 - **Framework:** Express.js recommended
 - **Database:** PostgreSQL for instance metadata
@@ -143,10 +148,10 @@ events {
 http {
     include /etc/nginx/mime.types;
     default_type application/octet-stream;
-    
+
     # Include DHIS2 upstreams
     include /etc/nginx/conf.d/dhis2-upstreams/*.conf;
-    
+
     # Include DHIS2 sites
     include /etc/nginx/sites-enabled/*;
 }
@@ -163,6 +168,7 @@ systemctl enable nginx
 Follow the guide in `/docs/dhis2-backend-api-example.md` to implement the backend API service.
 
 **Key endpoints to implement:**
+
 - `GET /api/dhis2/instances` - List instances
 - `POST /api/dhis2/instances` - Create instance
 - `POST /api/dhis2/instances/:id/start` - Start instance
@@ -220,6 +226,7 @@ open http://localhost:3000/dhis2
 1. **Click "Create Instance"** button in the dashboard
 
 2. **Fill in the form:**
+
    - **Instance Name:** "DHIS2 Production"
    - **Domain:** dhis2-prod.example.com
    - **DHIS2 Version:** 2.40.3 (or latest)
@@ -235,6 +242,7 @@ open http://localhost:3000/dhis2
 3. **Click "Create Instance"**
 
 4. **Wait for provisioning** (5-10 minutes):
+
    - Container creation
    - System installation
    - DHIS2 setup
@@ -250,6 +258,7 @@ open http://localhost:3000/dhis2
 ## Troubleshooting
 
 ### Instance Won't Start
+
 ```bash
 # Check container status in Proxmox
 pct status <vmid>
@@ -262,6 +271,7 @@ pct config <vmid>
 ```
 
 ### Domain Not Accessible
+
 ```bash
 # Test DNS resolution
 nslookup dhis2-prod.example.com
@@ -274,6 +284,7 @@ tail -f /var/log/nginx/dhis2-prod.example.com_error.log
 ```
 
 ### Database Connection Errors
+
 ```bash
 # Connect to container
 pct enter <vmid>
@@ -289,24 +300,28 @@ cat /opt/dhis2/config/dhis.conf
 ## Resource Recommendations
 
 ### Development/Testing
+
 - **CPU:** 2 cores
 - **Memory:** 4 GB
 - **Storage:** 20 GB
 - **Expected Load:** < 100 users
 
 ### Production (Small)
+
 - **CPU:** 4 cores
 - **Memory:** 8 GB
 - **Storage:** 100 GB
 - **Expected Load:** 100-500 users
 
 ### Production (Medium)
+
 - **CPU:** 8 cores
 - **Memory:** 16 GB
 - **Storage:** 250 GB
 - **Expected Load:** 500-2000 users
 
 ### Production (Large)
+
 - **CPU:** 16 cores
 - **Memory:** 32 GB
 - **Storage:** 500 GB
@@ -321,14 +336,14 @@ cat /opt/dhis2/config/dhis.conf
 ✅ Enable PostgreSQL authentication  
 ✅ Regular backups of databases and configurations  
 ✅ Monitor logs for suspicious activity  
-✅ Implement fail2ban for brute force protection  
+✅ Implement fail2ban for brute force protection
 
 ## Provisioning (hybrid Bash + Ansible)
 
 Instance provisioning is a hybrid pipeline: a thin Bash layer handles the
 Proxmox-native parts (LXC creation, SSH bootstrap, central Nginx + Let's
 Encrypt), and a self-contained set of in-tree Ansible roles configures
-everything *inside* the container over SSH. No upstream Ansible dependency.
+everything _inside_ the container over SSH. No upstream Ansible dependency.
 
 ```
 plugins/dhis2/
@@ -385,6 +400,7 @@ roles. Tear-down: `./configure-proxy.sh --remove --vmid 200 --domain dhis2.examp
 - **Ansible Playbook:** `/plugins/dhis2/ansible/site.yml`
 
 **External Resources:**
+
 - DHIS2: https://docs.dhis2.org/
 - Proxmox: https://pve.proxmox.com/wiki/
 - Nginx: https://nginx.org/en/docs/
@@ -394,18 +410,21 @@ roles. Tear-down: `./configure-proxy.sh --remove --vmid 200 --domain dhis2.examp
 After setting up your first instance:
 
 1. **Configure DHIS2:**
+
    - Set up organizational units
    - Configure data elements
    - Create user accounts
    - Import metadata
 
 2. **Set Up Monitoring:**
+
    - Enable DHIS2 system monitoring
    - Configure alerts
    - Set up log aggregation
    - Monitor resource usage
 
 3. **Plan for Scale:**
+
    - Add more nodes to cluster
    - Implement database replication
    - Configure load balancing
@@ -420,6 +439,7 @@ After setting up your first instance:
 ## Support
 
 For issues, questions, or contributions:
+
 - Check the documentation in `/plugins/dhis2/`
 - Review the implementation guide in `/docs/`
 - Consult DHIS2 and Proxmox documentation

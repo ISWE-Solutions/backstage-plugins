@@ -18,7 +18,10 @@ export interface DeleteInstanceDialogProps {
   open: boolean;
   instance: DHIS2Instance | null;
   onClose: () => void;
-  onConfirm: (opts: { backupDatabase: boolean; maintainDatabase: boolean }) => void;
+  onConfirm: (opts: {
+    backupDatabase: boolean;
+    maintainDatabase: boolean;
+  }) => void;
 }
 
 export const DeleteInstanceDialog = ({
@@ -28,7 +31,11 @@ export const DeleteInstanceDialog = ({
   onConfirm,
 }: DeleteInstanceDialogProps) => {
   const settings = settingsService.load();
-  const remoteDbHost = (instance?.database.host || settings.dhis2.postgresHost || '').trim();
+  const remoteDbHost = (
+    instance?.database.host ||
+    settings.dhis2.postgresHost ||
+    ''
+  ).trim();
   const willDropDb =
     remoteDbHost.length > 0 &&
     !['localhost', '127.0.0.1', '::1', 'postgres'].includes(remoteDbHost);
@@ -80,7 +87,9 @@ export const DeleteInstanceDialog = ({
             <Typography variant="caption" color="textSecondary">
               Proxy host
             </Typography>
-            <Typography variant="body2">{settings.proxy.host || '—'}</Typography>
+            <Typography variant="body2">
+              {settings.proxy.host || '—'}
+            </Typography>
           </Grid>
           <Grid item xs={12}>
             <Typography variant="caption" color="textSecondary">

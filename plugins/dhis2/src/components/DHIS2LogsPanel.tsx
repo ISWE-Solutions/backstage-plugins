@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   Box,
   Button,
@@ -137,10 +137,13 @@ export const DHIS2LogsPanel = () => {
     const needle = search.trim().toLowerCase();
     return logs.filter(l => {
       if (LEVEL_ORDER[l.level] < minLevel) return false;
-      if (instanceFilter !== 'all' && l.instanceId !== instanceFilter) return false;
+      if (instanceFilter !== 'all' && l.instanceId !== instanceFilter)
+        return false;
       if (actionFilter !== 'all' && l.action !== actionFilter) return false;
       if (needle) {
-        const hay = `${l.message} ${l.instanceName ?? ''} ${l.user ?? ''} ${l.taskId ?? ''}`.toLowerCase();
+        const hay = `${l.message} ${l.instanceName ?? ''} ${l.user ?? ''} ${
+          l.taskId ?? ''
+        }`.toLowerCase();
         if (!hay.includes(needle)) return false;
       }
       return true;
@@ -189,7 +192,11 @@ export const DHIS2LogsPanel = () => {
           className={classes.filterField}
         />
 
-        <FormControl size="small" variant="outlined" className={classes.filterField}>
+        <FormControl
+          size="small"
+          variant="outlined"
+          className={classes.filterField}
+        >
           <InputLabel>Level</InputLabel>
           <Select
             label="Level"
@@ -204,7 +211,11 @@ export const DHIS2LogsPanel = () => {
           </Select>
         </FormControl>
 
-        <FormControl size="small" variant="outlined" className={classes.filterField}>
+        <FormControl
+          size="small"
+          variant="outlined"
+          className={classes.filterField}
+        >
           <InputLabel>Instance</InputLabel>
           <Select
             label="Instance"
@@ -220,7 +231,11 @@ export const DHIS2LogsPanel = () => {
           </Select>
         </FormControl>
 
-        <FormControl size="small" variant="outlined" className={classes.filterField}>
+        <FormControl
+          size="small"
+          variant="outlined"
+          className={classes.filterField}
+        >
           <InputLabel>Action</InputLabel>
           <Select
             label="Action"
@@ -283,7 +298,11 @@ export const DHIS2LogsPanel = () => {
           </Typography>
         </Paper>
       ) : (
-        <TableContainer component={Paper} variant="outlined" className={classes.tableWrap}>
+        <TableContainer
+          component={Paper}
+          variant="outlined"
+          className={classes.tableWrap}
+        >
           <Table size="small" stickyHeader>
             <TableHead>
               <TableRow>
@@ -312,13 +331,19 @@ export const DHIS2LogsPanel = () => {
                       }}
                     />
                   </TableCell>
-                  <TableCell className={classes.monoCell}>{entry.action}</TableCell>
+                  <TableCell className={classes.monoCell}>
+                    {entry.action}
+                  </TableCell>
                   <TableCell>{entry.instanceName ?? '—'}</TableCell>
                   <TableCell>{entry.user ?? '—'}</TableCell>
                   <TableCell className={classes.message}>
                     {entry.message}
                     {entry.taskId && (
-                      <Typography variant="caption" display="block" color="textSecondary">
+                      <Typography
+                        variant="caption"
+                        display="block"
+                        color="textSecondary"
+                      >
                         {entry.taskId}
                       </Typography>
                     )}

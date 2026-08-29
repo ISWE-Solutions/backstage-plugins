@@ -47,17 +47,17 @@
 
 - name: Create LXC container (idempotent)
   community.general.proxmox:
-    api_host: "{{ pve_api_host }}"
-    api_user: "{{ pve_api_user }}"
-    api_token_id: "{{ pve_api_token_id }}"
-    api_token_secret: "{{ pve_api_token_secret }}"
-    validate_certs: "{{ pve_validate_certs | default(false) }}"
-    node: "{{ pve_node }}"
-    vmid: "{{ pve_vmid | int }}"
-    hostname: "{{ pve_hostname }}"
+    api_host: '{{ pve_api_host }}'
+    api_user: '{{ pve_api_user }}'
+    api_token_id: '{{ pve_api_token_id }}'
+    api_token_secret: '{{ pve_api_token_secret }}'
+    validate_certs: '{{ pve_validate_certs | default(false) }}'
+    node: '{{ pve_node }}'
+    vmid: '{{ pve_vmid | int }}'
+    hostname: '{{ pve_hostname }}'
     ostemplate: "{{ pve_ostemplate | default('local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst') }}"
-    cores: "{{ pve_cpu | default(4) | int }}"
-    memory: "{{ pve_memory | default(8192) | int }}"
+    cores: '{{ pve_cpu | default(4) | int }}'
+    memory: '{{ pve_memory | default(8192) | int }}'
     disk: "{{ pve_storage_pool | default('local-lvm') }}:{{ pve_storage | default(100) | int }}"
     netif:
       net0: "name=eth0,bridge={{ pve_bridge | default('vmbr0') }},ip=dhcp"
@@ -65,8 +65,8 @@
     features:
       - nesting=1
     unprivileged: true
-    password: "{{ pve_root_password }}"
-    pubkey: "{{ pve_ssh_pubkey }}"
+    password: '{{ pve_root_password }}'
+    pubkey: '{{ pve_ssh_pubkey }}'
     # Tag the container so Backstage can confidently identify which LXCs
     # in the cluster are DHIS2 instances managed by this plugin. The
     # dhis2-backend reconciler treats `dhis2` as the primary marker.
@@ -81,21 +81,21 @@
   # Hide secrets (api_token_secret, root password, pubkey) by default.
   # Re-run with `-e dhis2_debug=true` (or DHIS2_DEBUG=1 via the wrapper)
   # to surface the real Proxmox API error on failure.
-  no_log: "{{ not (dhis2_debug | default(false) | bool) }}"
+  no_log: '{{ not (dhis2_debug | default(false) | bool) }}'
 
 - name: Start LXC container
   community.general.proxmox:
-    api_host: "{{ pve_api_host }}"
-    api_user: "{{ pve_api_user }}"
-    api_token_id: "{{ pve_api_token_id }}"
-    api_token_secret: "{{ pve_api_token_secret }}"
-    validate_certs: "{{ pve_validate_certs | default(false) }}"
-    node: "{{ pve_node }}"
-    vmid: "{{ pve_vmid | int }}"
-    hostname: "{{ pve_hostname }}"
+    api_host: '{{ pve_api_host }}'
+    api_user: '{{ pve_api_user }}'
+    api_token_id: '{{ pve_api_token_id }}'
+    api_token_secret: '{{ pve_api_token_secret }}'
+    validate_certs: '{{ pve_validate_certs | default(false) }}'
+    node: '{{ pve_node }}'
+    vmid: '{{ pve_vmid | int }}'
+    hostname: '{{ pve_hostname }}'
     state: started
     timeout: 120
-  no_log: "{{ not (dhis2_debug | default(false) | bool) }}"
+  no_log: '{{ not (dhis2_debug | default(false) | bool) }}'
 
 # Some LXC templates ship without openssh-server (or with sshd masked),
 # which makes the subsequent `Wait for SSH` step time out and breaks the
@@ -130,7 +130,7 @@
       fi
       systemctl unmask ssh 2>/dev/null || true
       systemctl enable --now ssh
-    _pve_install_sshd_b64: "{{ _pve_install_sshd_script | b64encode }}"
+    _pve_install_sshd_b64: '{{ _pve_install_sshd_script | b64encode }}'
     # If pve_ssh_host already names the owning node (single-node case or
     # API host happens to own the container) we skip the inner SSH hop.
     _pve_node_same_as_api: >-
@@ -161,7 +161,7 @@
   register: pve_lxc_sshd_install
   changed_when: "'Setting up openssh-server' in (pve_lxc_sshd_install.stdout | default(''))"
   failed_when: false
-  no_log: "{{ not (dhis2_debug | default(false) | bool) }}"
+  no_log: '{{ not (dhis2_debug | default(false) | bool) }}'
 
 - name: Warn if openssh-server pre-install failed (will rely on template default)
   ansible.builtin.debug:
@@ -177,14 +177,13 @@
       {{ pve_lxc_sshd_install.stderr | default('(suppressed by no_log)') }}
   when: (pve_lxc_sshd_install.rc | default(0)) != 0
 
-
 - name: Wait for container interfaces to come up
   ansible.builtin.uri:
-    url: "https://{{ pve_api_host }}/api2/json/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/interfaces"
+    url: 'https://{{ pve_api_host }}/api2/json/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/interfaces'
     method: GET
     headers:
-      Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
-    validate_certs: "{{ pve_validate_certs | default(false) }}"
+      Authorization: 'PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}'
+    validate_certs: '{{ pve_validate_certs | default(false) }}'
     return_content: true
   register: pve_iface_resp
   until: >-
@@ -197,7 +196,7 @@
          | list | length > 0)
   retries: 60
   delay: 5
-  no_log: "{{ not (dhis2_debug | default(false) | bool) }}"
+  no_log: '{{ not (dhis2_debug | default(false) | bool) }}'
 
 - name: Extract container IPv4 address
   ansible.builtin.set_fact:
@@ -214,19 +213,19 @@
 
 - name: Show container IP
   ansible.builtin.debug:
-    msg: "Container {{ pve_vmid }} is up at {{ pve_container_ip }}"
+    msg: 'Container {{ pve_vmid }} is up at {{ pve_container_ip }}'
 
 - name: Wait for SSH on the new container
   ansible.builtin.wait_for:
-    host: "{{ pve_container_ip }}"
+    host: '{{ pve_container_ip }}'
     port: 22
     timeout: 180
     state: started
 
 - name: Register container in runtime inventory
   ansible.builtin.add_host:
-    name: "{{ instance_name | default(pve_hostname) }}"
-    ansible_host: "{{ pve_container_ip }}"
+    name: '{{ instance_name | default(pve_hostname) }}'
+    ansible_host: '{{ pve_container_ip }}'
     ansible_user: root
     ansible_ssh_private_key_file: "{{ ansible_ssh_private_key_file_orchestrator | default(lookup('env', 'ANSIBLE_SSH_KEY')) }}"
     # The orchestrator's venv interpreter (set on 127.0.0.1 in the
@@ -238,7 +237,7 @@
     groups:
       - new_containers
     # Role + DHIS2 vars below let downstream plays target this host by name.
-    database_host: "{{ instance_name | default(pve_hostname) }}"
+    database_host: '{{ instance_name | default(pve_hostname) }}'
     dhis2_version: "{{ dhis2_version | default('2.40') }}"
     fqdn: "{{ fqdn | default('') }}"
     proxy_rewrite: true

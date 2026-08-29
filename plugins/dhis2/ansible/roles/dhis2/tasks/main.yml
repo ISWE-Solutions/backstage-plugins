@@ -10,7 +10,7 @@
 
 - name: Install Java
   ansible.builtin.apt:
-    name: "openjdk-{{ java_version }}-jdk-headless"
+    name: 'openjdk-{{ java_version }}-jdk-headless'
     state: present
     update_cache: true
 
@@ -22,47 +22,47 @@
 # ---------------------------------------------------------------------------
 - name: Ensure Tomcat group exists
   ansible.builtin.group:
-    name: "{{ tomcat_group }}"
+    name: '{{ tomcat_group }}'
     system: true
     state: present
 
 - name: Ensure Tomcat user exists
   ansible.builtin.user:
-    name: "{{ tomcat_user }}"
-    group: "{{ tomcat_group }}"
+    name: '{{ tomcat_user }}'
+    group: '{{ tomcat_group }}'
     system: true
-    home: "{{ tomcat_install_dir }}"
+    home: '{{ tomcat_install_dir }}'
     shell: /usr/sbin/nologin
     create_home: false
     state: present
 
 - name: Create Tomcat install directory
   ansible.builtin.file:
-    path: "{{ tomcat_install_dir }}"
+    path: '{{ tomcat_install_dir }}'
     state: directory
-    owner: "{{ tomcat_user }}"
-    group: "{{ tomcat_group }}"
-    mode: "0750"
+    owner: '{{ tomcat_user }}'
+    group: '{{ tomcat_group }}'
+    mode: '0750'
 
 - name: Check whether Tomcat {{ tomcat_release }} is already installed
   ansible.builtin.stat:
-    path: "{{ tomcat_install_dir }}/.installed-{{ tomcat_release }}"
+    path: '{{ tomcat_install_dir }}/.installed-{{ tomcat_release }}'
   register: tomcat_installed_marker
 
 - name: Download Apache Tomcat {{ tomcat_release }} archive
   ansible.builtin.get_url:
-    url: "{{ tomcat_archive_url }}"
-    dest: "/tmp/apache-tomcat-{{ tomcat_release }}.tar.gz"
-    mode: "0644"
+    url: '{{ tomcat_archive_url }}'
+    dest: '/tmp/apache-tomcat-{{ tomcat_release }}.tar.gz'
+    mode: '0644'
   when: not tomcat_installed_marker.stat.exists
 
 - name: Extract Tomcat into the install directory
   ansible.builtin.unarchive:
-    src: "/tmp/apache-tomcat-{{ tomcat_release }}.tar.gz"
-    dest: "{{ tomcat_install_dir }}"
+    src: '/tmp/apache-tomcat-{{ tomcat_release }}.tar.gz'
+    dest: '{{ tomcat_install_dir }}'
     remote_src: true
-    owner: "{{ tomcat_user }}"
-    group: "{{ tomcat_group }}"
+    owner: '{{ tomcat_user }}'
+    group: '{{ tomcat_group }}'
     extra_opts:
       - --strip-components=1
   when: not tomcat_installed_marker.stat.exists
@@ -70,17 +70,17 @@
 - name: Render Tomcat server.xml
   ansible.builtin.template:
     src: server.xml.j2
-    dest: "{{ tomcat_install_dir }}/conf/server.xml"
-    owner: "{{ tomcat_user }}"
-    group: "{{ tomcat_group }}"
-    mode: "0644"
+    dest: '{{ tomcat_install_dir }}/conf/server.xml'
+    owner: '{{ tomcat_user }}'
+    group: '{{ tomcat_group }}'
+    mode: '0644'
 
 - name: Ensure Tomcat runtime directories are owned by the Tomcat user
   ansible.builtin.file:
-    path: "{{ tomcat_install_dir }}/{{ item }}"
+    path: '{{ tomcat_install_dir }}/{{ item }}'
     state: directory
-    owner: "{{ tomcat_user }}"
-    group: "{{ tomcat_group }}"
+    owner: '{{ tomcat_user }}'
+    group: '{{ tomcat_group }}'
     recurse: true
   loop:
     - bin
@@ -93,20 +93,20 @@
 
 - name: Mark Tomcat installation as complete
   ansible.builtin.file:
-    path: "{{ tomcat_install_dir }}/.installed-{{ tomcat_release }}"
+    path: '{{ tomcat_install_dir }}/.installed-{{ tomcat_release }}'
     state: touch
-    owner: "{{ tomcat_user }}"
-    group: "{{ tomcat_group }}"
-    mode: "0644"
+    owner: '{{ tomcat_user }}'
+    group: '{{ tomcat_group }}'
+    mode: '0644'
   when: not tomcat_installed_marker.stat.exists
 
 - name: Install Tomcat systemd unit
   ansible.builtin.template:
     src: tomcat.service.j2
-    dest: "/etc/systemd/system/{{ tomcat_service_name }}.service"
+    dest: '/etc/systemd/system/{{ tomcat_service_name }}.service'
     owner: root
     group: root
-    mode: "0644"
+    mode: '0644'
   # No 'notify: Restart Tomcat' here — the 'Ensure Tomcat is enabled and
   # running' task later in this role explicitly starts Tomcat once, after
   # the WAR is in place and the defaults file is written. A handler-driven
@@ -114,42 +114,42 @@
 
 - name: Create DHIS2 directories
   ansible.builtin.file:
-    path: "{{ item }}"
+    path: '{{ item }}'
     state: directory
-    owner: "{{ tomcat_user }}"
-    group: "{{ tomcat_group }}"
-    mode: "0750"
+    owner: '{{ tomcat_user }}'
+    group: '{{ tomcat_group }}'
+    mode: '0750'
   loop:
-    - "{{ dhis2_install_dir }}"
-    - "{{ dhis2_home }}"
-    - "{{ dhis2_files_dir }}"
+    - '{{ dhis2_install_dir }}'
+    - '{{ dhis2_home }}'
+    - '{{ dhis2_files_dir }}'
 
 - name: Download DHIS2 WAR (from releases.dhis2.org)
   ansible.builtin.get_url:
-    url: "{{ dhis2_war_url }}"
-    dest: "{{ dhis2_install_dir }}/dhis.war"
-    owner: "{{ tomcat_user }}"
-    group: "{{ tomcat_group }}"
-    mode: "0640"
+    url: '{{ dhis2_war_url }}'
+    dest: '{{ dhis2_install_dir }}/dhis.war'
+    owner: '{{ tomcat_user }}'
+    group: '{{ tomcat_group }}'
+    mode: '0640'
   when: dhis2_war_file | length == 0
 
 - name: Copy DHIS2 WAR (from local override path)
   ansible.builtin.copy:
-    src: "{{ dhis2_war_file }}"
-    dest: "{{ dhis2_install_dir }}/dhis.war"
-    owner: "{{ tomcat_user }}"
-    group: "{{ tomcat_group }}"
-    mode: "0640"
+    src: '{{ dhis2_war_file }}'
+    dest: '{{ dhis2_install_dir }}/dhis.war'
+    owner: '{{ tomcat_user }}'
+    group: '{{ tomcat_group }}'
+    mode: '0640'
     remote_src: "{{ dhis2_war_file is match('^/') }}"
   when: dhis2_war_file | length > 0
 
 - name: Render dhis.conf
   ansible.builtin.template:
     src: dhis.conf.j2
-    dest: "{{ dhis2_home }}/dhis.conf"
-    owner: "{{ tomcat_user }}"
-    group: "{{ tomcat_group }}"
-    mode: "0640"
+    dest: '{{ dhis2_home }}/dhis.conf'
+    owner: '{{ tomcat_user }}'
+    group: '{{ tomcat_group }}'
+    mode: '0640'
   no_log: true
 
 # ---------------------------------------------------------------------------
@@ -165,7 +165,7 @@
 
 - name: Stop Tomcat before deploying the WAR
   ansible.builtin.systemd:
-    name: "{{ tomcat_service_name }}"
+    name: '{{ tomcat_service_name }}'
     state: stopped
   register: tomcat_stop_result
   failed_when: false
@@ -184,13 +184,13 @@
   # up serving the app under two contexts simultaneously.
   ansible.builtin.command:
     cmd: rm -rf
-          "{{ tomcat_webapps_dir }}/ROOT"
-          "{{ tomcat_webapps_dir }}/ROOT.war"
-          "{{ tomcat_webapps_dir }}/docs"
-          "{{ tomcat_webapps_dir }}/examples"
-          "{{ tomcat_webapps_dir }}/host-manager"
-          "{{ tomcat_webapps_dir }}/manager"
-          {% if dhis2_context_path | length > 0 %}"{{ tomcat_webapps_dir }}/{{ dhis2_context_path }}" "{{ tomcat_webapps_dir }}/{{ dhis2_context_path }}.war"{% endif %}
+      "{{ tomcat_webapps_dir }}/ROOT"
+      "{{ tomcat_webapps_dir }}/ROOT.war"
+      "{{ tomcat_webapps_dir }}/docs"
+      "{{ tomcat_webapps_dir }}/examples"
+      "{{ tomcat_webapps_dir }}/host-manager"
+      "{{ tomcat_webapps_dir }}/manager"
+      {% if dhis2_context_path | length > 0 %}"{{ tomcat_webapps_dir }}/{{ dhis2_context_path }}" "{{ tomcat_webapps_dir }}/{{ dhis2_context_path }}.war"{% endif %}
   changed_when: true
   no_log: true
 
@@ -214,28 +214,28 @@
   # in-app redirects (e.g. /<segment>/dhis-web-login) survive the proxy.
   ansible.builtin.command:
     cmd: mv -f "{{ dhis2_install_dir }}/dhis.war" "{{ tomcat_webapps_dir }}/{{ dhis2_war_name }}"
-    removes: "{{ dhis2_install_dir }}/dhis.war"
+    removes: '{{ dhis2_install_dir }}/dhis.war'
   register: dhis2_root_war_copy
   changed_when: dhis2_root_war_copy.changed | default(true)
 
 - name: Set ownership on deployed WAR
   ansible.builtin.file:
-    path: "{{ tomcat_webapps_dir }}/{{ dhis2_war_name }}"
-    owner: "{{ tomcat_user }}"
-    group: "{{ tomcat_group }}"
-    mode: "0640"
+    path: '{{ tomcat_webapps_dir }}/{{ dhis2_war_name }}'
+    owner: '{{ tomcat_user }}'
+    group: '{{ tomcat_group }}'
+    mode: '0640'
 
 - name: Configure Tomcat defaults (JAVA_OPTS + DHIS2_HOME)
   ansible.builtin.template:
     src: tomcat.defaults.j2
-    dest: "{{ tomcat_defaults_file }}"
+    dest: '{{ tomcat_defaults_file }}'
     owner: root
     group: root
-    mode: "0644"
+    mode: '0644'
 
 - name: Ensure Tomcat is enabled and running
   ansible.builtin.systemd:
-    name: "{{ tomcat_service_name }}"
+    name: '{{ tomcat_service_name }}'
     state: started
     enabled: true
     daemon_reload: true

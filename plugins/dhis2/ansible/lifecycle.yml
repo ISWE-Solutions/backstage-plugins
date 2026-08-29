@@ -14,15 +14,15 @@
 #   dhis2_force_stop         when true, fall back to forceful stop after timeout
 #                            (default true; only relevant for action=stop)
 
-- name: "Phase 1 — {{ dhis2_lifecycle_action }} LXC {{ pve_vmid }} via Proxmox API"
+- name: 'Phase 1 — {{ dhis2_lifecycle_action }} LXC {{ pve_vmid }} via Proxmox API'
   hosts: localhost
   connection: local
   gather_facts: false
   vars:
-    _pve_api_base: "https://{{ pve_api_host }}/api2/json"
-    _pve_auth: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
-    _shutdown_timeout: "{{ dhis2_shutdown_timeout | default(60) | int }}"
-    _force_stop: "{{ dhis2_force_stop | default(true) | bool }}"
+    _pve_api_base: 'https://{{ pve_api_host }}/api2/json'
+    _pve_auth: 'PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}'
+    _shutdown_timeout: '{{ dhis2_shutdown_timeout | default(60) | int }}'
+    _force_stop: '{{ dhis2_force_stop | default(true) | bool }}'
   tasks:
     - name: Validate action
       ansible.builtin.assert:
@@ -32,13 +32,13 @@
           dhis2_lifecycle_action must be one of: start, stop, restart
           (got "{{ dhis2_lifecycle_action | default('') }}")
 
-    - name: "Read current LXC {{ pve_vmid }} status"
+    - name: 'Read current LXC {{ pve_vmid }} status'
       ansible.builtin.uri:
-        url: "{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/status/current"
+        url: '{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/status/current'
         method: GET
         headers:
-          Authorization: "{{ _pve_auth }}"
-        validate_certs: "{{ pve_validate_certs | default(false) }}"
+          Authorization: '{{ _pve_auth }}'
+        validate_certs: '{{ pve_validate_certs | default(false) }}'
         status_code: [200]
       register: _status_before
       changed_when: false
@@ -50,46 +50,46 @@
           {{ _status_before.json.data.status | default('unknown') }}
 
     # -- START ---------------------------------------------------------
-    - name: "Start LXC {{ pve_vmid }}"
+    - name: 'Start LXC {{ pve_vmid }}'
       ansible.builtin.uri:
-        url: "{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/status/start"
+        url: '{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/status/start'
         method: POST
         headers:
-          Authorization: "{{ _pve_auth }}"
+          Authorization: '{{ _pve_auth }}'
         body_format: form-urlencoded
         body: {}
-        validate_certs: "{{ pve_validate_certs | default(false) }}"
+        validate_certs: '{{ pve_validate_certs | default(false) }}'
         status_code: [200]
       when:
         - dhis2_lifecycle_action == 'start'
         - _status_before.json.data.status != 'running'
       register: _start_resp
 
-    - name: "Note: start skipped — already running"
+    - name: 'Note: start skipped — already running'
       ansible.builtin.debug:
-        msg: "LXC {{ pve_vmid }} is already running; no-op."
+        msg: 'LXC {{ pve_vmid }} is already running; no-op.'
       when:
         - dhis2_lifecycle_action == 'start'
         - _status_before.json.data.status == 'running'
 
     # -- STOP ----------------------------------------------------------
-    - name: "Graceful shutdown of LXC {{ pve_vmid }} (timeout {{ _shutdown_timeout }}s)"
+    - name: 'Graceful shutdown of LXC {{ pve_vmid }} (timeout {{ _shutdown_timeout }}s)'
       ansible.builtin.uri:
-        url: "{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/status/shutdown"
+        url: '{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/status/shutdown'
         method: POST
         headers:
-          Authorization: "{{ _pve_auth }}"
+          Authorization: '{{ _pve_auth }}'
         body_format: form-urlencoded
         body:
-          timeout: "{{ _shutdown_timeout }}"
-          forceStop: "{{ 1 if _force_stop else 0 }}"
-        validate_certs: "{{ pve_validate_certs | default(false) }}"
+          timeout: '{{ _shutdown_timeout }}'
+          forceStop: '{{ 1 if _force_stop else 0 }}'
+        validate_certs: '{{ pve_validate_certs | default(false) }}'
         status_code: [200]
       when:
         - dhis2_lifecycle_action == 'stop'
         - _status_before.json.data.status == 'running'
 
-    - name: "Note: stop skipped — not running"
+    - name: 'Note: stop skipped — not running'
       ansible.builtin.debug:
         msg: >-
           LXC {{ pve_vmid }} is in state
@@ -103,30 +103,30 @@
     # stopped, we just start it (treat restart as "make sure it ends up
     # running, fresh"). Otherwise issue a reboot with the same timeout
     # semantics as shutdown.
-    - name: "Reboot LXC {{ pve_vmid }} (timeout {{ _shutdown_timeout }}s)"
+    - name: 'Reboot LXC {{ pve_vmid }} (timeout {{ _shutdown_timeout }}s)'
       ansible.builtin.uri:
-        url: "{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/status/reboot"
+        url: '{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/status/reboot'
         method: POST
         headers:
-          Authorization: "{{ _pve_auth }}"
+          Authorization: '{{ _pve_auth }}'
         body_format: form-urlencoded
         body:
-          timeout: "{{ _shutdown_timeout }}"
-        validate_certs: "{{ pve_validate_certs | default(false) }}"
+          timeout: '{{ _shutdown_timeout }}'
+        validate_certs: '{{ pve_validate_certs | default(false) }}'
         status_code: [200]
       when:
         - dhis2_lifecycle_action == 'restart'
         - _status_before.json.data.status == 'running'
 
-    - name: "Start LXC {{ pve_vmid }} (restart on a stopped container)"
+    - name: 'Start LXC {{ pve_vmid }} (restart on a stopped container)'
       ansible.builtin.uri:
-        url: "{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/status/start"
+        url: '{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/status/start'
         method: POST
         headers:
-          Authorization: "{{ _pve_auth }}"
+          Authorization: '{{ _pve_auth }}'
         body_format: form-urlencoded
         body: {}
-        validate_certs: "{{ pve_validate_certs | default(false) }}"
+        validate_certs: '{{ pve_validate_certs | default(false) }}'
         status_code: [200]
       when:
         - dhis2_lifecycle_action == 'restart'
@@ -135,23 +135,23 @@
 # ---------------------------------------------------------------------------
 # Phase 2 — poll until the LXC settles into the expected state
 # ---------------------------------------------------------------------------
-- name: "Phase 2 — wait for LXC {{ pve_vmid }} to settle"
+- name: 'Phase 2 — wait for LXC {{ pve_vmid }} to settle'
   hosts: localhost
   connection: local
   gather_facts: false
   vars:
-    _pve_api_base: "https://{{ pve_api_host }}/api2/json"
-    _pve_auth: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+    _pve_api_base: 'https://{{ pve_api_host }}/api2/json'
+    _pve_auth: 'PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}'
     _expected_status: >-
       {{ 'stopped' if dhis2_lifecycle_action == 'stop' else 'running' }}
   tasks:
     - name: "Poll LXC status until it reaches '{{ _expected_status }}'"
       ansible.builtin.uri:
-        url: "{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/status/current"
+        url: '{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/status/current'
         method: GET
         headers:
-          Authorization: "{{ _pve_auth }}"
-        validate_certs: "{{ pve_validate_certs | default(false) }}"
+          Authorization: '{{ _pve_auth }}'
+        validate_certs: '{{ pve_validate_certs | default(false) }}'
         status_code: [200]
       register: _status_poll
       until: _status_poll.json.data.status == _expected_status

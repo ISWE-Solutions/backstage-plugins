@@ -1,4 +1,4 @@
 ---
 - name: reload nginx
-  ansible.builtin.command: "{{ host_proxy_nginx_reload_cmd }}"
+  ansible.builtin.command: '{{ host_proxy_nginx_reload_cmd }}'
   listen: reload nginx

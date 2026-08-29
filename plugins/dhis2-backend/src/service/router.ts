@@ -57,8 +57,8 @@ function parseCredentials(body: unknown): DbCredentials {
     typeof port === 'number'
       ? port
       : typeof port === 'string' && port !== ''
-        ? Number(port)
-        : NaN;
+      ? Number(port)
+      : NaN;
   if (!Number.isInteger(portNum) || portNum <= 0 || portNum > 65535) {
     throw new InputError('"port" must be an integer between 1 and 65535');
   }
@@ -75,8 +75,7 @@ function parseCredentials(body: unknown): DbCredentials {
 function parseCompatibilityRequest(body: unknown): DbCompatibilityRequest {
   const creds = parseCredentials(body);
   const b = body as Record<string, unknown>;
-  const database =
-    typeof b.database === 'string' ? b.database.trim() : '';
+  const database = typeof b.database === 'string' ? b.database.trim() : '';
   if (!database) {
     throw new InputError('"database" is required');
   }
@@ -136,10 +135,18 @@ function describeError(
     const lower = rawMessage.toLowerCase();
     let message = rawMessage;
     if (lower.includes('timeout expired') || code === 'ETIMEDOUT') {
-      message = `Connection to ${target} timed out after ${CONNECT_TIMEOUT_MS / 1000}s. The Backstage backend host could not reach PostgreSQL — check that the port is open from this host (firewall / security group) and that PostgreSQL is listening on ${creds.host} (postgresql.conf: listen_addresses).`;
+      message = `Connection to ${target} timed out after ${
+        CONNECT_TIMEOUT_MS / 1000
+      }s. The Backstage backend host could not reach PostgreSQL — check that the port is open from this host (firewall / security group) and that PostgreSQL is listening on ${
+        creds.host
+      } (postgresql.conf: listen_addresses).`;
     } else if (code === 'ECONNREFUSED' || lower.includes('econnrefused')) {
       message = `Connection to ${target} was refused. PostgreSQL is not listening on that host/port, or a firewall is rejecting the connection.`;
-    } else if (code === 'ENOTFOUND' || code === 'EAI_AGAIN' || lower.includes('getaddrinfo')) {
+    } else if (
+      code === 'ENOTFOUND' ||
+      code === 'EAI_AGAIN' ||
+      lower.includes('getaddrinfo')
+    ) {
       message = `Hostname ${creds.host} could not be resolved by the Backstage backend (DNS).`;
     } else if (code === 'EHOSTUNREACH' || lower.includes('ehostunreach')) {
       message = `Host ${creds.host} is unreachable from the Backstage backend (network/route).`;
@@ -233,7 +240,9 @@ export async function createRouter(
         return result.rows[0]?.version ?? 'unknown';
       });
       logger.info(
-        `DHIS2: PG connection OK to ${creds.host}:${creds.port} as ${creds.user} (${Date.now() - started}ms)`,
+        `DHIS2: PG connection OK to ${creds.host}:${creds.port} as ${
+          creds.user
+        } (${Date.now() - started}ms)`,
       );
       res.json({
         ok: true,
@@ -244,7 +253,9 @@ export async function createRouter(
     } catch (err) {
       const { message, code } = describeError(err, creds);
       logger.warn(
-        `DHIS2: PG connection FAILED to ${creds.host}:${creds.port} as ${creds.user}: ${message}${code ? ` [${code}]` : ''}`,
+        `DHIS2: PG connection FAILED to ${creds.host}:${creds.port} as ${
+          creds.user
+        }: ${message}${code ? ` [${code}]` : ''}`,
       );
       res.status(200).json({
         ok: false,
@@ -268,7 +279,9 @@ export async function createRouter(
     } catch (err) {
       const { message, code } = describeError(err, creds);
       logger.warn(
-        `DHIS2: listDatabases FAILED on ${creds.host}:${creds.port} as ${creds.user}: ${message}${code ? ` [${code}]` : ''}`,
+        `DHIS2: listDatabases FAILED on ${creds.host}:${creds.port} as ${
+          creds.user
+        }: ${message}${code ? ` [${code}]` : ''}`,
       );
       res.status(502).json({ error: message, code });
     }
@@ -344,7 +357,9 @@ export async function createRouter(
                  AND c.conname = 'fk_organisationunit_fileresourceid'
              ) AS present`,
           );
-          const migrationMarkerResult = await client.query<{ present: boolean }>(
+          const migrationMarkerResult = await client.query<{
+            present: boolean;
+          }>(
             `SELECT EXISTS (
                SELECT 1
                FROM public.flyway_schema_history
@@ -352,9 +367,7 @@ export async function createRouter(
              ) AS present`,
           );
 
-          const hasKnownConstraint = Boolean(
-            constraintResult.rows[0]?.present,
-          );
+          const hasKnownConstraint = Boolean(constraintResult.rows[0]?.present);
           const hasMigrationMarker = Boolean(
             migrationMarkerResult.rows[0]?.present,
           );
@@ -382,9 +395,7 @@ export async function createRouter(
             : '';
           return {
             compatible: true,
-            message:
-              `Database "${request.database}" passed compatibility preflight.` +
-              versionSuffix,
+            message: `Database "${request.database}" passed compatibility preflight.${versionSuffix}`,
             details: {
               database: request.database,
               hasFlywayHistory: true,
@@ -406,7 +417,9 @@ export async function createRouter(
     } catch (err) {
       const { message, code } = describeError(err, request);
       logger.warn(
-        `DHIS2: compatibility check FAILED on ${request.host}:${request.port}/${request.database} as ${request.user}: ${message}${code ? ` [${code}]` : ''}`,
+        `DHIS2: compatibility check FAILED on ${request.host}:${request.port}/${
+          request.database
+        } as ${request.user}: ${message}${code ? ` [${code}]` : ''}`,
       );
       res.status(200).json({
         ok: false,
@@ -444,9 +457,7 @@ export async function createRouter(
         apiTokenId:
           typeof pm.apiTokenId === 'string' ? pm.apiTokenId.trim() : undefined,
         apiTokenSecret:
-          typeof pm.apiTokenSecret === 'string'
-            ? pm.apiTokenSecret
-            : undefined,
+          typeof pm.apiTokenSecret === 'string' ? pm.apiTokenSecret : undefined,
         validateApiCerts:
           typeof pm.validateApiCerts === 'boolean'
             ? pm.validateApiCerts
@@ -762,8 +773,7 @@ export async function createRouter(
       proxy:
         b.proxy && typeof b.proxy === 'object'
           ? {
-              host:
-                typeof b.proxy.host === 'string' ? b.proxy.host : undefined,
+              host: typeof b.proxy.host === 'string' ? b.proxy.host : undefined,
               sshPort:
                 typeof b.proxy.sshPort === 'number' &&
                 Number.isInteger(b.proxy.sshPort) &&
@@ -868,10 +878,9 @@ export async function createRouter(
         `Persisted instance has invalid vmid "${instance.vmid}"`,
       );
     }
-    const proxy = (b.proxy && typeof b.proxy === 'object' ? b.proxy : {}) as Record<
-      string,
-      any
-    >;
+    const proxy = (
+      b.proxy && typeof b.proxy === 'object' ? b.proxy : {}
+    ) as Record<string, any>;
     const dbOverride =
       b.database && typeof b.database === 'object'
         ? (b.database as Record<string, any>)
@@ -902,16 +911,19 @@ export async function createRouter(
             ? dbOverride.user.trim()
             : instance.database.user,
         host:
-          typeof dbOverride.host === 'string' ? dbOverride.host.trim() : undefined,
+          typeof dbOverride.host === 'string'
+            ? dbOverride.host.trim()
+            : undefined,
         port:
           typeof dbOverride.port === 'number'
             ? dbOverride.port
             : typeof dbOverride.port === 'string' && dbOverride.port !== ''
-              ? Number(dbOverride.port)
-              : undefined,
+            ? Number(dbOverride.port)
+            : undefined,
       },
       databaseAdmin: {
-        user: typeof dbAdmin.user === 'string' ? dbAdmin.user.trim() : undefined,
+        user:
+          typeof dbAdmin.user === 'string' ? dbAdmin.user.trim() : undefined,
         password:
           typeof dbAdmin.password === 'string' ? dbAdmin.password : undefined,
       },
@@ -921,8 +933,8 @@ export async function createRouter(
           typeof proxy.sshPort === 'number'
             ? proxy.sshPort
             : typeof proxy.sshPort === 'string' && proxy.sshPort !== ''
-              ? Number(proxy.sshPort)
-              : undefined,
+            ? Number(proxy.sshPort)
+            : undefined,
         sshUser:
           typeof proxy.sshUser === 'string' ? proxy.sshUser.trim() : undefined,
         sshKeyPath:
@@ -940,7 +952,9 @@ export async function createRouter(
       },
       proxmox: {
         apiUrl:
-          typeof proxmox.apiUrl === 'string' ? proxmox.apiUrl.trim() : undefined,
+          typeof proxmox.apiUrl === 'string'
+            ? proxmox.apiUrl.trim()
+            : undefined,
         apiUser:
           typeof proxmox.apiUser === 'string'
             ? proxmox.apiUser.trim()
@@ -1247,8 +1261,7 @@ export async function createRouter(
       name: instance.name,
       action: action as 'start' | 'stop' | 'restart',
       shutdownTimeout: num(b.shutdownTimeout),
-      forceStop:
-        typeof b.forceStop === 'boolean' ? b.forceStop : undefined,
+      forceStop: typeof b.forceStop === 'boolean' ? b.forceStop : undefined,
       proxmox: {
         apiUrl: str(proxmox.apiUrl),
         apiUser: str(proxmox.apiUser),
@@ -1339,9 +1352,7 @@ export async function createRouter(
 
     const srcVmid = Number(source.vmid);
     if (!Number.isInteger(srcVmid) || srcVmid <= 0) {
-      throw new InputError(
-        `Source instance has invalid vmid "${source.vmid}"`,
-      );
+      throw new InputError(`Source instance has invalid vmid "${source.vmid}"`);
     }
 
     const targetVmid = num(b.vmid);
@@ -1596,9 +1607,7 @@ export async function createRouter(
 
     const toVersion = str(b.toVersion);
     if (!toVersion) {
-      throw new InputError(
-        'toVersion is required (e.g. "2.41.3" or "41.2.0")',
-      );
+      throw new InputError('toVersion is required (e.g. "2.41.3" or "41.2.0")');
     }
     // Sanity-check the version label so the playbook's URL derivation
     // produces something useful. Accept "2.41.3", "41.2.0", "41.2", "41".
@@ -1654,8 +1663,7 @@ export async function createRouter(
       })(),
       warUrl: str(b.warUrl),
       warFile: str(b.warFile),
-      backupDb:
-        typeof b.backupDb === 'boolean' ? b.backupDb : undefined,
+      backupDb: typeof b.backupDb === 'boolean' ? b.backupDb : undefined,
       backupRetain: backupRetainNum,
       tomcatService: str(b.tomcatService),
       webappsDir: str(b.webappsDir),
@@ -1743,9 +1751,7 @@ export async function createRouter(
   // ---------------------------------------------------------------------
   // Per-instance nginx proxy files (upstream snippet + vhost / dhis.conf)
   // ---------------------------------------------------------------------
-  function parseProxyAccessOverrides(
-    body: unknown,
-  ): {
+  function parseProxyAccessOverrides(body: unknown): {
     host?: string;
     sshPort?: number;
     sshUser?: string;
@@ -1808,9 +1814,7 @@ export async function createRouter(
         : {};
     const sourceRaw = typeof b.source === 'string' ? b.source.trim() : '';
     const source: 'dhis2' | 'catalina' | 'auto' =
-      sourceRaw === 'dhis2' || sourceRaw === 'catalina'
-        ? sourceRaw
-        : 'auto';
+      sourceRaw === 'dhis2' || sourceRaw === 'catalina' ? sourceRaw : 'auto';
     let lines = 200;
     if (typeof b.lines === 'number' && Number.isFinite(b.lines)) {
       lines = b.lines;
@@ -1857,8 +1861,7 @@ export async function createRouter(
         : {};
     const upstream =
       typeof b.upstream === 'string' ? (b.upstream as string) : undefined;
-    const site =
-      typeof b.site === 'string' ? (b.site as string) : undefined;
+    const site = typeof b.site === 'string' ? (b.site as string) : undefined;
     if (upstream === undefined && site === undefined) {
       res
         .status(400)
@@ -1962,14 +1965,16 @@ export async function createRouter(
       typeof portRaw === 'number'
         ? portRaw
         : typeof portRaw === 'string' && portRaw !== ''
-          ? Number(portRaw)
-          : NaN;
+        ? Number(portRaw)
+        : NaN;
     const user = typeof o.user === 'string' ? o.user.trim() : '';
     const password = typeof o.password === 'string' ? o.password : '';
     const database = typeof o.database === 'string' ? o.database.trim() : '';
     if (!host) throw new InputError(`"${label}.host" is required`);
     if (!Number.isInteger(portNum) || portNum <= 0 || portNum > 65535) {
-      throw new InputError(`"${label}.port" must be an integer between 1 and 65535`);
+      throw new InputError(
+        `"${label}.port" must be an integer between 1 and 65535`,
+      );
     }
     if (!user) throw new InputError(`"${label}.user" is required`);
     if (!password) throw new InputError(`"${label}.password" is required`);

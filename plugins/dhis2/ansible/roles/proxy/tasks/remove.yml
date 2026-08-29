@@ -8,22 +8,22 @@
 
 - name: Remove per-instance snippet
   ansible.builtin.file:
-    path: "{{ host_proxy_upstream_file }}"
+    path: '{{ host_proxy_upstream_file }}'
     state: absent
   notify: reload nginx
 
 - name: Remove dedicated vhost (subdomain mode only)
   ansible.builtin.file:
-    path: "{{ item }}"
+    path: '{{ item }}'
     state: absent
   loop:
-    - "{{ host_proxy_site_link }}"
-    - "{{ host_proxy_site_file }}"
+    - '{{ host_proxy_site_link }}'
+    - '{{ host_proxy_site_file }}'
   when: host_proxy_routing_mode == 'subdomain'
   notify: reload nginx
 
 - name: Validate nginx configuration
-  ansible.builtin.command: "{{ host_proxy_nginx_validate_cmd }}"
+  ansible.builtin.command: '{{ host_proxy_nginx_validate_cmd }}'
   changed_when: false
 
 - name: Flush handlers so nginx reloads before this play exits

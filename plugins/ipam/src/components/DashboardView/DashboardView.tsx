@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Grid,
   Card,
@@ -98,7 +98,11 @@ export const DashboardView = () => {
         <Grid item xs={12} sm={6} md={3}>
           <Card className={classes.card}>
             <CardContent>
-              <Box display="flex" justifyContent="space-between" alignItems="center">
+              <Box
+                display="flex"
+                justifyContent="space-between"
+                alignItems="center"
+              >
                 <Box>
                   <Typography className={classes.statValue}>
                     {statistics.totalSubnets}
@@ -119,7 +123,11 @@ export const DashboardView = () => {
         <Grid item xs={12} sm={6} md={3}>
           <Card className={classes.card}>
             <CardContent>
-              <Box display="flex" justifyContent="space-between" alignItems="center">
+              <Box
+                display="flex"
+                justifyContent="space-between"
+                alignItems="center"
+              >
                 <Box>
                   <Typography className={classes.statValue}>
                     {statistics.totalIPs.toLocaleString()}
@@ -140,7 +148,11 @@ export const DashboardView = () => {
         <Grid item xs={12} sm={6} md={3}>
           <Card className={classes.card}>
             <CardContent>
-              <Box display="flex" justifyContent="space-between" alignItems="center">
+              <Box
+                display="flex"
+                justifyContent="space-between"
+                alignItems="center"
+              >
                 <Box>
                   <Typography className={classes.statValue}>
                     {statistics.allocatedIPs}
@@ -161,7 +173,11 @@ export const DashboardView = () => {
         <Grid item xs={12} sm={6} md={3}>
           <Card className={classes.card}>
             <CardContent>
-              <Box display="flex" justifyContent="space-between" alignItems="center">
+              <Box
+                display="flex"
+                justifyContent="space-between"
+                alignItems="center"
+              >
                 <Box>
                   <Typography className={classes.statValue}>
                     {statistics.availableIPs.toLocaleString()}
@@ -188,7 +204,8 @@ export const DashboardView = () => {
               <Box mt={2}>
                 <Box display="flex" justifyContent="space-between" mb={1}>
                   <Typography variant="body2">
-                    {statistics.allocatedIPs} / {statistics.totalIPs} IPs allocated
+                    {statistics.allocatedIPs} / {statistics.totalIPs} IPs
+                    allocated
                   </Typography>
                   <Typography variant="body2" color="primary">
                     {statistics.utilizationPercent.toFixed(1)}%
@@ -197,7 +214,9 @@ export const DashboardView = () => {
                 <LinearProgress
                   variant="determinate"
                   value={statistics.utilizationPercent}
-                  color={getUtilizationColor(statistics.utilizationPercent) as any}
+                  color={
+                    getUtilizationColor(statistics.utilizationPercent) as any
+                  }
                   className={classes.utilizationBar}
                 />
               </Box>
@@ -213,15 +232,17 @@ export const DashboardView = () => {
                 Subnets by VLAN
               </Typography>
               <Box mt={2}>
-                {Object.entries(statistics.subnetsByVLAN).map(([vlan, count]) => (
-                  <Chip
-                    key={vlan}
-                    label={`${vlan}: ${count}`}
-                    className={classes.vlanChip}
-                    color="primary"
-                    variant="outlined"
-                  />
-                ))}
+                {Object.entries(statistics.subnetsByVLAN).map(
+                  ([vlan, count]) => (
+                    <Chip
+                      key={vlan}
+                      label={`${vlan}: ${count}`}
+                      className={classes.vlanChip}
+                      color="primary"
+                      variant="outlined"
+                    />
+                  ),
+                )}
               </Box>
             </CardContent>
           </Card>
@@ -252,7 +273,9 @@ export const DashboardView = () => {
                     <LinearProgress
                       variant="determinate"
                       value={subnet.utilizationPercent}
-                      color={getUtilizationColor(subnet.utilizationPercent) as any}
+                      color={
+                        getUtilizationColor(subnet.utilizationPercent) as any
+                      }
                       className={classes.utilizationBar}
                     />
                     <Typography variant="caption" color="textSecondary">
@@ -266,12 +289,15 @@ export const DashboardView = () => {
         </Grid>
 
         {/* Alerts */}
-        {statistics.topUtilizedSubnets.some(s => s.utilizationPercent >= 90) && (
+        {statistics.topUtilizedSubnets.some(
+          s => s.utilizationPercent >= 90,
+        ) && (
           <Grid item xs={12}>
             <Alert severity="error">
               <Typography variant="body2">
-                <strong>Critical:</strong> Some subnets are at 90% or higher utilization.
-                Consider expanding capacity or reclaiming unused IPs.
+                <strong>Critical:</strong> Some subnets are at 90% or higher
+                utilization. Consider expanding capacity or reclaiming unused
+                IPs.
               </Typography>
             </Alert>
           </Grid>
@@ -283,8 +309,8 @@ export const DashboardView = () => {
           <Grid item xs={12}>
             <Alert severity="warning">
               <Typography variant="body2">
-                <strong>Warning:</strong> Some subnets are approaching capacity (75%+).
-                Monitor closely and plan for expansion.
+                <strong>Warning:</strong> Some subnets are approaching capacity
+                (75%+). Monitor closely and plan for expansion.
               </Typography>
             </Alert>
           </Grid>

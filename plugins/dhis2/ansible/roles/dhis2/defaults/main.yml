@@ -22,21 +22,21 @@ dhis2_files_dir: /opt/dhis2/files
 # ---------------------------------------------------------------------------
 _dhis2_version_clean: "{{ dhis2_version | regex_replace('^2\\.', '') }}"
 _dhis2_version_parts: "{{ _dhis2_version_clean.split('.') }}"
-_dhis2_major: "{{ _dhis2_version_parts[0] }}"
+_dhis2_major: '{{ _dhis2_version_parts[0] }}'
 _dhis2_patch: "{{ (_dhis2_version_parts[1] | default('0')) }}"
 _dhis2_hotfix: "{{ (_dhis2_version_parts[2] | default('0')) }}"
-dhis2_war_url: "https://releases.dhis2.org/{{ _dhis2_major }}/dhis2-stable-{{ _dhis2_major }}.{{ _dhis2_patch }}.{{ _dhis2_hotfix }}.war"
+dhis2_war_url: 'https://releases.dhis2.org/{{ _dhis2_major }}/dhis2-stable-{{ _dhis2_major }}.{{ _dhis2_patch }}.{{ _dhis2_hotfix }}.war'
 # When set, this overrides dhis2_war_url and is fetched instead.
-dhis2_war_file: ""
+dhis2_war_file: ''
 
 tomcat_user: tomcat
 tomcat_group: tomcat
 tomcat_install_dir: /opt/tomcat
-tomcat_webapps_dir: "{{ tomcat_install_dir }}/webapps"
+tomcat_webapps_dir: '{{ tomcat_install_dir }}/webapps'
 tomcat_defaults_file: /etc/default/tomcat
 tomcat_service_name: tomcat
-dhis2_java_heap: "4G"
-tomcat_java_opts: "-Djava.awt.headless=true -Dfile.encoding=UTF-8 -Xmx{{ dhis2_java_heap }} -Xms2G"
+dhis2_java_heap: '4G'
+tomcat_java_opts: '-Djava.awt.headless=true -Dfile.encoding=UTF-8 -Xmx{{ dhis2_java_heap }} -Xms2G'
 
 # ---------------------------------------------------------------------------
 # Apache Tomcat is installed from the upstream archive at archive.apache.org
@@ -45,21 +45,21 @@ tomcat_java_opts: "-Djava.awt.headless=true -Dfile.encoding=UTF-8 -Xmx{{ dhis2_j
 # Override `tomcat_release` to pin a different patch level, or
 # `tomcat_archive_url` to fetch from an internal mirror.
 # ---------------------------------------------------------------------------
-tomcat_version: "9"
+tomcat_version: '9'
 # Pinned to the current Apache stable releases (refresh by re-checking
 # https://archive.apache.org/dist/tomcat/tomcat-9/ and tomcat-10/).
 tomcat_release_map:
-  "9": "9.0.118"
-  "10": "10.1.55"
-tomcat_release: "{{ tomcat_release_map[tomcat_version | string] }}"
-tomcat_archive_url: "https://archive.apache.org/dist/tomcat/tomcat-{{ tomcat_version | string }}/v{{ tomcat_release }}/bin/apache-tomcat-{{ tomcat_release }}.tar.gz"
+  '9': '9.0.118'
+  '10': '10.1.55'
+tomcat_release: '{{ tomcat_release_map[tomcat_version | string] }}'
+tomcat_archive_url: 'https://archive.apache.org/dist/tomcat/tomcat-{{ tomcat_version | string }}/v{{ tomcat_release }}/bin/apache-tomcat-{{ tomcat_release }}.tar.gz'
 
 # DB connection (database lives on the same host by default — see site.yml).
 dhis2_db_host: localhost
 dhis2_db_port: 5432
 
 # Server base URL used in dhis.conf.
-dhis2_server_base_url: "https://{{ fqdn }}"
+dhis2_server_base_url: 'https://{{ fqdn }}'
 
 # ---------------------------------------------------------------------------
 # Tomcat context path for DHIS2.

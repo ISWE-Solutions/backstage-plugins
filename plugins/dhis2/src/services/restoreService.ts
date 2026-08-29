@@ -1,9 +1,4 @@
-import {
-  DHIS2Instance,
-  RestoreJob,
-  RestoreSource,
-  DumpFormat,
-} from '../types';
+import { DHIS2Instance, RestoreJob, RestoreSource, DumpFormat } from '../types';
 import { dhis2Service } from './dhis2Service';
 
 /**
@@ -90,7 +85,8 @@ export function validateRestoreSource(
       }
       return null;
     case 'instance':
-      if (!source.sourceInstanceId) return 'Pick a source instance to clone from.';
+      if (!source.sourceInstanceId)
+        return 'Pick a source instance to clone from.';
       return null;
     case 'vzdump':
       if (!source.node) return 'Proxmox node is required.';
@@ -136,7 +132,10 @@ export class RestoreService {
    * wrapping them in multipart/form-data so the backend can stage to
    * disk without pulling in a multipart parser dependency.
    */
-  async uploadDump(file: File, onProgress?: UploadProgress): Promise<UploadResult> {
+  async uploadDump(
+    file: File,
+    onProgress?: UploadProgress,
+  ): Promise<UploadResult> {
     if (file.size > MAX_UPLOAD_BYTES) {
       throw new Error(
         `File is ${(file.size / 1024 ** 3).toFixed(2)} GiB which exceeds the ${
@@ -166,7 +165,9 @@ export class RestoreService {
           } catch (e) {
             reject(
               new Error(
-                `Upload succeeded but response was not JSON: ${(e as Error).message}`,
+                `Upload succeeded but response was not JSON: ${
+                  (e as Error).message
+                }`,
               ),
             );
           }
@@ -198,13 +199,18 @@ export class RestoreService {
    * Backend contract:
    *   GET {baseUrl}/proxmox/{node}/storage/{storage}/backups → VzdumpBackup[]
    */
-  async listVzdumpBackups(node: string, storage: string): Promise<VzdumpBackup[]> {
+  async listVzdumpBackups(
+    node: string,
+    storage: string,
+  ): Promise<VzdumpBackup[]> {
     const url = `${this.baseUrl}/proxmox/${encodeURIComponent(
       node,
     )}/storage/${encodeURIComponent(storage)}/backups`;
     const res = await this.fetchImpl(url);
     if (!res.ok) {
-      throw new Error(`Failed to list vzdump backups: HTTP ${res.status} ${res.statusText}`);
+      throw new Error(
+        `Failed to list vzdump backups: HTTP ${res.status} ${res.statusText}`,
+      );
     }
     const body = (await res.json()) as { data?: VzdumpBackup[] };
     return body.data ?? [];
@@ -232,7 +238,9 @@ export class RestoreService {
     instanceId: string,
     source: RestoreSource,
   ): Promise<RestoreJob> {
-    const url = `${this.baseUrl}/instances/${encodeURIComponent(instanceId)}/restore`;
+    const url = `${this.baseUrl}/instances/${encodeURIComponent(
+      instanceId,
+    )}/restore`;
     const res = await this.fetchImpl(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

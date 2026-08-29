@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Box,
   Paper,
@@ -104,7 +104,9 @@ export const IPListView = () => {
     }));
   };
 
-  const handleAddIP = async (ip: Omit<IPAddress, 'id' | 'createdAt' | 'updatedAt'>) => {
+  const handleAddIP = async (
+    ip: Omit<IPAddress, 'id' | 'createdAt' | 'updatedAt'>,
+  ) => {
     try {
       await ipamService.addIPAddress(ip);
       setAddDialogOpen(false);
@@ -173,7 +175,9 @@ export const IPListView = () => {
           variant="outlined"
           size="small"
           value={filter.status || ''}
-          onChange={e => handleFilterChange('status', e.target.value as IPStatus)}
+          onChange={e =>
+            handleFilterChange('status', e.target.value as IPStatus)
+          }
         >
           <MenuItem value="">All Statuses</MenuItem>
           <MenuItem value={IPStatus.AVAILABLE}>Available</MenuItem>
@@ -217,7 +221,8 @@ export const IPListView = () => {
       ) : (
         <>
           <Typography variant="body2" color="textSecondary" gutterBottom>
-            Showing {ipAddresses.length} IP address{ipAddresses.length !== 1 ? 'es' : ''}
+            Showing {ipAddresses.length} IP address
+            {ipAddresses.length !== 1 ? 'es' : ''}
           </Typography>
 
           <TableContainer component={Paper} className={classes.tableContainer}>
@@ -240,7 +245,10 @@ export const IPListView = () => {
                 {ipAddresses.map(ip => (
                   <TableRow key={ip.id} hover>
                     <TableCell>
-                      <Typography variant="body2" style={{ fontFamily: 'monospace' }}>
+                      <Typography
+                        variant="body2"
+                        style={{ fontFamily: 'monospace' }}
+                      >
                         {ip.ipAddress}
                       </Typography>
                     </TableCell>
@@ -263,7 +271,10 @@ export const IPListView = () => {
                       />
                     </TableCell>
                     <TableCell>
-                      <Typography variant="body2" style={{ fontFamily: 'monospace' }}>
+                      <Typography
+                        variant="body2"
+                        style={{ fontFamily: 'monospace' }}
+                      >
                         {getSubnetDisplay(ip.subnetId)}
                       </Typography>
                     </TableCell>
@@ -275,7 +286,10 @@ export const IPListView = () => {
                     <TableCell>{ip.assignedTo || '-'}</TableCell>
                     <TableCell>{ip.deviceType || '-'}</TableCell>
                     <TableCell>
-                      <Typography variant="body2" style={{ fontFamily: 'monospace' }}>
+                      <Typography
+                        variant="body2"
+                        style={{ fontFamily: 'monospace' }}
+                      >
                         {ip.macAddress || '-'}
                       </Typography>
                     </TableCell>

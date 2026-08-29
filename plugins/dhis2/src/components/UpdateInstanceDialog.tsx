@@ -1,4 +1,15 @@
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Grid, MenuItem, TextField, Typography } from '@material-ui/core';
+import {
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Grid,
+  MenuItem,
+  TextField,
+  Typography,
+} from '@material-ui/core';
 import { Alert } from '@material-ui/lab';
 import { DHIS2Instance } from '../types';
 import { settingsService } from '../services/settingsService';
@@ -64,7 +75,9 @@ export const EditInstanceDialog = ({
   if (!draft) {
     return (
       <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-        <DialogTitle>Update Instance {instance?.name ?? 'instance'}</DialogTitle>
+        <DialogTitle>
+          Update Instance {instance?.name ?? 'instance'}
+        </DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="textSecondary">
             Loading update form…
@@ -77,7 +90,8 @@ export const EditInstanceDialog = ({
     );
   }
 
-  const updateDraft = (patch: Partial<EditDraft>) => onDraftChange({ ...draft, ...patch });
+  const updateDraft = (patch: Partial<EditDraft>) =>
+    onDraftChange({ ...draft, ...patch });
   const s = settingsService.load();
   const fmt = (v?: string | number) =>
     v === undefined || v === null || v === '' ? '(unset)' : String(v);
@@ -91,8 +105,8 @@ export const EditInstanceDialog = ({
           <Grid item xs={12}>
             <Typography variant="subtitle2">Instance</Typography>
             <Typography variant="caption" color="textSecondary">
-              Display name shown across Backstage and the DHIS2 version
-              label tracked in the registry.
+              Display name shown across Backstage and the DHIS2 version label
+              tracked in the registry.
             </Typography>
           </Grid>
           <Grid item xs={12} sm={6}>
@@ -141,8 +155,8 @@ export const EditInstanceDialog = ({
               LXC resources
             </Typography>
             <Typography variant="caption" color="textSecondary">
-              Applied to the Proxmox container on save. Storage can only
-              grow — Proxmox does not support shrinking rootfs.
+              Applied to the Proxmox container on save. Storage can only grow —
+              Proxmox does not support shrinking rootfs.
             </Typography>
           </Grid>
           <Grid item xs={4}>
@@ -151,7 +165,9 @@ export const EditInstanceDialog = ({
               type="number"
               fullWidth
               value={draft.cpu}
-              onChange={e => updateDraft({ cpu: Math.max(1, Number(e.target.value) || 1) })}
+              onChange={e =>
+                updateDraft({ cpu: Math.max(1, Number(e.target.value) || 1) })
+              }
             />
           </Grid>
           <Grid item xs={4}>
@@ -161,7 +177,9 @@ export const EditInstanceDialog = ({
               fullWidth
               value={draft.memoryMb}
               onChange={e =>
-                updateDraft({ memoryMb: Math.max(512, Number(e.target.value) || 512) })
+                updateDraft({
+                  memoryMb: Math.max(512, Number(e.target.value) || 512),
+                })
               }
             />
           </Grid>
@@ -171,7 +189,11 @@ export const EditInstanceDialog = ({
               type="number"
               fullWidth
               value={draft.storageGb}
-              onChange={e => updateDraft({ storageGb: Math.max(5, Number(e.target.value) || 5) })}
+              onChange={e =>
+                updateDraft({
+                  storageGb: Math.max(5, Number(e.target.value) || 5),
+                })
+              }
             />
           </Grid>
 
@@ -201,7 +223,11 @@ export const EditInstanceDialog = ({
               type="number"
               fullWidth
               value={draft.dbPort}
-              onChange={e => updateDraft({ dbPort: Number(e.target.value) || DEFAULT_PG_PORT })}
+              onChange={e =>
+                updateDraft({
+                  dbPort: Number(e.target.value) || DEFAULT_PG_PORT,
+                })
+              }
             />
           </Grid>
           <Grid item xs={12} sm={6}>
@@ -237,11 +263,11 @@ export const EditInstanceDialog = ({
               Container access (SSH)
             </Typography>
             <Typography variant="caption" color="textSecondary">
-              SSH private-key path on the Backstage host used to reach
-              the PVE node and run <code>pct exec</code> inside this
-              instance's LXC. If left blank, the backend uses its
-              configured default orchestrator key. Override here when a
-              different key is authorized on this Proxmox node.
+              SSH private-key path on the Backstage host used to reach the PVE
+              node and run <code>pct exec</code> inside this instance's LXC. If
+              left blank, the backend uses its configured default orchestrator
+              key. Override here when a different key is authorized on this
+              Proxmox node.
             </Typography>
           </Grid>
           <Grid item xs={12}>
@@ -261,10 +287,16 @@ export const EditInstanceDialog = ({
             />
           </Grid>
           {(() => {
-            const remoteDbHostForDisplay = (draft.dbHost || s.dhis2.postgresHost || '').trim();
+            const remoteDbHostForDisplay = (
+              draft.dbHost ||
+              s.dhis2.postgresHost ||
+              ''
+            ).trim();
             const displayDropDb =
               remoteDbHostForDisplay.length > 0 &&
-              !['localhost', '127.0.0.1', '::1', 'postgres'].includes(remoteDbHostForDisplay);
+              !['localhost', '127.0.0.1', '::1', 'postgres'].includes(
+                remoteDbHostForDisplay,
+              );
             return (
               <>
                 <Grid item xs={12}>
@@ -272,38 +304,94 @@ export const EditInstanceDialog = ({
                     Decommission settings
                   </Typography>
                   <Typography variant="caption" color="textSecondary">
-                    Read-only — sourced from the plugin Settings tab and this instance's record. The Delete button uses these values to tear down the LXC (Proxmox API), the central Nginx vhost (SSH to the proxy host), and optionally the shared-PostgreSQL database. Update them under Settings ▸ Proxmox / Reverse Proxy / Database Configurations.
+                    Read-only — sourced from the plugin Settings tab and this
+                    instance's record. The Delete button uses these values to
+                    tear down the LXC (Proxmox API), the central Nginx vhost
+                    (SSH to the proxy host), and optionally the
+                    shared-PostgreSQL database. Update them under Settings ▸
+                    Proxmox / Reverse Proxy / Database Configurations.
                   </Typography>
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <TextField label="Proxmox API URL" fullWidth value={fmt(s.proxmox.apiUrl)} InputProps={{ readOnly: true }} />
+                  <TextField
+                    label="Proxmox API URL"
+                    fullWidth
+                    value={fmt(s.proxmox.apiUrl)}
+                    InputProps={{ readOnly: true }}
+                  />
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <TextField label="Proxmox node" fullWidth value={fmt(instance?.node)} InputProps={{ readOnly: true }} />
+                  <TextField
+                    label="Proxmox node"
+                    fullWidth
+                    value={fmt(instance?.node)}
+                    InputProps={{ readOnly: true }}
+                  />
                 </Grid>
                 <Grid item xs={12} sm={4}>
-                  <TextField label="VMID" fullWidth value={fmt(instance?.vmid)} InputProps={{ readOnly: true }} />
+                  <TextField
+                    label="VMID"
+                    fullWidth
+                    value={fmt(instance?.vmid)}
+                    InputProps={{ readOnly: true }}
+                  />
                 </Grid>
                 <Grid item xs={12} sm={8}>
-                  <TextField label="Domain / path" fullWidth value={fmt(instance?.domain)} InputProps={{ readOnly: true }} />
+                  <TextField
+                    label="Domain / path"
+                    fullWidth
+                    value={fmt(instance?.domain)}
+                    InputProps={{ readOnly: true }}
+                  />
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <TextField label="Proxy host (SSH)" fullWidth value={fmt(s.proxy.host)} InputProps={{ readOnly: true }} helperText="SSH target running the central Nginx" />
+                  <TextField
+                    label="Proxy host (SSH)"
+                    fullWidth
+                    value={fmt(s.proxy.host)}
+                    InputProps={{ readOnly: true }}
+                    helperText="SSH target running the central Nginx"
+                  />
                 </Grid>
                 <Grid item xs={6} sm={3}>
-                  <TextField label="SSH port" fullWidth value={fmt(s.proxy.sshPort)} InputProps={{ readOnly: true }} />
+                  <TextField
+                    label="SSH port"
+                    fullWidth
+                    value={fmt(s.proxy.sshPort)}
+                    InputProps={{ readOnly: true }}
+                  />
                 </Grid>
                 <Grid item xs={6} sm={3}>
-                  <TextField label="SSH user" fullWidth value={fmt(s.proxy.sshUser)} InputProps={{ readOnly: true }} />
+                  <TextField
+                    label="SSH user"
+                    fullWidth
+                    value={fmt(s.proxy.sshUser)}
+                    InputProps={{ readOnly: true }}
+                  />
                 </Grid>
                 <Grid item xs={12}>
-                  <TextField label="SSH key path" fullWidth value={fmt(s.proxy.sshKeyPath)} InputProps={{ readOnly: true }} />
+                  <TextField
+                    label="SSH key path"
+                    fullWidth
+                    value={fmt(s.proxy.sshKeyPath)}
+                    InputProps={{ readOnly: true }}
+                  />
                 </Grid>
                 <Grid item xs={12} sm={7}>
-                  <TextField label="Nginx upstream dir" fullWidth value={fmt(s.proxy.nginxConfigPath)} InputProps={{ readOnly: true }} />
+                  <TextField
+                    label="Nginx upstream dir"
+                    fullWidth
+                    value={fmt(s.proxy.nginxConfigPath)}
+                    InputProps={{ readOnly: true }}
+                  />
                 </Grid>
                 <Grid item xs={12} sm={5}>
-                  <TextField label="Nginx reload command" fullWidth value={fmt(s.proxy.nginxReloadCommand)} InputProps={{ readOnly: true }} />
+                  <TextField
+                    label="Nginx reload command"
+                    fullWidth
+                    value={fmt(s.proxy.nginxReloadCommand)}
+                    InputProps={{ readOnly: true }}
+                  />
                 </Grid>
                 <Grid item xs={12}>
                   <Typography variant="caption" color="textSecondary">
@@ -313,10 +401,25 @@ export const EditInstanceDialog = ({
                   </Typography>
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <TextField label="DB admin user" fullWidth value={fmt(s.dhis2.postgresAdminUser)} InputProps={{ readOnly: true }} disabled={!displayDropDb} />
+                  <TextField
+                    label="DB admin user"
+                    fullWidth
+                    value={fmt(s.dhis2.postgresAdminUser)}
+                    InputProps={{ readOnly: true }}
+                    disabled={!displayDropDb}
+                  />
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <TextField label="DB admin password" type="password" fullWidth value={s.dhis2.postgresAdminPassword ? '••••••••' : '(unset)'} InputProps={{ readOnly: true }} disabled={!displayDropDb} />
+                  <TextField
+                    label="DB admin password"
+                    type="password"
+                    fullWidth
+                    value={
+                      s.dhis2.postgresAdminPassword ? '••••••••' : '(unset)'
+                    }
+                    InputProps={{ readOnly: true }}
+                    disabled={!displayDropDb}
+                  />
                 </Grid>
               </>
             );
@@ -326,7 +429,15 @@ export const EditInstanceDialog = ({
               Proxy configuration files
             </Typography>
             <Typography variant="caption" color="textSecondary">
-              These are the per-instance nginx files on the central proxy host: the upstream snippet ({proxyFilesState.upstreamPath || '<computed at load>'}) and the nginx vhost ({proxyFilesState.sitePath || '<computed at load>'}). Saving writes both files via SSH and runs {' '}<code>nginx -t &amp;&amp; systemctl reload nginx</code>. Note: this is <strong>not</strong> the DHIS2 <code>dhis.conf</code> inside the LXC — that file is regenerated from the Database fields above when you save.
+              These are the per-instance nginx files on the central proxy host:
+              the upstream snippet (
+              {proxyFilesState.upstreamPath || '<computed at load>'}) and the
+              nginx vhost ({proxyFilesState.sitePath || '<computed at load>'}).
+              Saving writes both files via SSH and runs{' '}
+              <code>nginx -t &amp;&amp; systemctl reload nginx</code>. Note:
+              this is <strong>not</strong> the DHIS2 <code>dhis.conf</code>{' '}
+              inside the LXC — that file is regenerated from the Database fields
+              above when you save.
             </Typography>
           </Grid>
           {proxyFilesState.error && (
@@ -336,7 +447,9 @@ export const EditInstanceDialog = ({
           )}
           <Grid item xs={12}>
             <TextField
-              label={`Upstream (${proxyFilesState.upstreamExists ? 'editing' : 'new file'})`}
+              label={`Upstream (${
+                proxyFilesState.upstreamExists ? 'editing' : 'new file'
+              })`}
               fullWidth
               multiline
               minRows={6}
@@ -360,7 +473,9 @@ export const EditInstanceDialog = ({
           </Grid>
           <Grid item xs={12}>
             <TextField
-              label={`dhis.conf (${proxyFilesState.siteExists ? 'editing' : 'new file'})`}
+              label={`dhis.conf (${
+                proxyFilesState.siteExists ? 'editing' : 'new file'
+              })`}
               fullWidth
               multiline
               minRows={8}

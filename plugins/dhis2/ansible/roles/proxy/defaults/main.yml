@@ -16,15 +16,15 @@ host_proxy_state: present
 # Routing inputs. host_proxy_domain may be either a bare FQDN
 # (subdomain mode) or '<fqdn>/<instance>' (path-based mode, what the
 # Backstage UI's Path-based routing produces).
-host_proxy_vmid: ""
-host_proxy_container_ip: ""
-host_proxy_domain: ""
-host_proxy_email: ""
+host_proxy_vmid: ''
+host_proxy_container_ip: ''
+host_proxy_domain: ''
+host_proxy_email: ''
 
 # Optional override for the path segment / instance name. When unset,
 # path-based mode parses it out of host_proxy_domain and subdomain mode
 # falls back to the VMID.
-host_proxy_instance_override: ""
+host_proxy_instance_override: ''
 
 # Layout. The defaults match the new UI hint (/etc/nginx/upstream).
 host_proxy_upstream_dir: /etc/nginx/upstream

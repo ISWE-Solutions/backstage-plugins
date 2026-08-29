@@ -43,13 +43,13 @@
 # ---------------------------------------------------------------------------
 # Phase 1 — Pre-flight
 # ---------------------------------------------------------------------------
-- name: "Phase 1 — pre-flight upgrade of LXC {{ pve_vmid }} on {{ pve_node }}"
+- name: 'Phase 1 — pre-flight upgrade of LXC {{ pve_vmid }} on {{ pve_node }}'
   hosts: localhost
   connection: local
   gather_facts: false
   vars:
-    _pve_api_base: "https://{{ pve_api_host }}/api2/json"
-    _pve_auth: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+    _pve_api_base: 'https://{{ pve_api_host }}/api2/json'
+    _pve_auth: 'PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}'
     _ctx_path: >-
       {{ (fqdn.split('/', 1)[1] | trim('/'))
          if (fqdn is defined and '/' in fqdn)
@@ -62,13 +62,13 @@
           - dhis2_version | length > 0
         fail_msg: "dhis2_version is required (e.g. '2.41.3' or '41.2.0')"
 
-    - name: "Read LXC {{ pve_vmid }} status"
+    - name: 'Read LXC {{ pve_vmid }} status'
       ansible.builtin.uri:
-        url: "{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/status/current"
+        url: '{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/status/current'
         method: GET
         headers:
-          Authorization: "{{ _pve_auth }}"
-        validate_certs: "{{ pve_validate_certs | default(false) }}"
+          Authorization: '{{ _pve_auth }}'
+        validate_certs: '{{ pve_validate_certs | default(false) }}'
         status_code: [200]
       register: _lxc_status
       changed_when: false
@@ -88,9 +88,9 @@
 
     - name: Compute backup paths inside the LXC
       ansible.builtin.set_fact:
-        _backup_root: "/opt/dhis2/backups/pre-upgrade-{{ _upgrade_ts }}"
-        _db_dump_path: "/opt/dhis2/backups/pre-upgrade-{{ _upgrade_ts }}/db.sql.gz"
-        _war_backup_path: "/opt/dhis2/backups/pre-upgrade-{{ _upgrade_ts }}/{{ _war_name }}"
+        _backup_root: '/opt/dhis2/backups/pre-upgrade-{{ _upgrade_ts }}'
+        _db_dump_path: '/opt/dhis2/backups/pre-upgrade-{{ _upgrade_ts }}/db.sql.gz'
+        _war_backup_path: '/opt/dhis2/backups/pre-upgrade-{{ _upgrade_ts }}/{{ _war_name }}'
 
     - name: Show upgrade plan
       ansible.builtin.debug:
@@ -103,17 +103,17 @@
 # ---------------------------------------------------------------------------
 # Phase 2 — Optional pg_dump backup
 # ---------------------------------------------------------------------------
-- name: "Phase 2 — pg_dump backup before WAR swap"
+- name: 'Phase 2 — pg_dump backup before WAR swap'
   hosts: localhost
   connection: local
   gather_facts: false
   tasks:
     - name: Register PVE host for pct push/exec
       ansible.builtin.add_host:
-        name: "{{ pve_ssh_host }}"
+        name: '{{ pve_ssh_host }}'
         groups: pve_hosts
-        ansible_host: "{{ pve_ssh_host }}"
-        ansible_port: "{{ pve_ssh_port | default(22) }}"
+        ansible_host: '{{ pve_ssh_host }}'
+        ansible_port: '{{ pve_ssh_port | default(22) }}'
         ansible_user: "{{ pve_ssh_user | default('root') }}"
         ansible_ssh_private_key_file: >-
           {{ pve_ssh_key | default(ansible_ssh_private_key_file_orchestrator | default(''), true) }}
@@ -125,19 +125,19 @@
         host_ctx_dir: "{{ hostvars['localhost']['_ctx_dir'] }}"
       changed_when: false
 
-- name: "Phase 2 — run pg_dump inside LXC {{ pve_vmid }} (if enabled)"
+- name: 'Phase 2 — run pg_dump inside LXC {{ pve_vmid }} (if enabled)'
   hosts: pve_hosts
   gather_facts: false
   become: true
   tasks:
     - name: Skip — upgrade_backup_db is false
       ansible.builtin.debug:
-        msg: "upgrade_backup_db=false — skipping pre-upgrade database snapshot."
+        msg: 'upgrade_backup_db=false — skipping pre-upgrade database snapshot.'
       when: not (upgrade_backup_db | default(true) | bool)
 
-    - name: "Ensure backup root exists inside LXC: {{ host_backup_root }}"
+    - name: 'Ensure backup root exists inside LXC: {{ host_backup_root }}'
       ansible.builtin.command:
-        cmd: "pct exec {{ pve_vmid }} -- mkdir -p {{ host_backup_root }}"
+        cmd: 'pct exec {{ pve_vmid }} -- mkdir -p {{ host_backup_root }}'
       changed_when: false
       when: upgrade_backup_db | default(true) | bool
 
@@ -157,54 +157,54 @@
       changed_when: _pgdump.rc == 0
       when: upgrade_backup_db | default(true) | bool
 
-    - name: "Pre-upgrade DB snapshot written"
+    - name: 'Pre-upgrade DB snapshot written'
       ansible.builtin.debug:
-        msg: "DB snapshot saved to {{ host_db_dump_path }} inside LXC {{ pve_vmid }}."
+        msg: 'DB snapshot saved to {{ host_db_dump_path }} inside LXC {{ pve_vmid }}.'
       when: upgrade_backup_db | default(true) | bool
 
 # ---------------------------------------------------------------------------
 # Phase 3 — Stage the new WAR on the PVE host
 # ---------------------------------------------------------------------------
-- name: "Phase 3 — stage DHIS2 {{ dhis2_version }} WAR on PVE host"
+- name: 'Phase 3 — stage DHIS2 {{ dhis2_version }} WAR on PVE host'
   hosts: pve_hosts
   gather_facts: false
   become: true
   vars:
     _version_clean: "{{ dhis2_version | regex_replace('^2\\.', '') }}"
     _version_parts: "{{ _version_clean.split('.') }}"
-    _v_major: "{{ _version_parts[0] }}"
+    _v_major: '{{ _version_parts[0] }}'
     _v_patch: "{{ (_version_parts[1] | default('0')) }}"
     _v_hotfix: "{{ (_version_parts[2] | default('0')) }}"
-    _derived_url: "https://releases.dhis2.org/{{ _v_major }}/dhis2-stable-{{ _v_major }}.{{ _v_patch }}.{{ _v_hotfix }}.war"
+    _derived_url: 'https://releases.dhis2.org/{{ _v_major }}/dhis2-stable-{{ _v_major }}.{{ _v_patch }}.{{ _v_hotfix }}.war'
     _effective_url: "{{ dhis2_war_url | default('', true) | trim or _derived_url }}"
-    _stage_dir: "/tmp/dhis2-upgrade-{{ pve_vmid }}"
-    _stage_war: "{{ _stage_dir }}/{{ host_war_name }}"
+    _stage_dir: '/tmp/dhis2-upgrade-{{ pve_vmid }}'
+    _stage_war: '{{ _stage_dir }}/{{ host_war_name }}'
   tasks:
-    - name: "Ensure staging dir exists on PVE host: {{ _stage_dir }}"
+    - name: 'Ensure staging dir exists on PVE host: {{ _stage_dir }}'
       ansible.builtin.file:
-        path: "{{ _stage_dir }}"
+        path: '{{ _stage_dir }}'
         state: directory
-        mode: "0700"
+        mode: '0700'
 
-    - name: "Copy pre-staged WAR from {{ dhis2_war_file }} -> {{ _stage_war }}"
+    - name: 'Copy pre-staged WAR from {{ dhis2_war_file }} -> {{ _stage_war }}'
       ansible.builtin.copy:
-        src: "{{ dhis2_war_file }}"
-        dest: "{{ _stage_war }}"
+        src: '{{ dhis2_war_file }}'
+        dest: '{{ _stage_war }}'
         remote_src: true
-        mode: "0644"
+        mode: '0644'
       when: (dhis2_war_file | default('') | length) > 0
 
-    - name: "Download WAR from {{ _effective_url }} -> {{ _stage_war }}"
+    - name: 'Download WAR from {{ _effective_url }} -> {{ _stage_war }}'
       ansible.builtin.get_url:
-        url: "{{ _effective_url }}"
-        dest: "{{ _stage_war }}"
-        mode: "0644"
+        url: '{{ _effective_url }}'
+        dest: '{{ _stage_war }}'
+        mode: '0644'
         timeout: 600
       when: (dhis2_war_file | default('') | length) == 0
 
     - name: Verify staged WAR is non-empty
       ansible.builtin.stat:
-        path: "{{ _stage_war }}"
+        path: '{{ _stage_war }}'
       register: _stage_stat
 
     - name: Fail if staged WAR looks empty or tiny
@@ -216,12 +216,12 @@
 
     - name: Stash stage path for later phases
       ansible.builtin.set_fact:
-        _staged_war_on_pve: "{{ _stage_war }}"
+        _staged_war_on_pve: '{{ _stage_war }}'
 
 # ---------------------------------------------------------------------------
 # Phase 4 — Stop Tomcat, archive current WAR, push new WAR, start Tomcat
 # ---------------------------------------------------------------------------
-- name: "Phase 4 — swap DHIS2 WAR inside LXC {{ pve_vmid }}"
+- name: 'Phase 4 — swap DHIS2 WAR inside LXC {{ pve_vmid }}'
   hosts: pve_hosts
   gather_facts: false
   become: true
@@ -231,19 +231,19 @@
     _war_target: "{{ tomcat_webapps_dir | default('/opt/tomcat/webapps') }}/{{ host_war_name }}"
     _ctx_dir_target: "{{ tomcat_webapps_dir | default('/opt/tomcat/webapps') }}/{{ host_ctx_dir }}"
   tasks:
-    - name: "Stop Tomcat ({{ _tomcat_svc }}) inside LXC {{ pve_vmid }}"
+    - name: 'Stop Tomcat ({{ _tomcat_svc }}) inside LXC {{ pve_vmid }}'
       ansible.builtin.command:
-        cmd: "pct exec {{ pve_vmid }} -- systemctl stop {{ _tomcat_svc }}"
+        cmd: 'pct exec {{ pve_vmid }} -- systemctl stop {{ _tomcat_svc }}'
       register: _tomcat_stop
       changed_when: _tomcat_stop.rc == 0
       failed_when: false
 
-    - name: "Ensure backup dir exists inside LXC: {{ host_backup_root }}"
+    - name: 'Ensure backup dir exists inside LXC: {{ host_backup_root }}'
       ansible.builtin.command:
-        cmd: "pct exec {{ pve_vmid }} -- mkdir -p {{ host_backup_root }}"
+        cmd: 'pct exec {{ pve_vmid }} -- mkdir -p {{ host_backup_root }}'
       changed_when: false
 
-    - name: "Archive current WAR -> {{ host_war_backup_path }} (if present)"
+    - name: 'Archive current WAR -> {{ host_war_backup_path }} (if present)'
       ansible.builtin.shell: |
         pct exec {{ pve_vmid }} -- bash -lc '
           set -e
@@ -253,26 +253,26 @@
         '
       changed_when: true
 
-    - name: "Remove exploded webapp dir to force redeploy: {{ _ctx_dir_target }}"
+    - name: 'Remove exploded webapp dir to force redeploy: {{ _ctx_dir_target }}'
       ansible.builtin.command:
-        cmd: "pct exec {{ pve_vmid }} -- rm -rf {{ _ctx_dir_target }}"
+        cmd: 'pct exec {{ pve_vmid }} -- rm -rf {{ _ctx_dir_target }}'
       changed_when: true
 
-    - name: "Push new WAR into LXC: {{ _war_target }}"
+    - name: 'Push new WAR into LXC: {{ _war_target }}'
       ansible.builtin.command:
-        cmd: "pct push {{ pve_vmid }} {{ _staged_war_on_pve }} {{ _war_target }} --perms 640"
+        cmd: 'pct push {{ pve_vmid }} {{ _staged_war_on_pve }} {{ _war_target }} --perms 640'
 
-    - name: "Fix WAR ownership: tomcat:tomcat {{ _war_target }}"
+    - name: 'Fix WAR ownership: tomcat:tomcat {{ _war_target }}'
       ansible.builtin.command:
-        cmd: "pct exec {{ pve_vmid }} -- chown tomcat:tomcat {{ _war_target }}"
+        cmd: 'pct exec {{ pve_vmid }} -- chown tomcat:tomcat {{ _war_target }}'
       changed_when: false
 
     - name: Remove staged WAR from PVE host
       ansible.builtin.file:
-        path: "{{ _staged_war_on_pve }}"
+        path: '{{ _staged_war_on_pve }}'
         state: absent
 
-    - name: "Prune old pre-upgrade backups (keep newest {{ upgrade_backup_retain | default(3) }})"
+    - name: 'Prune old pre-upgrade backups (keep newest {{ upgrade_backup_retain | default(3) }})'
       ansible.builtin.shell: |
         pct exec {{ pve_vmid }} -- bash -lc '
           set -e
@@ -284,22 +284,22 @@
       changed_when: true
       failed_when: false
 
-    - name: "Start Tomcat ({{ _tomcat_svc }}) inside LXC {{ pve_vmid }}"
+    - name: 'Start Tomcat ({{ _tomcat_svc }}) inside LXC {{ pve_vmid }}'
       ansible.builtin.command:
-        cmd: "pct exec {{ pve_vmid }} -- systemctl start {{ _tomcat_svc }}"
+        cmd: 'pct exec {{ pve_vmid }} -- systemctl start {{ _tomcat_svc }}'
       changed_when: true
 
 # ---------------------------------------------------------------------------
 # Phase 5 — Health check
 # ---------------------------------------------------------------------------
-- name: "Phase 5 — health-check upgraded DHIS2 inside LXC {{ pve_vmid }}"
+- name: 'Phase 5 — health-check upgraded DHIS2 inside LXC {{ pve_vmid }}'
   hosts: pve_hosts
   gather_facts: false
   become: true
   vars:
     _ctx_url: >-
       {{ ('/' ~ host_ctx_dir ~ '/') if (host_ctx_dir != 'ROOT') else '/' }}
-    _login_path: "{{ _ctx_url }}dhis-web-commons/security/login.action"
+    _login_path: '{{ _ctx_url }}dhis-web-commons/security/login.action'
   tasks:
     - name: Poll Tomcat for upgraded DHIS2 (HTTP 200/302), up to ~10 min
       ansible.builtin.shell: |
@@ -323,7 +323,7 @@
 # ---------------------------------------------------------------------------
 # Phase 6 — Emit machine-parseable result for the backend
 # ---------------------------------------------------------------------------
-- name: "Phase 6 — emit upgrade result for backend ingestion"
+- name: 'Phase 6 — emit upgrade result for backend ingestion'
   hosts: localhost
   connection: local
   gather_facts: false

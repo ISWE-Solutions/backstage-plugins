@@ -17,5 +17,5 @@ dhis2_db_remote: false
 dhis2_db_host: localhost
 dhis2_db_port: 5432
 dhis2_db_admin_user: postgres
-dhis2_db_admin_password: ""
+dhis2_db_admin_password: ''
 dhis2_db_existing: false

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Box,
   Button,
@@ -232,13 +232,16 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
           </Typography>
           <Typography variant="body2" color="textSecondary" paragraph>
             Connection details for the Proxmox VE API used to orchestrate LXC
-            containers running DHIS2. Use an API token in production —
-            password auth is shown for completeness but cannot be used directly
-            from the browser. <strong>These settings are also forwarded to
-            provisioning jobs and override the server-side
-            <code> PROXMOX_API_URL</code> / <code>PROXMOX_USER</code> /
-            <code> PROXMOX_TOKEN_ID</code> / <code>PROXMOX_TOKEN_SECRET</code>
-            env vars for that run.</strong>
+            containers running DHIS2. Use an API token in production — password
+            auth is shown for completeness but cannot be used directly from the
+            browser.{' '}
+            <strong>
+              These settings are also forwarded to provisioning jobs and
+              override the server-side
+              <code> PROXMOX_API_URL</code> / <code>PROXMOX_USER</code> /
+              <code> PROXMOX_TOKEN_ID</code> / <code>PROXMOX_TOKEN_SECRET</code>
+              env vars for that run.
+            </strong>
           </Typography>
 
           <Grid container spacing={2}>
@@ -259,10 +262,10 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
                 color="textSecondary"
                 display="block"
               >
-                When enabled, calls go to the Backstage proxy path below and
-                the API token is injected server-side. When disabled, the
-                browser calls the Proxmox API directly (requires CORS and
-                network reachability).
+                When enabled, calls go to the Backstage proxy path below and the
+                API token is injected server-side. When disabled, the browser
+                calls the Proxmox API directly (requires CORS and network
+                reachability).
               </Typography>
             </Grid>
 
@@ -380,10 +383,9 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
                 component="div"
               >
                 Leave off when the Proxmox API uses the stock self-signed
-                certificate (the default). Enable only when the PVE
-                endpoint is fronted by a publicly-trusted certificate —
-                otherwise provisioning fails with
-                CERTIFICATE_VERIFY_FAILED.
+                certificate (the default). Enable only when the PVE endpoint is
+                fronted by a publicly-trusted certificate — otherwise
+                provisioning fails with CERTIFICATE_VERIFY_FAILED.
               </Typography>
             </Grid>
           </Grid>
@@ -408,9 +410,7 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
                 fullWidth
                 label="Root FS Storage"
                 value={proxmox.rootfsStorage}
-                onChange={e =>
-                  updateProxmox({ rootfsStorage: e.target.value })
-                }
+                onChange={e => updateProxmox({ rootfsStorage: e.target.value })}
                 helperText="e.g. local-lvm"
                 className={classes.field}
               />
@@ -442,9 +442,7 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
                 fullWidth
                 label="Network Bridge"
                 value={proxmox.networkBridge}
-                onChange={e =>
-                  updateProxmox({ networkBridge: e.target.value })
-                }
+                onChange={e => updateProxmox({ networkBridge: e.target.value })}
                 helperText="e.g. vmbr0"
                 className={classes.field}
               />
@@ -464,9 +462,7 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
                 fullWidth
                 label="Search Domain"
                 value={proxmox.searchDomain}
-                onChange={e =>
-                  updateProxmox({ searchDomain: e.target.value })
-                }
+                onChange={e => updateProxmox({ searchDomain: e.target.value })}
                 className={classes.field}
               />
             </Grid>
@@ -544,14 +540,20 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
               <Typography
                 variant="caption"
                 component="div"
-                style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', marginTop: 8 }}
+                style={{
+                  fontFamily: 'monospace',
+                  whiteSpace: 'pre-wrap',
+                  marginTop: 8,
+                }}
               >
                 {[
                   `time:     ${lastResult.timestamp}`,
                   `url:      ${lastResult.url ?? '(not built)'}`,
                   `status:   ${
                     lastResult.status !== undefined
-                      ? `${lastResult.status} ${lastResult.statusText ?? ''}`.trim()
+                      ? `${lastResult.status} ${
+                          lastResult.statusText ?? ''
+                        }`.trim()
                       : '(no response — likely network / CORS / backend down)'
                   }`,
                   `duration: ${
@@ -587,7 +589,12 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
       {/* Nodes table */}
       <Card variant="outlined">
         <CardContent>
-          <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+          <Box
+            display="flex"
+            alignItems="center"
+            justifyContent="space-between"
+            mb={2}
+          >
             <Typography variant="h6">Cluster Nodes</Typography>
             <Tooltip title="Fetch the current list of nodes from the Proxmox API">
               <span>
@@ -642,8 +649,7 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
                       i => i.node === n.node,
                     );
                     const cpuPct = n.maxcpu > 0 ? (n.cpu / 1) * 100 : 0;
-                    const memPct =
-                      n.maxmem > 0 ? (n.mem / n.maxmem) * 100 : 0;
+                    const memPct = n.maxmem > 0 ? (n.mem / n.maxmem) * 100 : 0;
                     const diskPct =
                       n.maxdisk > 0 ? (n.disk / n.maxdisk) * 100 : 0;
                     return (
@@ -655,7 +661,9 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
                           <Chip
                             label={n.status}
                             size="small"
-                            color={n.status === 'online' ? 'primary' : 'default'}
+                            color={
+                              n.status === 'online' ? 'primary' : 'default'
+                            }
                           />
                         </TableCell>
                         <TableCell>{nodeInstances.length}</TableCell>
@@ -723,7 +731,11 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
             style={{ gap: 16, flexWrap: 'wrap' }}
           >
             <Typography variant="h6">Cluster CTs</Typography>
-            <Box display="flex" alignItems="center" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <Box
+              display="flex"
+              alignItems="center"
+              style={{ gap: 8, flexWrap: 'wrap' }}
+            >
               <TextField
                 size="small"
                 variant="outlined"
@@ -788,8 +800,8 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
                 <Paper variant="outlined">
                   <Box p={4} textAlign="center">
                     <Typography variant="body2" color="textSecondary">
-                      No containers returned. Check the API connection above
-                      and click "Refresh".
+                      No containers returned. Check the API connection above and
+                      click "Refresh".
                     </Typography>
                   </Box>
                 </Paper>
@@ -813,10 +825,7 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
                         <TableRow>
                           <TableCell colSpan={5}>
                             <Box p={2} textAlign="center">
-                              <Typography
-                                variant="body2"
-                                color="textSecondary"
-                              >
+                              <Typography variant="body2" color="textSecondary">
                                 No containers match "{containerSearch}".
                               </Typography>
                             </Box>
@@ -835,9 +844,7 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
                                 label={c.status}
                                 size="small"
                                 color={
-                                  c.status === 'running'
-                                    ? 'primary'
-                                    : 'default'
+                                  c.status === 'running' ? 'primary' : 'default'
                                 }
                               />
                             </TableCell>
@@ -916,7 +923,11 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
             style={{ gap: 16, flexWrap: 'wrap' }}
           >
             <Typography variant="h6">Cluster VMs</Typography>
-            <Box display="flex" alignItems="center" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <Box
+              display="flex"
+              alignItems="center"
+              style={{ gap: 8, flexWrap: 'wrap' }}
+            >
               <TextField
                 size="small"
                 variant="outlined"
@@ -981,8 +992,8 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
                 <Paper variant="outlined">
                   <Box p={4} textAlign="center">
                     <Typography variant="body2" color="textSecondary">
-                      No VMs returned. Check the API connection above and
-                      click "Refresh".
+                      No VMs returned. Check the API connection above and click
+                      "Refresh".
                     </Typography>
                   </Box>
                 </Paper>
@@ -1006,10 +1017,7 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
                         <TableRow>
                           <TableCell colSpan={5}>
                             <Box p={2} textAlign="center">
-                              <Typography
-                                variant="body2"
-                                color="textSecondary"
-                              >
+                              <Typography variant="body2" color="textSecondary">
                                 No VMs match "{vmSearch}".
                               </Typography>
                             </Box>
@@ -1028,9 +1036,7 @@ export const ProxmoxClusterPanel = ({ instances, onNodesChange }: Props) => {
                                 label={c.status}
                                 size="small"
                                 color={
-                                  c.status === 'running'
-                                    ? 'primary'
-                                    : 'default'
+                                  c.status === 'running' ? 'primary' : 'default'
                                 }
                               />
                             </TableCell>

@@ -85,12 +85,12 @@
 - name: Show resolved layout
   ansible.builtin.debug:
     msg:
-      - "mode:           {{ host_proxy_routing_mode }}"
-      - "base domain:    {{ host_proxy_base_domain }}"
-      - "instance:       {{ host_proxy_path_segment }}"
-      - "upstream file:  {{ host_proxy_upstream_file }}"
-      - "site file:      {{ host_proxy_site_file }}"
-      - "site link:      {{ host_proxy_site_link }}"
+      - 'mode:           {{ host_proxy_routing_mode }}'
+      - 'base domain:    {{ host_proxy_base_domain }}'
+      - 'instance:       {{ host_proxy_path_segment }}'
+      - 'upstream file:  {{ host_proxy_upstream_file }}'
+      - 'site file:      {{ host_proxy_site_file }}'
+      - 'site link:      {{ host_proxy_site_link }}'
 
 - name: Apply nginx configuration
   ansible.builtin.include_tasks: create.yml

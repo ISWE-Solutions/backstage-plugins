@@ -64,7 +64,7 @@ export const AddSubnetDialog: React.FC<AddSubnetDialogProps> = ({
 
   const handleSubmit = () => {
     const ipCounts = calculateIPCounts(formData.cidr);
-    
+
     const subnetData: Omit<Subnet, 'id' | 'createdAt' | 'updatedAt'> = {
       network: formData.network,
       cidr: formData.cidr,
@@ -94,7 +94,9 @@ export const AddSubnetDialog: React.FC<AddSubnetDialogProps> = ({
   const isValidIP = (ip: string) => {
     const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
     if (!ipRegex.test(ip)) return false;
-    return ip.split('.').every(octet => parseInt(octet) >= 0 && parseInt(octet) <= 255);
+    return ip
+      .split('.')
+      .every(octet => parseInt(octet) >= 0 && parseInt(octet) <= 255);
   };
 
   const isFormValid = () => {

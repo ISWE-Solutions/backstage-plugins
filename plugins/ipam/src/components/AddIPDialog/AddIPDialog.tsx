@@ -70,7 +70,10 @@ export const AddIPDialog: React.FC<AddIPDialogProps> = ({
       location: formData.location || undefined,
       vlanId: formData.vlanId || undefined,
       notes: formData.notes || undefined,
-      lastSeen: formData.status === IPStatus.ALLOCATED ? new Date().toISOString() : undefined,
+      lastSeen:
+        formData.status === IPStatus.ALLOCATED
+          ? new Date().toISOString()
+          : undefined,
     };
 
     onAdd(ipData);
@@ -97,7 +100,9 @@ export const AddIPDialog: React.FC<AddIPDialogProps> = ({
   const isValidIP = (ip: string) => {
     const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
     if (!ipRegex.test(ip)) return false;
-    return ip.split('.').every(octet => parseInt(octet) >= 0 && parseInt(octet) <= 255);
+    return ip
+      .split('.')
+      .every(octet => parseInt(octet) >= 0 && parseInt(octet) <= 255);
   };
 
   const isValidMAC = (mac: string) => {
@@ -129,7 +134,9 @@ export const AddIPDialog: React.FC<AddIPDialogProps> = ({
                 value={formData.ipAddress}
                 onChange={e => handleChange('ipAddress', e.target.value)}
                 placeholder="192.168.1.10"
-                error={formData.ipAddress !== '' && !isValidIP(formData.ipAddress)}
+                error={
+                  formData.ipAddress !== '' && !isValidIP(formData.ipAddress)
+                }
                 helperText={
                   formData.ipAddress !== '' && !isValidIP(formData.ipAddress)
                     ? 'Invalid IP address format'
@@ -232,7 +239,9 @@ export const AddIPDialog: React.FC<AddIPDialogProps> = ({
                 value={formData.macAddress}
                 onChange={e => handleChange('macAddress', e.target.value)}
                 placeholder="00:1A:2B:3C:4D:5E"
-                error={formData.macAddress !== '' && !isValidMAC(formData.macAddress)}
+                error={
+                  formData.macAddress !== '' && !isValidMAC(formData.macAddress)
+                }
                 helperText={
                   formData.macAddress !== '' && !isValidMAC(formData.macAddress)
                     ? 'Invalid MAC address format'

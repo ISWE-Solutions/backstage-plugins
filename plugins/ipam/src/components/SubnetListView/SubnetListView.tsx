@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Box,
   Paper,
@@ -79,7 +79,9 @@ export const SubnetListView = () => {
     fetchData();
   }, []);
 
-  const handleAddSubnet = async (subnet: Omit<Subnet, 'id' | 'createdAt' | 'updatedAt'>) => {
+  const handleAddSubnet = async (
+    subnet: Omit<Subnet, 'id' | 'createdAt' | 'updatedAt'>,
+  ) => {
     try {
       await ipamService.addSubnet(subnet);
       setAddDialogOpen(false);
@@ -135,13 +137,19 @@ export const SubnetListView = () => {
                 {subnets.map(subnet => (
                   <TableRow key={subnet.id} hover>
                     <TableCell>
-                      <Typography variant="body2" style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
+                      <Typography
+                        variant="body2"
+                        style={{ fontFamily: 'monospace', fontWeight: 'bold' }}
+                      >
                         {subnet.network}/{subnet.cidr}
                       </Typography>
                     </TableCell>
                     <TableCell>{subnet.description || '-'}</TableCell>
                     <TableCell>
-                      <Typography variant="body2" style={{ fontFamily: 'monospace' }}>
+                      <Typography
+                        variant="body2"
+                        style={{ fontFamily: 'monospace' }}
+                      >
                         {subnet.gateway || '-'}
                       </Typography>
                     </TableCell>
@@ -159,7 +167,11 @@ export const SubnetListView = () => {
                         <LinearProgress
                           variant="determinate"
                           value={subnet.utilizationPercent}
-                          color={getUtilizationColor(subnet.utilizationPercent) as any}
+                          color={
+                            getUtilizationColor(
+                              subnet.utilizationPercent,
+                            ) as any
+                          }
                           className={classes.utilizationBar}
                         />
                       </Box>
@@ -168,14 +180,20 @@ export const SubnetListView = () => {
                       <Chip label={subnet.totalIPs} size="small" />
                     </TableCell>
                     <TableCell align="right">
-                      <Chip 
-                        label={subnet.usedIPs} 
-                        size="small" 
-                        color={getUtilizationColor(subnet.utilizationPercent) as any}
+                      <Chip
+                        label={subnet.usedIPs}
+                        size="small"
+                        color={
+                          getUtilizationColor(subnet.utilizationPercent) as any
+                        }
                       />
                     </TableCell>
                     <TableCell align="right">
-                      <Chip label={subnet.availableIPs} size="small" color="default" />
+                      <Chip
+                        label={subnet.availableIPs}
+                        size="small"
+                        color="default"
+                      />
                     </TableCell>
                   </TableRow>
                 ))}

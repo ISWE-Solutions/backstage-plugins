@@ -51,16 +51,16 @@
 
 - name: Ensure restore directory exists in container
   ansible.builtin.file:
-    path: "{{ dhis2_restore.local_staging_path | dirname }}"
+    path: '{{ dhis2_restore.local_staging_path | dirname }}'
     state: directory
     owner: postgres
     group: postgres
-    mode: "0750"
+    mode: '0750'
 
 - name: Copy database dump from controller into container
   ansible.builtin.copy:
-    src: "{{ dhis2_restore.controller_path }}"
-    dest: "{{ dhis2_restore.local_staging_path }}"
+    src: '{{ dhis2_restore.controller_path }}'
+    dest: '{{ dhis2_restore.local_staging_path }}'
     owner: postgres
     group: postgres
-    mode: "0640"
+    mode: '0640'

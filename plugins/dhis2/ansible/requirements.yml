@@ -20,12 +20,12 @@
 # pve_lxc role uses (community.general.proxmox*).
 collections:
   - name: community.general
-    version: ">=8.0.0,<10.0.0"
+    version: '>=8.0.0,<10.0.0'
   - name: ansible.posix
-    version: ">=1.5.0"
+    version: '>=1.5.0'
   # Required when the operator routes the postgres phase to a shared
   # external PostgreSQL host (Database Configurations > Shared Postgres
   # host). The postgres role then runs community.postgresql.* tasks from
   # the orchestrator with delegate_to: 127.0.0.1.
   - name: community.postgresql
-    version: ">=3.0.0"
+    version: '>=3.0.0'

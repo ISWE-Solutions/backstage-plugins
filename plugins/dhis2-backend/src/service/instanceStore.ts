@@ -65,14 +65,18 @@ function parseJsonOrUndefined<T>(value?: string | null): T | undefined {
 function toModel(r: InstanceRow): PersistedInstance {
   const db = (() => {
     try {
-      return JSON.parse(r.database_json ?? '{}') as PersistedInstance['database'];
+      return JSON.parse(
+        r.database_json ?? '{}',
+      ) as PersistedInstance['database'];
     } catch {
       return { name: '', user: '' };
     }
   })();
   const resources = (() => {
     try {
-      return JSON.parse(r.resources_json ?? '{}') as PersistedInstance['resources'];
+      return JSON.parse(
+        r.resources_json ?? '{}',
+      ) as PersistedInstance['resources'];
     } catch {
       return { cpu: 1, memory: 512, storage: 5 };
     }
@@ -150,11 +154,21 @@ export class InstanceStore {
       this.logger.info(`DHIS2: added column ${TABLE}.${name}`);
     };
 
-    await ensureColumn('tomcat_version', table => table.string('tomcat_version').nullable());
-    await ensureColumn('proxy_override_json', table => table.text('proxy_override_json').nullable());
-    await ensureColumn('restore_json', table => table.text('restore_json').nullable());
-    await ensureColumn('proxy_settings_json', table => table.text('proxy_settings_json').nullable());
-    await ensureColumn('dhis2_settings_json', table => table.text('dhis2_settings_json').nullable());
+    await ensureColumn('tomcat_version', table =>
+      table.string('tomcat_version').nullable(),
+    );
+    await ensureColumn('proxy_override_json', table =>
+      table.text('proxy_override_json').nullable(),
+    );
+    await ensureColumn('restore_json', table =>
+      table.text('restore_json').nullable(),
+    );
+    await ensureColumn('proxy_settings_json', table =>
+      table.text('proxy_settings_json').nullable(),
+    );
+    await ensureColumn('dhis2_settings_json', table =>
+      table.text('dhis2_settings_json').nullable(),
+    );
   }
 
   async list(): Promise<PersistedInstance[]> {
@@ -165,9 +179,9 @@ export class InstanceStore {
   }
 
   async getById(id: string): Promise<PersistedInstance | null> {
-    const row = (await this.db<InstanceRow>(TABLE)
-      .where({ id })
-      .first()) as InstanceRow | undefined;
+    const row = (await this.db<InstanceRow>(TABLE).where({ id }).first()) as
+      | InstanceRow
+      | undefined;
     return row ? toModel(row) : null;
   }
 

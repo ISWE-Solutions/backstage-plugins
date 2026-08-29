@@ -96,12 +96,14 @@ POST /api/nginx/reload              - Reload Nginx
 ### Proxmox Configuration
 
 1. **API Token**: Create API token in Proxmox with appropriate permissions
+
    ```bash
    # In Proxmox web UI:
    # Datacenter > Permissions > API Tokens > Add
    ```
 
 2. **LXC Template**: Prepare Ubuntu/Debian template with:
+
    - Java 11 or later
    - PostgreSQL 14+
    - Tomcat 9
@@ -112,19 +114,21 @@ POST /api/nginx/reload              - Reload Nginx
 ### Nginx Proxy Configuration
 
 1. **Install Nginx** on dedicated proxy server:
+
    ```bash
    apt update
    apt install nginx certbot python3-certbot-nginx
    ```
 
 2. **Base Configuration** (`/etc/nginx/nginx.conf`):
+
    ```nginx
    http {
        upstream_zone_size 64k;
-       
+
        # Include all DHIS2 upstream configs
        include /etc/nginx/conf.d/dhis2-upstreams/*.conf;
-       
+
        # Include all DHIS2 server blocks
        include /etc/nginx/sites-enabled/dhis2-*;
    }
@@ -153,28 +157,33 @@ POST /api/nginx/reload              - Reload Nginx
 When creating a new DHIS2 instance, the following steps are executed:
 
 1. **Container Creation**:
+
    - Generate next available VMID
    - Create LXC container on selected Proxmox node
    - Configure resources (CPU, memory, storage)
    - Set hostname and network configuration
 
 2. **DHIS2 Installation**:
+
    - Install Java and dependencies
    - Download and install specified DHIS2 version
    - Configure Tomcat for DHIS2
 
 3. **Database Setup**:
+
    - Create PostgreSQL database
    - Create database user with permissions
    - Initialize DHIS2 schema
    - Load default data (optional)
 
 4. **DHIS2 Configuration**:
+
    - Generate `dhis.conf` with database settings
    - Set admin password
    - Configure system settings
 
 5. **Nginx Configuration**:
+
    - Generate upstream configuration
    - Create server block with domain
    - Request SSL certificate (Let's Encrypt)
@@ -217,16 +226,19 @@ When creating a new DHIS2 instance, the following steps are executed:
 ## Resource Recommendations
 
 ### Minimum Resources (Development/Testing)
+
 - CPU: 2 cores
 - Memory: 4 GB (4096 MB)
 - Storage: 20 GB
 
 ### Recommended Resources (Production)
+
 - CPU: 4-8 cores
 - Memory: 8-16 GB (8192-16384 MB)
 - Storage: 100-500 GB
 
 ### High-Load Production
+
 - CPU: 8-16 cores
 - Memory: 16-32 GB (16384-32768 MB)
 - Storage: 500-1000 GB
@@ -234,6 +246,7 @@ When creating a new DHIS2 instance, the following steps are executed:
 ## Network Configuration
 
 Each LXC container should have:
+
 - Static IP address in your network
 - DNS resolution for the domain name
 - Firewall rules allowing:
@@ -242,6 +255,7 @@ Each LXC container should have:
   - SSH access for management
 
 Nginx proxy server should:
+
 - Have public IP or be accessible via port forwarding
 - Allow ports 80 and 443 from internet
 - Have access to LXC container network
@@ -259,22 +273,26 @@ Nginx proxy server should:
 ## Troubleshooting
 
 ### Instance Won't Start
+
 - Check Proxmox node resources (CPU, memory, storage)
 - Verify LXC container status in Proxmox UI
 - Check container logs: `pct exec <vmid> -- tail -f /var/log/tomcat9/catalina.out`
 
 ### Domain Not Accessible
+
 - Verify DNS resolution: `nslookup domain.example.com`
 - Check Nginx configuration: `nginx -t`
 - Verify SSL certificate: `certbot certificates`
 - Check Nginx logs: `/var/log/nginx/domain_error.log`
 
 ### Database Connection Errors
+
 - Verify PostgreSQL is running in container
 - Check database credentials in `/opt/dhis2/dhis.conf`
 - Test database connection: `psql -h localhost -U dhis2 -d dhis2_db`
 
 ### Performance Issues
+
 - Increase container resources via Proxmox UI
 - Optimize DHIS2 configuration
 - Enable database connection pooling
@@ -300,6 +318,7 @@ Apache-2.0
 ## Support
 
 For issues and questions:
+
 - Check Proxmox documentation: https://pve.proxmox.com/wiki/
 - DHIS2 documentation: https://docs.dhis2.org/
 - Nginx documentation: https://nginx.org/en/docs/

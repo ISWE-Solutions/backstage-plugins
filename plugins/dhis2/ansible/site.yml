@@ -15,14 +15,14 @@
 # (see ../scripts/configure-proxy.sh) so this playbook does NOT
 # install or configure any in-container web proxy.
 
-- name: "Phase 1 — create LXC via Proxmox API"
+- name: 'Phase 1 — create LXC via Proxmox API'
   hosts: localhost
   connection: local
   gather_facts: false
   roles:
     - role: pve_lxc
 
-- name: "Phase 2 — bootstrap ansible user inside container (as root)"
+- name: 'Phase 2 — bootstrap ansible user inside container (as root)'
   hosts: new_containers
   gather_facts: false
   vars:
@@ -30,42 +30,42 @@
   roles:
     - role: lxc_bootstrap
 
-- name: "Phase 2b — re-register container under the ansible user"
+- name: 'Phase 2b — re-register container under the ansible user'
   hosts: localhost
   connection: local
   gather_facts: false
   tasks:
     - name: Add container to managed/instances groups as the ansible user
       ansible.builtin.add_host:
-        name: "{{ instance_name | default(pve_hostname) }}"
-        ansible_host: "{{ hostvars[instance_name | default(pve_hostname)].ansible_host }}"
+        name: '{{ instance_name | default(pve_hostname) }}'
+        ansible_host: '{{ hostvars[instance_name | default(pve_hostname)].ansible_host }}'
         ansible_user: "{{ ansible_user_target | default('ansible') }}"
-        ansible_ssh_private_key_file: "{{ hostvars[instance_name | default(pve_hostname)].ansible_ssh_private_key_file }}"
+        ansible_ssh_private_key_file: '{{ hostvars[instance_name | default(pve_hostname)].ansible_ssh_private_key_file }}'
         ansible_become: true
         ansible_become_method: sudo
         groups:
           - instances
           - databases
-        database_host: "{{ instance_name | default(pve_hostname) }}"
-        dhis2_version: "{{ dhis2_version }}"
-        fqdn: "{{ fqdn }}"
+        database_host: '{{ instance_name | default(pve_hostname) }}'
+        dhis2_version: '{{ dhis2_version }}'
+        fqdn: '{{ fqdn }}'
         proxy_rewrite: true
 
-- name: "Pre-flight — verify SSH reachability"
+- name: 'Pre-flight — verify SSH reachability'
   hosts: instances
   gather_facts: false
   tasks:
     - name: Ping all managed hosts
       ansible.builtin.ping:
 
-- name: "Phase 3 — stage restore dump (if requested)"
+- name: 'Phase 3 — stage restore dump (if requested)'
   hosts: instances
   become: true
   gather_facts: false
   roles:
     - role: stage_restore
 
-- name: "Phase 4 — provision DHIS2 instance"
+- name: 'Phase 4 — provision DHIS2 instance'
   hosts: instances
   become: true
   gather_facts: true
@@ -195,18 +195,18 @@
 # plugins/dhis2/scripts/configure-proxy.sh call from
 # create-instance.sh's Phase 3.
 
-- name: "Phase 5a — register Proxmox host for the central Nginx play"
+- name: 'Phase 5a — register Proxmox host for the central Nginx play'
   hosts: localhost
   connection: local
   gather_facts: false
   tasks:
     - name: Add proxy host to pve_hosts group
       ansible.builtin.add_host:
-        name: "{{ proxy_ssh_host | default(pve_ssh_host, true) }}"
+        name: '{{ proxy_ssh_host | default(pve_ssh_host, true) }}'
         groups:
           - pve_hosts
-        ansible_host: "{{ proxy_ssh_host | default(pve_ssh_host, true) }}"
-        ansible_port: "{{ proxy_ssh_port | default(22) }}"
+        ansible_host: '{{ proxy_ssh_host | default(pve_ssh_host, true) }}'
+        ansible_port: '{{ proxy_ssh_port | default(22) }}'
         ansible_user: >-
           {{ proxy_ssh_user
              | default(pve_ssh_user | default('root', true), true) }}
@@ -223,19 +223,19 @@
         # / host_proxy_nginx_reload_cmd are forwarded only when the
         # orchestrator actually rendered them (the role's defaults kick in
         # otherwise).
-        host_proxy_vmid: "{{ pve_vmid }}"
+        host_proxy_vmid: '{{ pve_vmid }}'
         host_proxy_container_ip: >-
           {{ hostvars[instance_name | default(pve_hostname)].ansible_host }}
-        host_proxy_domain: "{{ fqdn }}"
+        host_proxy_domain: '{{ fqdn }}'
         host_proxy_email: "{{ email | default('') }}"
-        host_proxy_skip_certbot: "{{ host_proxy_skip_certbot | default(false) }}"
+        host_proxy_skip_certbot: '{{ host_proxy_skip_certbot | default(false) }}'
         host_proxy_upstream_dir: >-
           {{ host_proxy_upstream_dir | default(omit, true) }}
         host_proxy_nginx_reload_cmd: >-
           {{ host_proxy_nginx_reload_cmd | default(omit, true) }}
       changed_when: false
 
-- name: "Phase 5b — write central Nginx config and request TLS cert"
+- name: 'Phase 5b — write central Nginx config and request TLS cert'
   hosts: pve_hosts
   gather_facts: false
   become: true

@@ -24,20 +24,20 @@
 # ---------------------------------------------------------------------------
 # Phase 1 — destroy LXC via Proxmox REST API
 # ---------------------------------------------------------------------------
-- name: "Phase 1 — stop and destroy LXC via Proxmox API"
+- name: 'Phase 1 — stop and destroy LXC via Proxmox API'
   hosts: localhost
   connection: local
   gather_facts: false
   tasks:
     - name: Stop the LXC container (best-effort)
       community.general.proxmox:
-        api_host: "{{ pve_api_host }}"
-        api_user: "{{ pve_api_user }}"
-        api_token_id: "{{ pve_api_token_id }}"
-        api_token_secret: "{{ pve_api_token_secret }}"
-        validate_certs: "{{ pve_validate_certs | default(false) }}"
-        node: "{{ pve_node }}"
-        vmid: "{{ pve_vmid }}"
+        api_host: '{{ pve_api_host }}'
+        api_user: '{{ pve_api_user }}'
+        api_token_id: '{{ pve_api_token_id }}'
+        api_token_secret: '{{ pve_api_token_secret }}'
+        validate_certs: '{{ pve_validate_certs | default(false) }}'
+        node: '{{ pve_node }}'
+        vmid: '{{ pve_vmid }}'
         state: stopped
         timeout: 120
       register: _pve_stop
@@ -51,13 +51,13 @@
 
     - name: Destroy the LXC container (purges disks + config)
       community.general.proxmox:
-        api_host: "{{ pve_api_host }}"
-        api_user: "{{ pve_api_user }}"
-        api_token_id: "{{ pve_api_token_id }}"
-        api_token_secret: "{{ pve_api_token_secret }}"
-        validate_certs: "{{ pve_validate_certs | default(false) }}"
-        node: "{{ pve_node }}"
-        vmid: "{{ pve_vmid }}"
+        api_host: '{{ pve_api_host }}'
+        api_user: '{{ pve_api_user }}'
+        api_token_id: '{{ pve_api_token_id }}'
+        api_token_secret: '{{ pve_api_token_secret }}'
+        validate_certs: '{{ pve_validate_certs | default(false) }}'
+        node: '{{ pve_node }}'
+        vmid: '{{ pve_vmid }}'
         state: absent
         purge: true
         force: true
@@ -79,7 +79,7 @@
 # Only runs when both (a) dhis2_db_host points to a non-local server AND
 # (b) dhis2_db_drop is explicitly true. Local-LXC PostgreSQL is gone with
 # the container, so this play is a no-op in that mode.
-- name: "Phase 3 — drop database and role on shared PostgreSQL host"
+- name: 'Phase 3 — drop database and role on shared PostgreSQL host'
   hosts: localhost
   connection: local
   gather_facts: false
@@ -107,11 +107,11 @@
         - dhis2_db_drop | default(false) | bool
     - name: Drop the DHIS2 database on the shared server
       community.postgresql.postgresql_db:
-        login_host: "{{ dhis2_db_host }}"
-        login_port: "{{ dhis2_db_port | default(5432) }}"
-        login_user: "{{ dhis2_db_admin_user }}"
-        login_password: "{{ dhis2_db_admin_password }}"
-        name: "{{ dhis2_db_name }}"
+        login_host: '{{ dhis2_db_host }}'
+        login_port: '{{ dhis2_db_port | default(5432) }}'
+        login_user: '{{ dhis2_db_admin_user }}'
+        login_password: '{{ dhis2_db_admin_password }}'
+        name: '{{ dhis2_db_name }}'
         state: absent
       when:
         - _db_remote
@@ -121,11 +121,11 @@
 
     - name: Drop the per-instance DHIS2 role on the shared server
       community.postgresql.postgresql_user:
-        login_host: "{{ dhis2_db_host }}"
-        login_port: "{{ dhis2_db_port | default(5432) }}"
-        login_user: "{{ dhis2_db_admin_user }}"
-        login_password: "{{ dhis2_db_admin_password }}"
-        name: "{{ dhis2_db_user }}"
+        login_host: '{{ dhis2_db_host }}'
+        login_port: '{{ dhis2_db_port | default(5432) }}'
+        login_user: '{{ dhis2_db_admin_user }}'
+        login_password: '{{ dhis2_db_admin_password }}'
+        name: '{{ dhis2_db_user }}'
         state: absent
       when:
         - _db_remote

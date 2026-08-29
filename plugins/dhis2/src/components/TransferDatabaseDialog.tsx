@@ -27,10 +27,7 @@ import {
 } from '@backstage/core-plugin-api';
 
 import { DHIS2Instance } from '../types';
-import {
-  dhis2Service,
-  TransferJobSnapshot,
-} from '../services/dhis2Service';
+import { dhis2Service, TransferJobSnapshot } from '../services/dhis2Service';
 
 const useStyles = makeStyles(theme => ({
   section: {
@@ -111,7 +108,10 @@ export const TransferDatabaseDialog = ({
   const [clean, setClean] = useState(false);
 
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [testResult, setTestResult] = useState<{
+    ok: boolean;
+    message: string;
+  } | null>(null);
 
   const [job, setJob] = useState<TransferJobSnapshot | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -197,11 +197,17 @@ export const TransferDatabaseDialog = ({
     const errs: string[] = [];
     if (sourceMissing.length > 0) {
       errs.push(
-        `Source database is missing ${sourceMissing.join(', ')} — set them in the instance's Edit Settings dialog.`,
+        `Source database is missing ${sourceMissing.join(
+          ', ',
+        )} — set them in the instance's Edit Settings dialog.`,
       );
     }
     if (!target.host.trim()) errs.push('Target host is required');
-    if (!Number.isInteger(target.port) || target.port <= 0 || target.port > 65535)
+    if (
+      !Number.isInteger(target.port) ||
+      target.port <= 0 ||
+      target.port > 65535
+    )
       errs.push('Target port must be 1–65535');
     if (!target.user.trim()) errs.push('Target user is required');
     if (!target.password) errs.push('Target password is required');
@@ -256,8 +262,18 @@ export const TransferDatabaseDialog = ({
         baseUrl,
         instance.id,
         {
-          source: { ...source, host: source.host.trim(), user: source.user.trim(), database: source.database.trim() },
-          target: { ...target, host: target.host.trim(), user: target.user.trim(), database: target.database.trim() },
+          source: {
+            ...source,
+            host: source.host.trim(),
+            user: source.user.trim(),
+            database: source.database.trim(),
+          },
+          target: {
+            ...target,
+            host: target.host.trim(),
+            user: target.user.trim(),
+            database: target.database.trim(),
+          },
           options: {
             createTargetDatabase: createTargetDb,
             dropTargetIfExists,
@@ -398,7 +414,12 @@ export const TransferDatabaseDialog = ({
   const finished = job?.status === 'success' || job?.status === 'failed';
 
   return (
-    <Dialog open={open} onClose={inProgress ? undefined : onClose} maxWidth="md" fullWidth>
+    <Dialog
+      open={open}
+      onClose={inProgress ? undefined : onClose}
+      maxWidth="md"
+      fullWidth
+    >
       <DialogTitle>
         Transfer database{instance ? ` — ${instance.name}` : ''}
       </DialogTitle>
@@ -427,16 +448,37 @@ export const TransferDatabaseDialog = ({
           )}
         </Box>
 
-        {renderEndpoint('Target server', target, setTarget, showTgtPwd, setShowTgtPwd)}
+        {renderEndpoint(
+          'Target server',
+          target,
+          setTarget,
+          showTgtPwd,
+          setShowTgtPwd,
+        )}
 
-        <Box className={classes.section} display="flex" alignItems="center" style={{ gap: 12 }}>
+        <Box
+          className={classes.section}
+          display="flex"
+          alignItems="center"
+          style={{ gap: 12 }}
+        >
           <Button
             variant="outlined"
             size="small"
             onClick={handleTestTarget}
-            disabled={testing || inProgress || !target.host || !target.user || !target.password}
+            disabled={
+              testing ||
+              inProgress ||
+              !target.host ||
+              !target.user ||
+              !target.password
+            }
           >
-            {testing ? <CircularProgress size={16} /> : 'Test target connection'}
+            {testing ? (
+              <CircularProgress size={16} />
+            ) : (
+              'Test target connection'
+            )}
           </Button>
           {testResult && (
             <Typography

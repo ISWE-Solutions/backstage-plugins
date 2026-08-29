@@ -33,7 +33,7 @@
     _dhis2_restore_workhost: >-
       {{ '127.0.0.1' if (dhis2_db_remote | default(false) | bool)
          else inventory_hostname }}
-    _dhis2_restore_remote: "{{ dhis2_db_remote | default(false) | bool }}"
+    _dhis2_restore_remote: '{{ dhis2_db_remote | default(false) | bool }}'
 
 - name: Restore | ensure PostgreSQL client tools are installed on the work host
   ansible.builtin.apt:
@@ -43,8 +43,8 @@
       - zstd
     state: present
     update_cache: false
-  delegate_to: "{{ _dhis2_restore_workhost }}"
-  become: "{{ not _dhis2_restore_remote }}"
+  delegate_to: '{{ _dhis2_restore_workhost }}'
+  become: '{{ not _dhis2_restore_remote }}'
   when: not _dhis2_restore_remote
   # When remote, postgresql-client + gzip/zstd are expected to be present on
   # the orchestrator (installed by scripts/install.sh). We don't apt-install
@@ -57,9 +57,9 @@
     state: directory
     owner: "{{ 'postgres' if not _dhis2_restore_remote else omit }}"
     group: "{{ 'postgres' if not _dhis2_restore_remote else omit }}"
-    mode: "0750"
-  delegate_to: "{{ _dhis2_restore_workhost }}"
-  become: "{{ not _dhis2_restore_remote }}"
+    mode: '0750'
+  delegate_to: '{{ _dhis2_restore_workhost }}'
+  become: '{{ not _dhis2_restore_remote }}'
 
 - name: Restore | set staged dump path (orchestrator-supplied)
   ansible.builtin.set_fact:
@@ -71,42 +71,42 @@
 
 - name: Restore | download dump from URL
   ansible.builtin.get_url:
-    url: "{{ dhis2_restore.url }}"
-    dest: "{{ _dhis2_restore_staged }}"
-    headers: "{{ dhis2_restore.headers | default({}) }}"
-    mode: "0640"
+    url: '{{ dhis2_restore.url }}'
+    dest: '{{ _dhis2_restore_staged }}'
+    headers: '{{ dhis2_restore.headers | default({}) }}'
+    mode: '0640'
     owner: "{{ 'postgres' if not _dhis2_restore_remote else omit }}"
     group: "{{ 'postgres' if not _dhis2_restore_remote else omit }}"
     force: true
-  delegate_to: "{{ _dhis2_restore_workhost }}"
-  become: "{{ not _dhis2_restore_remote }}"
+  delegate_to: '{{ _dhis2_restore_workhost }}'
+  become: '{{ not _dhis2_restore_remote }}'
   when: dhis2_restore.kind == 'url'
 
 - name: Restore | fetch dump from S3
   amazon.aws.s3_object:
-    bucket: "{{ dhis2_restore.bucket }}"
-    object: "{{ dhis2_restore.key }}"
-    dest: "{{ _dhis2_restore_staged }}"
+    bucket: '{{ dhis2_restore.bucket }}'
+    object: '{{ dhis2_restore.key }}'
+    dest: '{{ _dhis2_restore_staged }}'
     mode: get
-    region: "{{ dhis2_restore.region | default(omit) }}"
-    endpoint_url: "{{ dhis2_restore.endpoint | default(omit) }}"
-    aws_access_key: "{{ dhis2_restore.access_key | default(omit) }}"
-    aws_secret_key: "{{ dhis2_restore.secret_key | default(omit) }}"
-  delegate_to: "{{ _dhis2_restore_workhost }}"
-  become: "{{ not _dhis2_restore_remote }}"
+    region: '{{ dhis2_restore.region | default(omit) }}'
+    endpoint_url: '{{ dhis2_restore.endpoint | default(omit) }}'
+    aws_access_key: '{{ dhis2_restore.access_key | default(omit) }}'
+    aws_secret_key: '{{ dhis2_restore.secret_key | default(omit) }}'
+  delegate_to: '{{ _dhis2_restore_workhost }}'
+  become: '{{ not _dhis2_restore_remote }}'
   when: dhis2_restore.kind == 's3'
   no_log: true
 
 - name: Restore | copy dump from a local path on the work host
   ansible.builtin.copy:
-    src: "{{ dhis2_restore.path }}"
-    dest: "{{ _dhis2_restore_staged }}"
+    src: '{{ dhis2_restore.path }}'
+    dest: '{{ _dhis2_restore_staged }}'
     remote_src: true
     owner: "{{ 'postgres' if not _dhis2_restore_remote else omit }}"
     group: "{{ 'postgres' if not _dhis2_restore_remote else omit }}"
-    mode: "0640"
-  delegate_to: "{{ _dhis2_restore_workhost }}"
-  become: "{{ not _dhis2_restore_remote }}"
+    mode: '0640'
+  delegate_to: '{{ _dhis2_restore_workhost }}'
+  become: '{{ not _dhis2_restore_remote }}'
   when: dhis2_restore.kind == 'local'
 
 - name: Restore | pg_dump from source DHIS2 instance (runs on work host)
@@ -121,8 +121,8 @@
       -f {{ _dhis2_restore_staged }}
   environment:
     PGPASSWORD: "{{ dhis2_restore.source_password | default('') }}"
-  delegate_to: "{{ _dhis2_restore_workhost }}"
-  become: "{{ not _dhis2_restore_remote }}"
+  delegate_to: '{{ _dhis2_restore_workhost }}'
+  become: '{{ not _dhis2_restore_remote }}'
   become_user: "{{ omit if _dhis2_restore_remote else 'postgres' }}"
   when: dhis2_restore.kind == 'instance'
   no_log: true
@@ -134,15 +134,15 @@
 
 - name: Restore | verify staged dump exists
   ansible.builtin.stat:
-    path: "{{ _dhis2_restore_staged }}"
+    path: '{{ _dhis2_restore_staged }}'
   register: _dhis2_restore_stat
-  delegate_to: "{{ _dhis2_restore_workhost }}"
-  become: "{{ not _dhis2_restore_remote }}"
+  delegate_to: '{{ _dhis2_restore_workhost }}'
+  become: '{{ not _dhis2_restore_remote }}'
   when: dhis2_restore.kind in ['upload', 'vzdump', 'instance']
 
 - name: Restore | fail if staged dump missing
   ansible.builtin.fail:
-    msg: "Expected staged dump at {{ _dhis2_restore_staged }} on {{ _dhis2_restore_workhost }} but it was not found."
+    msg: 'Expected staged dump at {{ _dhis2_restore_staged }} on {{ _dhis2_restore_workhost }} but it was not found.'
   when:
     - dhis2_restore.kind in ['upload', 'vzdump', 'instance']
     - not _dhis2_restore_stat.stat.exists
@@ -156,22 +156,22 @@
 
 - name: Restore | test whether staged dump is gzip-compressed
   ansible.builtin.command:
-    cmd: "gzip -t {{ _dhis2_restore_staged }}"
+    cmd: 'gzip -t {{ _dhis2_restore_staged }}'
   register: _dhis2_gz_test
   changed_when: false
   failed_when: false
-  delegate_to: "{{ _dhis2_restore_workhost }}"
-  become: "{{ not _dhis2_restore_remote }}"
+  delegate_to: '{{ _dhis2_restore_workhost }}'
+  become: '{{ not _dhis2_restore_remote }}'
 
 - name: Restore | test whether staged dump is zstd-compressed
   ansible.builtin.command:
-    cmd: "zstd -t -q {{ _dhis2_restore_staged }}"
+    cmd: 'zstd -t -q {{ _dhis2_restore_staged }}'
   register: _dhis2_zst_test
   changed_when: false
   failed_when: false
   when: _dhis2_gz_test.rc != 0
-  delegate_to: "{{ _dhis2_restore_workhost }}"
-  become: "{{ not _dhis2_restore_remote }}"
+  delegate_to: '{{ _dhis2_restore_workhost }}'
+  become: '{{ not _dhis2_restore_remote }}'
 
 - name: Restore | decompress gzip dump in place
   ansible.builtin.shell:
@@ -180,8 +180,8 @@
       gunzip -c {{ _dhis2_restore_staged | quote }} > {{ _dhis2_restore_staged | quote }}.dec
       && mv {{ _dhis2_restore_staged | quote }}.dec {{ _dhis2_restore_staged | quote }}
     executable: /bin/bash
-  delegate_to: "{{ _dhis2_restore_workhost }}"
-  become: "{{ not _dhis2_restore_remote }}"
+  delegate_to: '{{ _dhis2_restore_workhost }}'
+  become: '{{ not _dhis2_restore_remote }}'
   when: _dhis2_gz_test.rc == 0
   changed_when: true
 
@@ -192,8 +192,8 @@
       zstd -d -c {{ _dhis2_restore_staged | quote }} > {{ _dhis2_restore_staged | quote }}.dec
       && mv {{ _dhis2_restore_staged | quote }}.dec {{ _dhis2_restore_staged | quote }}
     executable: /bin/bash
-  delegate_to: "{{ _dhis2_restore_workhost }}"
-  become: "{{ not _dhis2_restore_remote }}"
+  delegate_to: '{{ _dhis2_restore_workhost }}'
+  become: '{{ not _dhis2_restore_remote }}'
   when:
     - _dhis2_gz_test.rc != 0
     - _dhis2_zst_test.rc | default(1) == 0
@@ -208,11 +208,11 @@
   block:
     - name: Restore | read first bytes of dump
       ansible.builtin.command:
-        cmd: "head -c 5 {{ _dhis2_restore_staged }}"
+        cmd: 'head -c 5 {{ _dhis2_restore_staged }}'
       register: _dhis2_dump_head
       changed_when: false
-      delegate_to: "{{ _dhis2_restore_workhost }}"
-      become: "{{ not _dhis2_restore_remote }}"
+      delegate_to: '{{ _dhis2_restore_workhost }}'
+      become: '{{ not _dhis2_restore_remote }}'
 
     - name: Restore | set dump_format based on magic bytes
       ansible.builtin.set_fact:
@@ -220,7 +220,7 @@
 
 - name: Restore | use provided dump_format
   ansible.builtin.set_fact:
-    _dhis2_dump_format: "{{ dhis2_restore.dump_format }}"
+    _dhis2_dump_format: '{{ dhis2_restore.dump_format }}'
   when: dhis2_restore.dump_format is defined
 
 # ---------------------------------------------------------------------------
@@ -235,56 +235,56 @@
       FROM pg_stat_activity
       WHERE datname = %s AND pid <> pg_backend_pid()
     positional_args:
-      - "{{ dhis2_db_name }}"
-    login_host: "{{ dhis2_db_host if _dhis2_restore_remote else omit }}"
-    login_port: "{{ dhis2_db_port if _dhis2_restore_remote else omit }}"
-    login_user: "{{ dhis2_db_admin_user if _dhis2_restore_remote else omit }}"
-    login_password: "{{ dhis2_db_admin_password if _dhis2_restore_remote else omit }}"
-  delegate_to: "{{ _dhis2_restore_workhost }}"
-  become: "{{ not _dhis2_restore_remote }}"
+      - '{{ dhis2_db_name }}'
+    login_host: '{{ dhis2_db_host if _dhis2_restore_remote else omit }}'
+    login_port: '{{ dhis2_db_port if _dhis2_restore_remote else omit }}'
+    login_user: '{{ dhis2_db_admin_user if _dhis2_restore_remote else omit }}'
+    login_password: '{{ dhis2_db_admin_password if _dhis2_restore_remote else omit }}'
+  delegate_to: '{{ _dhis2_restore_workhost }}'
+  become: '{{ not _dhis2_restore_remote }}'
   become_user: "{{ omit if _dhis2_restore_remote else 'postgres' }}"
 
 - name: Restore | drop existing database
   community.postgresql.postgresql_db:
-    name: "{{ dhis2_db_name }}"
+    name: '{{ dhis2_db_name }}'
     state: absent
-    login_host: "{{ dhis2_db_host if _dhis2_restore_remote else omit }}"
-    login_port: "{{ dhis2_db_port if _dhis2_restore_remote else omit }}"
-    login_user: "{{ dhis2_db_admin_user if _dhis2_restore_remote else omit }}"
-    login_password: "{{ dhis2_db_admin_password if _dhis2_restore_remote else omit }}"
-  delegate_to: "{{ _dhis2_restore_workhost }}"
-  become: "{{ not _dhis2_restore_remote }}"
+    login_host: '{{ dhis2_db_host if _dhis2_restore_remote else omit }}'
+    login_port: '{{ dhis2_db_port if _dhis2_restore_remote else omit }}'
+    login_user: '{{ dhis2_db_admin_user if _dhis2_restore_remote else omit }}'
+    login_password: '{{ dhis2_db_admin_password if _dhis2_restore_remote else omit }}'
+  delegate_to: '{{ _dhis2_restore_workhost }}'
+  become: '{{ not _dhis2_restore_remote }}'
   become_user: "{{ omit if _dhis2_restore_remote else 'postgres' }}"
 
 - name: Restore | recreate empty database
   community.postgresql.postgresql_db:
-    name: "{{ dhis2_db_name }}"
-    owner: "{{ dhis2_db_user }}"
+    name: '{{ dhis2_db_name }}'
+    owner: '{{ dhis2_db_user }}'
     encoding: UTF-8
     lc_collate: en_US.UTF-8
     lc_ctype: en_US.UTF-8
     template: template0
     state: present
-    login_host: "{{ dhis2_db_host if _dhis2_restore_remote else omit }}"
-    login_port: "{{ dhis2_db_port if _dhis2_restore_remote else omit }}"
-    login_user: "{{ dhis2_db_admin_user if _dhis2_restore_remote else omit }}"
-    login_password: "{{ dhis2_db_admin_password if _dhis2_restore_remote else omit }}"
-  delegate_to: "{{ _dhis2_restore_workhost }}"
-  become: "{{ not _dhis2_restore_remote }}"
+    login_host: '{{ dhis2_db_host if _dhis2_restore_remote else omit }}'
+    login_port: '{{ dhis2_db_port if _dhis2_restore_remote else omit }}'
+    login_user: '{{ dhis2_db_admin_user if _dhis2_restore_remote else omit }}'
+    login_password: '{{ dhis2_db_admin_password if _dhis2_restore_remote else omit }}'
+  delegate_to: '{{ _dhis2_restore_workhost }}'
+  become: '{{ not _dhis2_restore_remote }}'
   become_user: "{{ omit if _dhis2_restore_remote else 'postgres' }}"
 
 - name: Restore | reinstall required PostgreSQL extensions
   community.postgresql.postgresql_ext:
-    name: "{{ item }}"
-    db: "{{ dhis2_db_name }}"
+    name: '{{ item }}'
+    db: '{{ dhis2_db_name }}'
     state: present
-    login_host: "{{ dhis2_db_host if _dhis2_restore_remote else omit }}"
-    login_port: "{{ dhis2_db_port if _dhis2_restore_remote else omit }}"
-    login_user: "{{ dhis2_db_admin_user if _dhis2_restore_remote else omit }}"
-    login_password: "{{ dhis2_db_admin_password if _dhis2_restore_remote else omit }}"
-  loop: "{{ postgresql_extensions }}"
-  delegate_to: "{{ _dhis2_restore_workhost }}"
-  become: "{{ not _dhis2_restore_remote }}"
+    login_host: '{{ dhis2_db_host if _dhis2_restore_remote else omit }}'
+    login_port: '{{ dhis2_db_port if _dhis2_restore_remote else omit }}'
+    login_user: '{{ dhis2_db_admin_user if _dhis2_restore_remote else omit }}'
+    login_password: '{{ dhis2_db_admin_password if _dhis2_restore_remote else omit }}'
+  loop: '{{ postgresql_extensions }}'
+  delegate_to: '{{ _dhis2_restore_workhost }}'
+  become: '{{ not _dhis2_restore_remote }}'
   become_user: "{{ omit if _dhis2_restore_remote else 'postgres' }}"
 
 # ---------------------------------------------------------------------------
@@ -305,11 +305,11 @@
       > {{ _dhis2_restore_staged }}.psql.log 2>&1
     executable: /bin/bash
   environment: "{{ {'PGHOST': dhis2_db_host, 'PGPORT': dhis2_db_port | string, 'PGUSER': dhis2_db_admin_user, 'PGPASSWORD': dhis2_db_admin_password} if _dhis2_restore_remote else {} }}"
-  delegate_to: "{{ _dhis2_restore_workhost }}"
-  become: "{{ not _dhis2_restore_remote }}"
+  delegate_to: '{{ _dhis2_restore_workhost }}'
+  become: '{{ not _dhis2_restore_remote }}'
   become_user: "{{ omit if _dhis2_restore_remote else 'postgres' }}"
   when: _dhis2_dump_format == 'plain'
-  no_log: "{{ _dhis2_restore_remote and not (dhis2_debug | default(false) | bool) }}"
+  no_log: '{{ _dhis2_restore_remote and not (dhis2_debug | default(false) | bool) }}'
 
 - name: Restore | apply custom-format dump with pg_restore
   ansible.builtin.command:
@@ -318,15 +318,15 @@
       --dbname={{ dhis2_db_name }} --jobs=4
       {{ _dhis2_restore_staged }}
   environment: "{{ {'PGHOST': dhis2_db_host, 'PGPORT': dhis2_db_port | string, 'PGUSER': dhis2_db_admin_user, 'PGPASSWORD': dhis2_db_admin_password} if _dhis2_restore_remote else {} }}"
-  delegate_to: "{{ _dhis2_restore_workhost }}"
-  become: "{{ not _dhis2_restore_remote }}"
+  delegate_to: '{{ _dhis2_restore_workhost }}'
+  become: '{{ not _dhis2_restore_remote }}'
   become_user: "{{ omit if _dhis2_restore_remote else 'postgres' }}"
   when: _dhis2_dump_format == 'custom'
   register: _dhis2_pgrestore_custom
   failed_when:
     - _dhis2_pgrestore_custom.rc != 0
     - "'errors ignored on restore' not in _dhis2_pgrestore_custom.stderr | default('')"
-  no_log: "{{ _dhis2_restore_remote and not (dhis2_debug | default(false) | bool) }}"
+  no_log: '{{ _dhis2_restore_remote and not (dhis2_debug | default(false) | bool) }}'
 
 - name: Restore | apply directory-format dump with pg_restore
   ansible.builtin.command:
@@ -335,15 +335,15 @@
       --dbname={{ dhis2_db_name }} --jobs=4 --format=directory
       {{ _dhis2_restore_staged }}
   environment: "{{ {'PGHOST': dhis2_db_host, 'PGPORT': dhis2_db_port | string, 'PGUSER': dhis2_db_admin_user, 'PGPASSWORD': dhis2_db_admin_password} if _dhis2_restore_remote else {} }}"
-  delegate_to: "{{ _dhis2_restore_workhost }}"
-  become: "{{ not _dhis2_restore_remote }}"
+  delegate_to: '{{ _dhis2_restore_workhost }}'
+  become: '{{ not _dhis2_restore_remote }}'
   become_user: "{{ omit if _dhis2_restore_remote else 'postgres' }}"
   when: _dhis2_dump_format == 'directory'
   register: _dhis2_pgrestore_dir
   failed_when:
     - _dhis2_pgrestore_dir.rc != 0
     - "'errors ignored on restore' not in _dhis2_pgrestore_dir.stderr | default('')"
-  no_log: "{{ _dhis2_restore_remote and not (dhis2_debug | default(false) | bool) }}"
+  no_log: '{{ _dhis2_restore_remote and not (dhis2_debug | default(false) | bool) }}'
 
 # ---------------------------------------------------------------------------
 # Post-restore housekeeping
@@ -351,14 +351,14 @@
 
 - name: Restore | reassign ownership to DHIS2 user
   community.postgresql.postgresql_query:
-    db: "{{ dhis2_db_name }}"
+    db: '{{ dhis2_db_name }}'
     query: "SET lock_timeout = '30s'; SET statement_timeout = '60s'; REASSIGN OWNED BY {{ dhis2_db_admin_user }} TO {{ dhis2_db_user }}"
-    login_host: "{{ dhis2_db_host if _dhis2_restore_remote else omit }}"
-    login_port: "{{ dhis2_db_port if _dhis2_restore_remote else omit }}"
-    login_user: "{{ dhis2_db_admin_user if _dhis2_restore_remote else omit }}"
-    login_password: "{{ dhis2_db_admin_password if _dhis2_restore_remote else omit }}"
-  delegate_to: "{{ _dhis2_restore_workhost }}"
-  become: "{{ not _dhis2_restore_remote }}"
+    login_host: '{{ dhis2_db_host if _dhis2_restore_remote else omit }}'
+    login_port: '{{ dhis2_db_port if _dhis2_restore_remote else omit }}'
+    login_user: '{{ dhis2_db_admin_user if _dhis2_restore_remote else omit }}'
+    login_password: '{{ dhis2_db_admin_password if _dhis2_restore_remote else omit }}'
+  delegate_to: '{{ _dhis2_restore_workhost }}'
+  become: '{{ not _dhis2_restore_remote }}'
   become_user: "{{ omit if _dhis2_restore_remote else 'postgres' }}"
   # Only meaningful in remote/admin-mode where the admin role temporarily
   # owned restored objects. In local mode the dump was loaded as the target
@@ -369,17 +369,17 @@
 
 - name: Restore | re-grant privileges to DHIS2 user
   community.postgresql.postgresql_privs:
-    db: "{{ dhis2_db_name }}"
-    roles: "{{ dhis2_db_user }}"
+    db: '{{ dhis2_db_name }}'
+    roles: '{{ dhis2_db_user }}'
     type: database
     privs: ALL
     state: present
-    login_host: "{{ dhis2_db_host if _dhis2_restore_remote else omit }}"
-    login_port: "{{ dhis2_db_port if _dhis2_restore_remote else omit }}"
-    login_user: "{{ dhis2_db_admin_user if _dhis2_restore_remote else omit }}"
-    login_password: "{{ dhis2_db_admin_password if _dhis2_restore_remote else omit }}"
-  delegate_to: "{{ _dhis2_restore_workhost }}"
-  become: "{{ not _dhis2_restore_remote }}"
+    login_host: '{{ dhis2_db_host if _dhis2_restore_remote else omit }}'
+    login_port: '{{ dhis2_db_port if _dhis2_restore_remote else omit }}'
+    login_user: '{{ dhis2_db_admin_user if _dhis2_restore_remote else omit }}'
+    login_password: '{{ dhis2_db_admin_password if _dhis2_restore_remote else omit }}'
+  delegate_to: '{{ _dhis2_restore_workhost }}'
+  become: '{{ not _dhis2_restore_remote }}'
   become_user: "{{ omit if _dhis2_restore_remote else 'postgres' }}"
 
 # After a local-mode restore the dump was loaded as the postgres superuser, so
@@ -390,7 +390,7 @@
 # privileges so the app role can read/write everything that was restored.
 - name: Restore | transfer object ownership to DHIS2 user (public schema)
   community.postgresql.postgresql_query:
-    db: "{{ dhis2_db_name }}"
+    db: '{{ dhis2_db_name }}'
     query: |
       SET lock_timeout = '30s';
       SET statement_timeout = '120s';
@@ -416,12 +416,12 @@
         END LOOP;
         EXECUTE format('ALTER SCHEMA public OWNER TO %I', '{{ dhis2_db_user }}');
       END $$;
-    login_host: "{{ dhis2_db_host if _dhis2_restore_remote else omit }}"
-    login_port: "{{ dhis2_db_port if _dhis2_restore_remote else omit }}"
-    login_user: "{{ dhis2_db_admin_user if _dhis2_restore_remote else omit }}"
-    login_password: "{{ dhis2_db_admin_password if _dhis2_restore_remote else omit }}"
-  delegate_to: "{{ _dhis2_restore_workhost }}"
-  become: "{{ not _dhis2_restore_remote }}"
+    login_host: '{{ dhis2_db_host if _dhis2_restore_remote else omit }}'
+    login_port: '{{ dhis2_db_port if _dhis2_restore_remote else omit }}'
+    login_user: '{{ dhis2_db_admin_user if _dhis2_restore_remote else omit }}'
+    login_password: '{{ dhis2_db_admin_password if _dhis2_restore_remote else omit }}'
+  delegate_to: '{{ _dhis2_restore_workhost }}'
+  become: '{{ not _dhis2_restore_remote }}'
   become_user: "{{ omit if _dhis2_restore_remote else 'postgres' }}"
   # Always run in local mode: the dump was loaded as the postgres superuser,
   # so even when dhis2_db_admin_user == dhis2_db_user the restored objects
@@ -433,18 +433,18 @@
 
 - name: Restore | grant schema and object privileges to DHIS2 user
   community.postgresql.postgresql_query:
-    db: "{{ dhis2_db_name }}"
+    db: '{{ dhis2_db_name }}'
     query: |
       GRANT USAGE, CREATE ON SCHEMA public TO {{ dhis2_db_user }};
       GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO {{ dhis2_db_user }};
       GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO {{ dhis2_db_user }};
       GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO {{ dhis2_db_user }};
-    login_host: "{{ dhis2_db_host if _dhis2_restore_remote else omit }}"
-    login_port: "{{ dhis2_db_port if _dhis2_restore_remote else omit }}"
-    login_user: "{{ dhis2_db_admin_user if _dhis2_restore_remote else omit }}"
-    login_password: "{{ dhis2_db_admin_password if _dhis2_restore_remote else omit }}"
-  delegate_to: "{{ _dhis2_restore_workhost }}"
-  become: "{{ not _dhis2_restore_remote }}"
+    login_host: '{{ dhis2_db_host if _dhis2_restore_remote else omit }}'
+    login_port: '{{ dhis2_db_port if _dhis2_restore_remote else omit }}'
+    login_user: '{{ dhis2_db_admin_user if _dhis2_restore_remote else omit }}'
+    login_password: '{{ dhis2_db_admin_password if _dhis2_restore_remote else omit }}'
+  delegate_to: '{{ _dhis2_restore_workhost }}'
+  become: '{{ not _dhis2_restore_remote }}'
   become_user: "{{ omit if _dhis2_restore_remote else 'postgres' }}"
   when: (not _dhis2_restore_remote) or (dhis2_db_admin_user != dhis2_db_user)
 
@@ -456,8 +456,8 @@
       -d {{ dhis2_db_name }}
       -c ANALYZE
   environment:
-    PGOPTIONS: "-c lock_timeout=30000 -c statement_timeout=300000 -c maintenance_work_mem=512MB"
-  delegate_to: "{{ _dhis2_restore_workhost }}"
+    PGOPTIONS: '-c lock_timeout=30000 -c statement_timeout=300000 -c maintenance_work_mem=512MB'
+  delegate_to: '{{ _dhis2_restore_workhost }}'
   become: true
   become_user: postgres
   register: _dhis2_analyze_local
@@ -473,25 +473,25 @@
       -d {{ dhis2_db_name }}
       -c ANALYZE
   environment:
-    PGHOST: "{{ dhis2_db_host }}"
-    PGPORT: "{{ dhis2_db_port | string }}"
-    PGUSER: "{{ dhis2_db_admin_user }}"
-    PGPASSWORD: "{{ dhis2_db_admin_password }}"
-    PGOPTIONS: "-c lock_timeout=30000 -c statement_timeout=300000 -c maintenance_work_mem=512MB"
-  delegate_to: "{{ _dhis2_restore_workhost }}"
+    PGHOST: '{{ dhis2_db_host }}'
+    PGPORT: '{{ dhis2_db_port | string }}'
+    PGUSER: '{{ dhis2_db_admin_user }}'
+    PGPASSWORD: '{{ dhis2_db_admin_password }}'
+    PGOPTIONS: '-c lock_timeout=30000 -c statement_timeout=300000 -c maintenance_work_mem=512MB'
+  delegate_to: '{{ _dhis2_restore_workhost }}'
   become: false
   register: _dhis2_analyze_remote
   changed_when: false
   failed_when: false
-  no_log: "{{ not (dhis2_debug | default(false) | bool) }}"
+  no_log: '{{ not (dhis2_debug | default(false) | bool) }}'
   when: _dhis2_restore_remote
 
 - name: Restore | remove staged dump file
   ansible.builtin.file:
-    path: "{{ item }}"
+    path: '{{ item }}'
     state: absent
   loop:
-    - "{{ _dhis2_restore_staged }}"
-    - "{{ _dhis2_restore_staged }}.psql.log"
-  delegate_to: "{{ _dhis2_restore_workhost }}"
-  become: "{{ not _dhis2_restore_remote }}"
+    - '{{ _dhis2_restore_staged }}'
+    - '{{ _dhis2_restore_staged }}.psql.log'
+  delegate_to: '{{ _dhis2_restore_workhost }}'
+  become: '{{ not _dhis2_restore_remote }}'
