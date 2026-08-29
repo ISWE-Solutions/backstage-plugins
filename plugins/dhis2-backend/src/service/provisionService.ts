@@ -229,6 +229,12 @@ export interface ProvisionRequest {
    * the same confirmation prompt used by `deleteIfExists`.
    */
   deleteIfNameExists?: boolean;
+  /**
+   * Tomcat major version to install. '9' (javax) for DHIS2 2.40/2.41,
+   * '10' (jakarta) for v42+. When omitted, the router derives it from
+   * `version` via `deriveTomcatVersionForDhis2`.
+   */
+  tomcatVersion?: '9' | '10';
   /** Optional per-instance routing override from Create dialog. */
   proxyOverride?: {
     mode?: string;
@@ -706,7 +712,9 @@ export function deriveTomcatVersionForDhis2(
   version: string | undefined,
 ): '9' | '10' | undefined {
   if (!version) return undefined;
-  const m = String(version).trim().match(/^(?:2\.)?(\d+)/);
+  const m = String(version)
+    .trim()
+    .match(/^(?:2\.)?(\d+)/);
   if (!m) return undefined;
   const major = Number(m[1]);
   if (!Number.isFinite(major)) return undefined;
@@ -720,18 +728,30 @@ function buildCommand(
 ): string {
   const args: string[] = [
     cfg.scriptPath,
-    '--vmid', String(req.vmid),
-    '--node', req.node,
-    '--hostname', req.hostname,
-    '--domain', req.domain,
-    '--email', req.email,
-    '--dhis2-version', req.version,
-    '--db-name', req.database.name,
-    '--db-user', req.database.user,
-    '--instance-name', req.name,
-    '--cpu', String(req.resources.cpu),
-    '--memory', String(req.resources.memory),
-    '--storage', String(req.resources.storage),
+    '--vmid',
+    String(req.vmid),
+    '--node',
+    req.node,
+    '--hostname',
+    req.hostname,
+    '--domain',
+    req.domain,
+    '--email',
+    req.email,
+    '--dhis2-version',
+    req.version,
+    '--db-name',
+    req.database.name,
+    '--db-user',
+    req.database.user,
+    '--instance-name',
+    req.name,
+    '--cpu',
+    String(req.resources.cpu),
+    '--memory',
+    String(req.resources.memory),
+    '--storage',
+    String(req.resources.storage),
   ];
   if (restoreSpecPath) {
     args.push('--restore-spec', restoreSpecPath);
@@ -762,10 +782,7 @@ function buildCommand(
   if (req.tomcatVersion && req.tomcatVersion.trim() !== '') {
     args.push('--tomcat-version', req.tomcatVersion.trim());
   }
-  if (
-    req.dhis2Settings?.javaHeap &&
-    req.dhis2Settings.javaHeap.trim() !== ''
-  ) {
+  if (req.dhis2Settings?.javaHeap && req.dhis2Settings.javaHeap.trim() !== '') {
     args.push('--java-heap', req.dhis2Settings.javaHeap.trim());
   }
   // The provision script also needs an SSH key (used by Ansible to talk to
@@ -804,16 +821,14 @@ function buildCommand(
   // ProxmoxClusterPanel saved settings) override the orchestrator
   // defaults from app-config / env vars on a per-job basis.
   const reqPm = req.proxmox ?? {};
-  const effectiveApiUrl =
-    (reqPm.apiUrl && reqPm.apiUrl.trim()) || cfg.apiUrl;
+  const effectiveApiUrl = (reqPm.apiUrl && reqPm.apiUrl.trim()) || cfg.apiUrl;
   const { apiUser: effectiveApiUser, apiTokenId: effectiveApiTokenId } =
     normalizeProxmoxCreds(
       (reqPm.apiUser && reqPm.apiUser.trim()) || cfg.apiUser,
       (reqPm.apiTokenId && reqPm.apiTokenId.trim()) || cfg.apiTokenId,
     );
   const effectiveApiTokenSecret =
-    (reqPm.apiTokenSecret && reqPm.apiTokenSecret.trim()) ||
-    cfg.apiTokenSecret;
+    (reqPm.apiTokenSecret && reqPm.apiTokenSecret.trim()) || cfg.apiTokenSecret;
   // TLS validation policy: app-config is the SECURITY CEILING. A
   // per-request override (e.g. from a stored ProxmoxClusterPanel
   // setting in the browser) can only LOWER the policy, never raise it.
@@ -892,7 +907,8 @@ function streamLines(
     buf += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
     const parts = buf.split('\n');
     buf = parts.pop() ?? '';
-    for (const line of parts) appendLine(job, prefix ? `${prefix}${line}` : line);
+    for (const line of parts)
+      appendLine(job, prefix ? `${prefix}${line}` : line);
   });
   stream.on('end', () => {
     if (buf) appendLine(job, prefix ? `${prefix}${buf}` : buf);
@@ -977,14 +993,22 @@ function buildEditCommand(
 ): string {
   const args: string[] = [
     scriptPath,
-    '--vmid', String(req.vmid),
-    '--node', req.node,
-    '--domain', req.domain,
-    '--cpu', String(req.resources.cpu),
-    '--memory', String(req.resources.memory),
-    '--storage', String(req.resources.storage),
-    '--db-name', req.database.name,
-    '--db-user', req.database.user,
+    '--vmid',
+    String(req.vmid),
+    '--node',
+    req.node,
+    '--domain',
+    req.domain,
+    '--cpu',
+    String(req.resources.cpu),
+    '--memory',
+    String(req.resources.memory),
+    '--storage',
+    String(req.resources.storage),
+    '--db-name',
+    req.database.name,
+    '--db-user',
+    req.database.user,
   ];
   if (req.database.host && req.database.host.trim() !== '') {
     args.push('--db-host', req.database.host.trim());
@@ -1015,16 +1039,14 @@ function buildEditCommand(
   }
 
   const reqPm = req.proxmox ?? {};
-  const effectiveApiUrl =
-    (reqPm.apiUrl && reqPm.apiUrl.trim()) || cfg.apiUrl;
+  const effectiveApiUrl = (reqPm.apiUrl && reqPm.apiUrl.trim()) || cfg.apiUrl;
   const { apiUser: effectiveApiUser, apiTokenId: effectiveApiTokenId } =
     normalizeProxmoxCreds(
       (reqPm.apiUser && reqPm.apiUser.trim()) || cfg.apiUser,
       (reqPm.apiTokenId && reqPm.apiTokenId.trim()) || cfg.apiTokenId,
     );
   const effectiveApiTokenSecret =
-    (reqPm.apiTokenSecret && reqPm.apiTokenSecret.trim()) ||
-    cfg.apiTokenSecret;
+    (reqPm.apiTokenSecret && reqPm.apiTokenSecret.trim()) || cfg.apiTokenSecret;
   const cfgValidate = Boolean(cfg.validateApiCerts);
   const reqValidate =
     typeof reqPm.validateApiCerts === 'boolean'
@@ -1058,9 +1080,12 @@ function buildDecommissionCommand(
 ): string {
   const args: string[] = [
     scriptPath,
-    '--vmid', String(req.vmid),
-    '--node', req.node,
-    '--domain', req.domain,
+    '--vmid',
+    String(req.vmid),
+    '--node',
+    req.node,
+    '--domain',
+    req.domain,
   ];
   if (req.skipProxyCleanup) {
     args.push('--skip-proxy-cleanup');
@@ -1107,16 +1132,14 @@ function buildDecommissionCommand(
   }
 
   const reqPm = req.proxmox ?? {};
-  const effectiveApiUrl =
-    (reqPm.apiUrl && reqPm.apiUrl.trim()) || cfg.apiUrl;
+  const effectiveApiUrl = (reqPm.apiUrl && reqPm.apiUrl.trim()) || cfg.apiUrl;
   const { apiUser: effectiveApiUser, apiTokenId: effectiveApiTokenId } =
     normalizeProxmoxCreds(
       (reqPm.apiUser && reqPm.apiUser.trim()) || cfg.apiUser,
       (reqPm.apiTokenId && reqPm.apiTokenId.trim()) || cfg.apiTokenId,
     );
   const effectiveApiTokenSecret =
-    (reqPm.apiTokenSecret && reqPm.apiTokenSecret.trim()) ||
-    cfg.apiTokenSecret;
+    (reqPm.apiTokenSecret && reqPm.apiTokenSecret.trim()) || cfg.apiTokenSecret;
   const cfgValidate = Boolean(cfg.validateApiCerts);
   const reqValidate =
     typeof reqPm.validateApiCerts === 'boolean'
@@ -1153,9 +1176,12 @@ function buildLifecycleCommand(
 ): string {
   const args: string[] = [
     scriptPath,
-    '--vmid', String(req.vmid),
-    '--node', req.node,
-    '--action', req.action,
+    '--vmid',
+    String(req.vmid),
+    '--node',
+    req.node,
+    '--action',
+    req.action,
   ];
   if (
     typeof req.shutdownTimeout === 'number' &&
@@ -1169,16 +1195,14 @@ function buildLifecycleCommand(
   }
 
   const reqPm = req.proxmox ?? {};
-  const effectiveApiUrl =
-    (reqPm.apiUrl && reqPm.apiUrl.trim()) || cfg.apiUrl;
+  const effectiveApiUrl = (reqPm.apiUrl && reqPm.apiUrl.trim()) || cfg.apiUrl;
   const { apiUser: effectiveApiUser, apiTokenId: effectiveApiTokenId } =
     normalizeProxmoxCreds(
       (reqPm.apiUser && reqPm.apiUser.trim()) || cfg.apiUser,
       (reqPm.apiTokenId && reqPm.apiTokenId.trim()) || cfg.apiTokenId,
     );
   const effectiveApiTokenSecret =
-    (reqPm.apiTokenSecret && reqPm.apiTokenSecret.trim()) ||
-    cfg.apiTokenSecret;
+    (reqPm.apiTokenSecret && reqPm.apiTokenSecret.trim()) || cfg.apiTokenSecret;
   const cfgValidate = Boolean(cfg.validateApiCerts);
   const reqValidate =
     typeof reqPm.validateApiCerts === 'boolean'
@@ -1223,24 +1247,42 @@ function buildCloneCommand(
   const proxy = req.proxy ?? {};
   const args: string[] = [
     scriptPath,
-    '--src-vmid', String(req.source.vmid),
-    '--src-node', req.source.node,
-    '--src-hostname', req.source.hostname,
-    '--src-db-name', req.source.dbName,
-    '--vmid', String(req.vmid),
-    '--node', req.node,
-    '--hostname', req.hostname,
-    '--instance-name', req.name,
-    '--domain', req.domain,
-    '--cpu', String(req.resources.cpu),
-    '--memory', String(req.resources.memory),
-    '--storage', String(req.resources.storage),
-    '--version', req.version ?? '',
-    '--db-strategy', req.dbStrategy,
-    '--db-host', req.database.host,
-    '--db-port', String(req.database.port || 5432),
-    '--db-name', req.database.name,
-    '--db-user', req.database.user,
+    '--src-vmid',
+    String(req.source.vmid),
+    '--src-node',
+    req.source.node,
+    '--src-hostname',
+    req.source.hostname,
+    '--src-db-name',
+    req.source.dbName,
+    '--vmid',
+    String(req.vmid),
+    '--node',
+    req.node,
+    '--hostname',
+    req.hostname,
+    '--instance-name',
+    req.name,
+    '--domain',
+    req.domain,
+    '--cpu',
+    String(req.resources.cpu),
+    '--memory',
+    String(req.resources.memory),
+    '--storage',
+    String(req.resources.storage),
+    '--version',
+    req.version ?? '',
+    '--db-strategy',
+    req.dbStrategy,
+    '--db-host',
+    req.database.host,
+    '--db-port',
+    String(req.database.port || 5432),
+    '--db-name',
+    req.database.name,
+    '--db-user',
+    req.database.user,
   ];
   if (
     typeof req.shutdownTimeout === 'number' &&
@@ -1286,16 +1328,14 @@ function buildCloneCommand(
   if (req.email) args.push('--email', req.email);
 
   const reqPm = req.proxmox ?? {};
-  const effectiveApiUrl =
-    (reqPm.apiUrl && reqPm.apiUrl.trim()) || cfg.apiUrl;
+  const effectiveApiUrl = (reqPm.apiUrl && reqPm.apiUrl.trim()) || cfg.apiUrl;
   const { apiUser: effectiveApiUser, apiTokenId: effectiveApiTokenId } =
     normalizeProxmoxCreds(
       (reqPm.apiUser && reqPm.apiUser.trim()) || cfg.apiUser,
       (reqPm.apiTokenId && reqPm.apiTokenId.trim()) || cfg.apiTokenId,
     );
   const effectiveApiTokenSecret =
-    (reqPm.apiTokenSecret && reqPm.apiTokenSecret.trim()) ||
-    cfg.apiTokenSecret;
+    (reqPm.apiTokenSecret && reqPm.apiTokenSecret.trim()) || cfg.apiTokenSecret;
   const cfgValidate = Boolean(cfg.validateApiCerts);
   const reqValidate =
     typeof reqPm.validateApiCerts === 'boolean'
@@ -1348,12 +1388,18 @@ function buildUpgradeCommand(
 
   const args: string[] = [
     scriptPath,
-    '--vmid', String(req.vmid),
-    '--node', req.node,
-    '--hostname', req.hostname,
-    '--instance-name', req.name,
-    '--domain', req.domain,
-    '--to-version', req.toVersion,
+    '--vmid',
+    String(req.vmid),
+    '--node',
+    req.node,
+    '--hostname',
+    req.hostname,
+    '--instance-name',
+    req.name,
+    '--domain',
+    req.domain,
+    '--to-version',
+    req.toVersion,
   ];
   if (req.warUrl && req.warUrl.trim() !== '') {
     args.push('--war-url', req.warUrl.trim());
@@ -1385,11 +1431,7 @@ function buildUpgradeCommand(
   if (db.host && db.host.trim() !== '') {
     args.push('--db-host', db.host.trim());
   }
-  if (
-    typeof db.port === 'number' &&
-    Number.isInteger(db.port) &&
-    db.port > 0
-  ) {
+  if (typeof db.port === 'number' && Number.isInteger(db.port) && db.port > 0) {
     args.push('--db-port', String(db.port));
   }
   if (db.name && db.name.trim() !== '') {
@@ -1414,16 +1456,14 @@ function buildUpgradeCommand(
   }
 
   const reqPm = req.proxmox ?? {};
-  const effectiveApiUrl =
-    (reqPm.apiUrl && reqPm.apiUrl.trim()) || cfg.apiUrl;
+  const effectiveApiUrl = (reqPm.apiUrl && reqPm.apiUrl.trim()) || cfg.apiUrl;
   const { apiUser: effectiveApiUser, apiTokenId: effectiveApiTokenId } =
     normalizeProxmoxCreds(
       (reqPm.apiUser && reqPm.apiUser.trim()) || cfg.apiUser,
       (reqPm.apiTokenId && reqPm.apiTokenId.trim()) || cfg.apiTokenId,
     );
   const effectiveApiTokenSecret =
-    (reqPm.apiTokenSecret && reqPm.apiTokenSecret.trim()) ||
-    cfg.apiTokenSecret;
+    (reqPm.apiTokenSecret && reqPm.apiTokenSecret.trim()) || cfg.apiTokenSecret;
   const cfgValidate = Boolean(cfg.validateApiCerts);
   const reqValidate =
     typeof reqPm.validateApiCerts === 'boolean'
@@ -1460,7 +1500,12 @@ export class ProvisionService {
    */
   private readonly uploads = new Map<
     string,
-    { stagedPath: string; sizeBytes: number; originalFilename: string; expiresAt: number }
+    {
+      stagedPath: string;
+      sizeBytes: number;
+      originalFilename: string;
+      expiresAt: number;
+    }
   >();
 
   constructor(
@@ -1632,7 +1677,11 @@ export class ProvisionService {
     const provisionScriptName = path.basename(cfg.scriptPath);
     appendLine(
       job,
-      `[backend] Running ${provisionScriptName} locally on the Backstage host. Proxmox API: ${cfg.apiUser}@${cfg.apiUrl} (LXC lifecycle via REST; nginx via SSH to ${resolvePveHost(cfg, req) || 'localhost'}).`,
+      `[backend] Running ${provisionScriptName} locally on the Backstage host. Proxmox API: ${
+        cfg.apiUser
+      }@${cfg.apiUrl} (LXC lifecycle via REST; nginx via SSH to ${
+        resolvePveHost(cfg, req) || 'localhost'
+      }).`,
     );
 
     // -------------------------------------------------------------------
@@ -1656,9 +1705,7 @@ export class ProvisionService {
           `[backend] Restore source kind=${translated.kind} prepared at ${restoreSpecPath}`,
         );
         if (translated.kind === 'upload' && req.restore) {
-          uploadTokenToConsume = String(
-            (req.restore as any).uploadToken ?? '',
-          );
+          uploadTokenToConsume = String((req.restore as any).uploadToken ?? '');
         }
       }
     } catch (err) {
@@ -1823,9 +1870,7 @@ export class ProvisionService {
       job.error = err instanceof Error ? err.message : String(err);
       job.finishedAt = new Date().toISOString();
       appendLine(job, `[backend] FATAL: ${job.error}`);
-      this.logger.error(
-        `DHIS2: decommission job ${id} crashed: ${job.error}`,
-      );
+      this.logger.error(`DHIS2: decommission job ${id} crashed: ${job.error}`);
     });
 
     return snapshot(job);
@@ -1944,11 +1989,19 @@ export class ProvisionService {
       : legacyCandidate;
     appendLine(
       job,
-      `[backend] Running ${path.basename(editScript)} locally on the Backstage host for instance "${req.name}" (vmid=${req.vmid}, node=${req.node}, domain=${req.domain}).`,
+      `[backend] Running ${path.basename(
+        editScript,
+      )} locally on the Backstage host for instance "${req.name}" (vmid=${
+        req.vmid
+      }, node=${req.node}, domain=${req.domain}).`,
     );
     appendLine(
       job,
-      `[backend] Target resources: cpu=${req.resources.cpu}, memory=${req.resources.memory}MB, storage=${req.resources.storage}GB. DB: ${req.database.user}@${req.database.host || 'localhost'}:${req.database.port ?? 5432}/${req.database.name}.`,
+      `[backend] Target resources: cpu=${req.resources.cpu}, memory=${
+        req.resources.memory
+      }MB, storage=${req.resources.storage}GB. DB: ${req.database.user}@${
+        req.database.host || 'localhost'
+      }:${req.database.port ?? 5432}/${req.database.name}.`,
     );
 
     const command = buildEditCommand(cfg, req, editScript);
@@ -2284,9 +2337,13 @@ export class ProvisionService {
     const command = buildUpgradeCommand(cfg, req, upgradeScript);
     appendLine(
       job,
-      `[backend] Executing: ${upgradeScript} --vmid ${req.vmid} --node ${req.node} --hostname ${req.hostname} --domain ${req.domain} --to-version ${req.toVersion}${
-        req.warFile ? ` --war-file ${req.warFile}` : ''
-      }${req.warUrl ? ` --war-url ${req.warUrl}` : ''} (secrets via env)`,
+      `[backend] Executing: ${upgradeScript} --vmid ${req.vmid} --node ${
+        req.node
+      } --hostname ${req.hostname} --domain ${req.domain} --to-version ${
+        req.toVersion
+      }${req.warFile ? ` --war-file ${req.warFile}` : ''}${
+        req.warUrl ? ` --war-url ${req.warUrl}` : ''
+      } (secrets via env)`,
     );
 
     const exitCode = await runLocal(job, command);
@@ -2430,8 +2487,16 @@ export class ProvisionService {
     const upstreamContent = await sshReadFile(access, paths.upstreamFile);
     const siteContent = await sshReadFile(access, paths.siteFile);
     return {
-      upstream: { path: paths.upstreamFile, content: upstreamContent.content, exists: upstreamContent.exists },
-      site: { path: paths.siteFile, content: siteContent.content, exists: siteContent.exists },
+      upstream: {
+        path: paths.upstreamFile,
+        content: upstreamContent.content,
+        exists: upstreamContent.exists,
+      },
+      site: {
+        path: paths.siteFile,
+        content: siteContent.content,
+        exists: siteContent.exists,
+      },
     };
   }
 
@@ -2509,7 +2574,12 @@ export class ProvisionService {
         );
       }
       const pathSegment = inst.domain.includes('/')
-        ? inst.domain.split('/').slice(1).join('/').trim().replace(/^\/+|\/+$/g, '')
+        ? inst.domain
+            .split('/')
+            .slice(1)
+            .join('/')
+            .trim()
+            .replace(/^\/+|\/+$/g, '')
         : '';
       if (pathSegment) {
         if (!/^[A-Za-z0-9._-]+$/.test(pathSegment)) {
@@ -2539,8 +2609,9 @@ export class ProvisionService {
       // logs without prompting. The proxy user must have a NOPASSWD sudo
       // entry for /usr/bin/tail (typical for the dhis2 deployment user).
       const remoteCmd =
-        `if [ -r ${shellQuote(logPath)} ]; then tail -n ${lines} ${shellQuote(logPath)}; ` +
-        `else sudo -n tail -n ${lines} ${shellQuote(logPath)}; fi`;
+        `if [ -r ${shellQuote(logPath)} ]; then tail -n ${lines} ${shellQuote(
+          logPath,
+        )}; ` + `else sudo -n tail -n ${lines} ${shellQuote(logPath)}; fi`;
       const r = await sshExec(access, remoteCmd);
       if (r.code !== 0) {
         const msg = (r.stderr || r.stdout || '').trim();
@@ -2553,7 +2624,9 @@ export class ProvisionService {
       return { kind: opts.kind, path: logPath, lines: split };
     }
     throw new Error(
-      `Failed to read ${opts.kind} log from ${access.user}@${access.host}. Tried: ${attempts.join(' | ')}`,
+      `Failed to read ${opts.kind} log from ${access.user}@${
+        access.host
+      }. Tried: ${attempts.join(' | ')}`,
     );
   }
 
@@ -2590,7 +2663,9 @@ export class ProvisionService {
 
     const vmidStr = String(inst.vmid).trim();
     if (!/^\d+$/.test(vmidStr)) {
-      throw new Error(`Refusing to tail logs: vmid "${vmidStr}" is not numeric.`);
+      throw new Error(
+        `Refusing to tail logs: vmid "${vmidStr}" is not numeric.`,
+      );
     }
     const requested = Number.isFinite(opts.lines) ? Number(opts.lines) : 200;
     const lines = Math.max(1, Math.min(5000, Math.floor(requested)));
@@ -2678,7 +2753,9 @@ export class ProvisionService {
         // ansible: sudo -n tail (NOPASSWD).
         // root:    direct tail.
         const wrapped =
-          user === 'root' ? pickAndTail : `sudo -n bash -lc ${shellQuote(pickAndTail)}`;
+          user === 'root'
+            ? pickAndTail
+            : `sudo -n bash -lc ${shellQuote(pickAndTail)}`;
         const r = await sshExec(access, wrapped);
         if (r.code === 0) {
           result = r;
@@ -2719,10 +2796,13 @@ export class ProvisionService {
 
       if (runRemote) {
         const port =
-          opts.pveSshPort && Number.isInteger(opts.pveSshPort) && opts.pveSshPort > 0
+          opts.pveSshPort &&
+          Number.isInteger(opts.pveSshPort) &&
+          opts.pveSshPort > 0
             ? opts.pveSshPort
             : cfg.port || 22;
-        const user = (opts.pveSshUser && opts.pveSshUser.trim()) || cfg.user || 'root';
+        const user =
+          (opts.pveSshUser && opts.pveSshUser.trim()) || cfg.user || 'root';
         const keyPath =
           normalizeSshPrivateKeyPath(opts.pveSshKeyPath) ||
           normalizeSshPrivateKeyPath(cfg.privateKeyFile) ||
@@ -2743,8 +2823,9 @@ export class ProvisionService {
     if (result.code !== 0) {
       const msg = (result.stderr || result.stdout || '').trim();
       throw new Error(
-        `Failed to read logs from vmid ${vmidStr}` +
-          (msg ? `: ${msg}` : ` (exit ${result.code}).`),
+        `Failed to read logs from vmid ${vmidStr}${
+          msg ? `: ${msg}` : ` (exit ${result.code}).`
+        }`,
       );
     }
 
@@ -2752,8 +2833,7 @@ export class ProvisionService {
     const stderr = (result.stderr || '').trim();
     const pathMatch = stderr.match(/===>\s+(\S+)/);
     const usedPath =
-      pathMatch?.[1] ??
-      (source === 'catalina' ? CATALINA_LOG : DHIS_LOG);
+      pathMatch?.[1] ?? (source === 'catalina' ? CATALINA_LOG : DHIS_LOG);
 
     const out = result.stdout.replace(/\r\n/g, '\n');
     const splitLines = out.length > 0 ? out.split('\n') : [];
@@ -2763,7 +2843,12 @@ export class ProvisionService {
     }
 
     return {
-      source: source === 'auto' ? (usedPath === DHIS_LOG ? 'dhis2' : 'catalina') : source,
+      source:
+        source === 'auto'
+          ? usedPath === DHIS_LOG
+            ? 'dhis2'
+            : 'catalina'
+          : source,
       path: usedPath,
       lines: splitLines,
     };
@@ -2805,7 +2890,10 @@ export class ProvisionService {
     const dbUser = (opts.dbUser ?? inst.database.user ?? '').trim();
     const dbPassword = opts.dbPassword ?? inst.database.password ?? '';
 
-    if (!dbHost || ['localhost', '127.0.0.1', '::1'].includes(dbHost.toLowerCase())) {
+    if (
+      !dbHost ||
+      ['localhost', '127.0.0.1', '::1'].includes(dbHost.toLowerCase())
+    ) {
       throw new Error(
         'Pre-delete pg_dump requires a remote PostgreSQL host reachable from the Backstage backend; this instance uses a database local to its LXC.',
       );
@@ -2836,10 +2924,7 @@ export class ProvisionService {
       path.join(os.tmpdir(), 'dhis2-backups');
     await fs.mkdir(backupsDir, { recursive: true, mode: 0o700 });
 
-    const ts = new Date()
-      .toISOString()
-      .replace(/[:.]/g, '-')
-      .replace(/Z$/, '');
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').replace(/Z$/, '');
     const safeName = (inst.name || inst.id).replace(/[^A-Za-z0-9._-]/g, '_');
     const outPath = path.join(
       backupsDir,
@@ -2864,7 +2949,7 @@ export class ProvisionService {
       await fs.unlink(outPath).catch(() => {});
       const msg = (result.stderr || result.stdout || '').trim();
       throw new Error(
-        `pg_dump failed (exit ${result.code})` + (msg ? `: ${msg}` : ''),
+        `pg_dump failed (exit ${result.code})${msg ? `: ${msg}` : ''}`,
       );
     }
     const stat = await fs.stat(outPath);
@@ -2925,9 +3010,9 @@ export class ProvisionService {
   ): Promise<{ uploadToken: string; sizeBytes: number; expiresAt: string }> {
     await this.sweepExpiredUploads();
     const dir = await this.resolveRestoreStagingDir();
-    const safeBase = originalFilename
-      .replace(/[^A-Za-z0-9._-]/g, '_')
-      .slice(-128) || 'upload.bin';
+    const safeBase =
+      originalFilename.replace(/[^A-Za-z0-9._-]/g, '_').slice(-128) ||
+      'upload.bin';
     const token = randomUUID();
     const stagedPath = path.join(dir, `${token}__${safeBase}`);
     const sink = createWriteStream(stagedPath, { mode: 0o600 });
@@ -3128,9 +3213,10 @@ function resolveProxyAccess(
 ): ProxyAccess {
   const host = (o.host && o.host.trim()) || cfg.pveHost || cfg.host;
   if (!host) throw new Error('Proxy host is not configured.');
-  const port = o.sshPort && Number.isInteger(o.sshPort) && o.sshPort > 0
-    ? o.sshPort
-    : cfg.port || 22;
+  const port =
+    o.sshPort && Number.isInteger(o.sshPort) && o.sshPort > 0
+      ? o.sshPort
+      : cfg.port || 22;
   const user = (o.sshUser && o.sshUser.trim()) || cfg.user || 'root';
   const keyPath =
     normalizeSshPrivateKeyPath(o.sshKeyPath) ||
@@ -3177,9 +3263,12 @@ function derivProxyFilePaths(
 
 function sshBaseArgs(a: ProxyAccess): string[] {
   const args: string[] = [
-    '-o', 'StrictHostKeyChecking=accept-new',
-    '-o', 'BatchMode=yes',
-    '-p', String(a.port),
+    '-o',
+    'StrictHostKeyChecking=accept-new',
+    '-o',
+    'BatchMode=yes',
+    '-p',
+    String(a.port),
   ];
   if (a.keyPath) {
     args.push('-i', a.keyPath);
@@ -3203,7 +3292,9 @@ function execCapture(
     child.stdout.on('data', d => (stdout += d.toString('utf8')));
     child.stderr.on('data', d => (stderr += d.toString('utf8')));
     child.on('close', code => resolve({ code: code ?? -1, stdout, stderr }));
-    child.on('error', err => resolve({ code: -1, stdout, stderr: stderr + String(err) }));
+    child.on('error', err =>
+      resolve({ code: -1, stdout, stderr: stderr + String(err) }),
+    );
     if (stdin !== undefined) {
       child.stdin.end(stdin);
     } else {
@@ -3219,12 +3310,15 @@ async function sshReadFile(
   // Print a sentinel when the file doesn't exist so we can distinguish
   // "missing" from "empty file" without a second round-trip.
   const remoteCmd =
-    `if [ -f ${shellQuote(remotePath)} ]; then cat ${shellQuote(remotePath)}; ` +
-    `else echo __DHIS2_PROXY_FILE_MISSING__; fi`;
+    `if [ -f ${shellQuote(remotePath)} ]; then cat ${shellQuote(
+      remotePath,
+    )}; ` + `else echo __DHIS2_PROXY_FILE_MISSING__; fi`;
   const r = await execCapture('ssh', [...sshBaseArgs(a), remoteCmd]);
   if (r.code !== 0) {
     throw new Error(
-      `ssh ${a.user}@${a.host} read ${remotePath} failed (exit ${r.code}): ${r.stderr.trim()}`,
+      `ssh ${a.user}@${a.host} read ${remotePath} failed (exit ${
+        r.code
+      }): ${r.stderr.trim()}`,
     );
   }
   if (r.stdout.trim() === '__DHIS2_PROXY_FILE_MISSING__') {
@@ -3244,14 +3338,12 @@ async function sshWriteFile(
   const remoteCmd =
     `set -e; sudo mkdir -p ${shellQuote(dir)}; ` +
     `sudo tee ${shellQuote(remotePath)} > /dev/null`;
-  const r = await execCapture(
-    'ssh',
-    [...sshBaseArgs(a), remoteCmd],
-    content,
-  );
+  const r = await execCapture('ssh', [...sshBaseArgs(a), remoteCmd], content);
   if (r.code !== 0) {
     throw new Error(
-      `ssh ${a.user}@${a.host} write ${remotePath} failed (exit ${r.code}): ${r.stderr.trim()}`,
+      `ssh ${a.user}@${a.host} write ${remotePath} failed (exit ${
+        r.code
+      }): ${r.stderr.trim()}`,
     );
   }
 }

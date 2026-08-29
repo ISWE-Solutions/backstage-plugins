@@ -43,13 +43,14 @@ import StopIcon from '@material-ui/icons/Stop';
 import ReplayIcon from '@material-ui/icons/Replay';
 import VerticalAlignBottomIcon from '@material-ui/icons/VerticalAlignBottom';
 import SpeedIcon from '@material-ui/icons/Speed';
-import {
-  DHIS2Instance,
-  ProxmoxNode,
-} from '../types';
+import { DHIS2Instance, ProxmoxNode } from '../types';
 import { dhis2Service } from '../services/dhis2Service';
 import { settingsService } from '../services/settingsService';
-import { fetchApiRef, useApi, discoveryApiRef } from '@backstage/core-plugin-api';
+import {
+  fetchApiRef,
+  useApi,
+  discoveryApiRef,
+} from '@backstage/core-plugin-api';
 import { DHIS2LogsPanel } from './DHIS2LogsPanel';
 import { ProxmoxClusterPanel } from './ProxmoxClusterPanel';
 import { RestoreInstanceDialog } from './RestoreInstanceDialog';
@@ -203,7 +204,8 @@ const classifyPhase = (line: string, prev: LogPhase): LogPhase => {
     // Phase 5a registers the proxy host (add_host) and Phase 5b runs the
     // proxy role to write nginx config + request the TLS cert. Both should
     // appear under the Nginx section header in the activity log.
-    if (/Phase 5[ab]?\b|central Nginx|reverse proxy/i.test(name)) return 'Nginx';
+    if (/Phase 5[ab]?\b|central Nginx|reverse proxy/i.test(name))
+      return 'Nginx';
     return prev;
   }
 
@@ -238,7 +240,9 @@ const classifyPhase = (line: string, prev: LogPhase): LogPhase => {
   if (/DHIS2 provisioning complete|provisioned successfully/i.test(raw)) {
     return 'Finalize';
   }
-  if (/Starting provisioning|Backend accepted job|Streaming progress/i.test(raw)) {
+  if (
+    /Starting provisioning|Backend accepted job|Streaming progress/i.test(raw)
+  ) {
     return 'Submit';
   }
 
@@ -562,12 +566,28 @@ export const DHIS2Page = () => {
   // earlier steps.
   const STEP_MARKERS: Array<{ pattern: RegExp; advanceTo: string }> = [
     { pattern: /Phase 1 — creating LXC container/i, advanceTo: 'container' },
-    { pattern: /Phase 1 — update LXC resources|PLAY \[Phase 1 — update LXC/i, advanceTo: 'resize' },
+    {
+      pattern: /Phase 1 — update LXC resources|PLAY \[Phase 1 — update LXC/i,
+      advanceTo: 'resize',
+    },
     { pattern: /container IP:/i, advanceTo: 'bootstrap' },
-    { pattern: /PLAY \[Phase 2\b|TASK \[lxc_bootstrap\s*:/i, advanceTo: 'bootstrap' },
-    { pattern: /Phase 2a — register PVE host|PLAY \[Phase 2a/i, advanceTo: 'dhis2config' },
-    { pattern: /Phase 2 — apply DHIS2 config changes inside LXC|PLAY \[Phase 2 — apply DHIS2 config changes/i, advanceTo: 'dhis2config' },
-    { pattern: /Phase 2 — rendering inventory|running ansible-playbook/i, advanceTo: 'bootstrap' },
+    {
+      pattern: /PLAY \[Phase 2\b|TASK \[lxc_bootstrap\s*:/i,
+      advanceTo: 'bootstrap',
+    },
+    {
+      pattern: /Phase 2a — register PVE host|PLAY \[Phase 2a/i,
+      advanceTo: 'dhis2config',
+    },
+    {
+      pattern:
+        /Phase 2 — apply DHIS2 config changes inside LXC|PLAY \[Phase 2 — apply DHIS2 config changes/i,
+      advanceTo: 'dhis2config',
+    },
+    {
+      pattern: /Phase 2 — rendering inventory|running ansible-playbook/i,
+      advanceTo: 'bootstrap',
+    },
     { pattern: /TASK \[postgres\s*:/i, advanceTo: 'postgres' },
     { pattern: /TASK \[dhis2\s*:/i, advanceTo: 'dhis2' },
     { pattern: /systemctl restart tomcat/i, advanceTo: 'restart' },
@@ -575,7 +595,11 @@ export const DHIS2Page = () => {
     // to configure-proxy.sh. Match the new play/task headers so the
     // UI advances to the 'proxy' step when Ansible reaches them; keep the
     // legacy patterns as fallbacks in case an older script is in use.
-    { pattern: /PLAY \[Phase 5[ab]?\b|TASK \[proxy\s*:|Phase 3 — configuring central Nginx|TASK \[nginx\s*:/i, advanceTo: 'proxy' },
+    {
+      pattern:
+        /PLAY \[Phase 5[ab]?\b|TASK \[proxy\s*:|Phase 3 — configuring central Nginx|TASK \[nginx\s*:/i,
+      advanceTo: 'proxy',
+    },
     { pattern: /DHIS2 provisioning complete/i, advanceTo: 'finalize' },
     // Lifecycle (start / stop / restart) phases driven by lifecycle.yml.
     { pattern: /PLAY \[Phase 1 — (start|stop|restart) LXC/i, advanceTo: 'lxc' },
@@ -590,7 +614,8 @@ export const DHIS2Page = () => {
       if (idx < 0) return prev;
       return prev.map((s, i) => {
         if (i < idx && s.status !== 'error') return { ...s, status: 'done' };
-        if (i === idx && s.status === 'pending') return { ...s, status: 'running' };
+        if (i === idx && s.status === 'pending')
+          return { ...s, status: 'running' };
         return s;
       });
     });
@@ -604,12 +629,36 @@ export const DHIS2Page = () => {
     // so the progress indicator lists them in execution order.
     const steps: ProvisionStep[] = [
       { key: 'submit', label: 'Submitting job to backend', status: 'pending' },
-      { key: 'connect', label: 'Connecting to orchestrator host', status: 'pending' },
-      { key: 'container', label: `Phase 1 — creating LXC container (vmid will be allocated by orchestrator)`, status: 'pending' },
-      { key: 'bootstrap', label: `Phase 2 — bootstrapping container`, status: 'pending' },
-      { key: 'postgres', label: `Phase 3 — running Ansible (PostgreSQL)`, status: 'pending' },
-      { key: 'dhis2', label: `Phase 4 — running Ansible (DHIS2 ${request.version})`, status: 'pending' },
-      { key: 'proxy', label: `Phase 5 — configuring Nginx for ${derivedDomain}`, status: 'pending' },
+      {
+        key: 'connect',
+        label: 'Connecting to orchestrator host',
+        status: 'pending',
+      },
+      {
+        key: 'container',
+        label: `Phase 1 — creating LXC container (vmid will be allocated by orchestrator)`,
+        status: 'pending',
+      },
+      {
+        key: 'bootstrap',
+        label: `Phase 2 — bootstrapping container`,
+        status: 'pending',
+      },
+      {
+        key: 'postgres',
+        label: `Phase 3 — running Ansible (PostgreSQL)`,
+        status: 'pending',
+      },
+      {
+        key: 'dhis2',
+        label: `Phase 4 — running Ansible (DHIS2 ${request.version})`,
+        status: 'pending',
+      },
+      {
+        key: 'proxy',
+        label: `Phase 5 — configuring Nginx for ${derivedDomain}`,
+        status: 'pending',
+      },
       { key: 'finalize', label: 'Finalizing instance', status: 'pending' },
     ];
 
@@ -629,7 +678,10 @@ export const DHIS2Page = () => {
     // Email comes from saved settings; VMID is allocated by backend via
     // Proxmox /cluster/nextid at submit time.
     const settings = settingsService.load();
-    const email = proxySettings.letsencryptEmail || settings.proxy.letsencryptEmail || 'admin@example.com';
+    const email =
+      proxySettings.letsencryptEmail ||
+      settings.proxy.letsencryptEmail ||
+      'admin@example.com';
     const proxmoxOverrides = (() => {
       const pm = settings.proxmox;
       const apiUrl = (pm.apiUrl ?? '').trim();
@@ -822,8 +874,7 @@ export const DHIS2Page = () => {
       }
     } catch (error) {
       console.error('Failed to create instance:', error);
-      const message =
-        error instanceof Error ? error.message : String(error);
+      const message = error instanceof Error ? error.message : String(error);
       setProvisionSteps(prev =>
         prev.map(s =>
           s.status === 'running'
@@ -843,10 +894,26 @@ export const DHIS2Page = () => {
     const verbing =
       action === 'start' ? 'start' : action === 'stop' ? 'stop' : 'restart';
     const steps: ProvisionStep[] = [
-      { key: 'submit', label: `Submitting ${verbing} job to backend`, status: 'pending' },
-      { key: 'connect', label: 'Connecting to orchestrator host', status: 'pending' },
-      { key: 'lxc', label: `Phase 1 — ${verbing} LXC ${instance.vmid} on ${instance.node}`, status: 'pending' },
-      { key: 'settle', label: 'Phase 2 — wait for LXC to settle', status: 'pending' },
+      {
+        key: 'submit',
+        label: `Submitting ${verbing} job to backend`,
+        status: 'pending',
+      },
+      {
+        key: 'connect',
+        label: 'Connecting to orchestrator host',
+        status: 'pending',
+      },
+      {
+        key: 'lxc',
+        label: `Phase 1 — ${verbing} LXC ${instance.vmid} on ${instance.node}`,
+        status: 'pending',
+      },
+      {
+        key: 'settle',
+        label: 'Phase 2 — wait for LXC to settle',
+        status: 'pending',
+      },
       { key: 'finalize', label: `Finalizing ${verbing}`, status: 'pending' },
     ];
     setProvisionInstanceName(`${instance.name} (${verbing})`);
@@ -946,7 +1013,9 @@ export const DHIS2Page = () => {
           loadInstances();
           break;
         }
-        const message = job.error ?? `Lifecycle ${verbing} failed (exit ${job.exitCode ?? '?'})`;
+        const message =
+          job.error ??
+          `Lifecycle ${verbing} failed (exit ${job.exitCode ?? '?'})`;
         setProvisionSteps(prev =>
           prev.map(s =>
             s.status === 'running'
@@ -1021,11 +1090,31 @@ export const DHIS2Page = () => {
             },
           ]
         : []),
-      { key: 'submit', label: 'Submitting decommission job to backend', status: 'pending' },
-      { key: 'connect', label: 'Connecting to orchestrator host', status: 'pending' },
-      { key: 'proxy', label: `Phase 5 — removing central Nginx vhost for ${instance.domain}`, status: 'pending' },
-      { key: 'container', label: `Phase 1 — destroying LXC ${instance.vmid} on ${instance.node}`, status: 'pending' },
-      { key: 'postgres', label: 'Phase 3 — dropping database (if remote)', status: 'pending' },
+      {
+        key: 'submit',
+        label: 'Submitting decommission job to backend',
+        status: 'pending',
+      },
+      {
+        key: 'connect',
+        label: 'Connecting to orchestrator host',
+        status: 'pending',
+      },
+      {
+        key: 'proxy',
+        label: `Phase 5 — removing central Nginx vhost for ${instance.domain}`,
+        status: 'pending',
+      },
+      {
+        key: 'container',
+        label: `Phase 1 — destroying LXC ${instance.vmid} on ${instance.node}`,
+        status: 'pending',
+      },
+      {
+        key: 'postgres',
+        label: 'Phase 3 — dropping database (if remote)',
+        status: 'pending',
+      },
       { key: 'finalize', label: 'Finalizing decommission', status: 'pending' },
     ];
     setProvisionInstanceName(`${instance.name} (decommission)`);
@@ -1045,7 +1134,11 @@ export const DHIS2Page = () => {
     const pm = settings.proxmox;
     const dhis2Cfg = settings.dhis2;
     const p = settings.proxy;
-    const remotePgHost = (instance.database.host ?? dhis2Cfg.postgresHost ?? '').trim();
+    const remotePgHost = (
+      instance.database.host ??
+      dhis2Cfg.postgresHost ??
+      ''
+    ).trim();
     const dropDb =
       remotePgHost.length > 0 &&
       !['localhost', '127.0.0.1', '::1', 'postgres'].includes(remotePgHost);
@@ -1142,7 +1235,9 @@ export const DHIS2Page = () => {
       if (opts.backupDatabase) {
         updateStep('backup', 'running');
         appendProvisionLog(
-          `Taking pg_dump of ${instance.database.name}@${remotePgHost || 'unknown'}…`,
+          `Taking pg_dump of ${instance.database.name}@${
+            remotePgHost || 'unknown'
+          }…`,
         );
         try {
           const backup = await dhis2Service.backupInstanceDatabase(
@@ -1240,8 +1335,7 @@ export const DHIS2Page = () => {
       }
     } catch (error) {
       console.error('Failed to decommission instance:', error);
-      const message =
-        error instanceof Error ? error.message : String(error);
+      const message = error instanceof Error ? error.message : String(error);
       setProvisionSteps(prev =>
         prev.map(s =>
           s.status === 'running'
@@ -1272,10 +1366,26 @@ export const DHIS2Page = () => {
     },
   ) => {
     const steps: ProvisionStep[] = [
-      { key: 'submit', label: 'Submitting edit job to backend', status: 'pending' },
-      { key: 'connect', label: 'Connecting to orchestrator host', status: 'pending' },
-      { key: 'resize', label: `Phase 1 — resize LXC ${instance.vmid} on ${instance.node}`, status: 'pending' },
-      { key: 'dhis2config', label: 'Phase 2 — re-render dhis.conf in LXC', status: 'pending' },
+      {
+        key: 'submit',
+        label: 'Submitting edit job to backend',
+        status: 'pending',
+      },
+      {
+        key: 'connect',
+        label: 'Connecting to orchestrator host',
+        status: 'pending',
+      },
+      {
+        key: 'resize',
+        label: `Phase 1 — resize LXC ${instance.vmid} on ${instance.node}`,
+        status: 'pending',
+      },
+      {
+        key: 'dhis2config',
+        label: 'Phase 2 — re-render dhis.conf in LXC',
+        status: 'pending',
+      },
       { key: 'restart', label: 'Phase 2 — restart Tomcat', status: 'pending' },
       { key: 'finalize', label: 'Finalizing edit', status: 'pending' },
     ];
@@ -1293,10 +1403,14 @@ export const DHIS2Page = () => {
 
     const settings = settingsService.load();
     const pm = settings.proxmox;
-    const dbHost = draft.dbHost?.trim() || (settings.dhis2.postgresHost ?? '').trim() || 'localhost';
-    const dbPort = Number.isInteger(draft.dbPort) && draft.dbPort > 0
-      ? draft.dbPort
-      : settings.dhis2.postgresPort || 5432;
+    const dbHost =
+      draft.dbHost?.trim() ||
+      (settings.dhis2.postgresHost ?? '').trim() ||
+      'localhost';
+    const dbPort =
+      Number.isInteger(draft.dbPort) && draft.dbPort > 0
+        ? draft.dbPort
+        : settings.dhis2.postgresPort || 5432;
 
     const payload = {
       name: draft.name,
@@ -1397,7 +1511,8 @@ export const DHIS2Page = () => {
           loadInstances();
           break;
         }
-        const message = job.error ?? `Edit failed (exit ${job.exitCode ?? '?'})`;
+        const message =
+          job.error ?? `Edit failed (exit ${job.exitCode ?? '?'})`;
         setProvisionSteps(prev =>
           prev.map(s =>
             s.status === 'running'
@@ -1435,7 +1550,8 @@ export const DHIS2Page = () => {
     // Best-effort suggested VMID — fall back to source vmid + 1 if the
     // backend can't reach Proxmox right now.
     try {
-      const next = await dhis2Service.getNextVmid();
+      const baseUrl = await discoveryApi.getBaseUrl('dhis2');
+      const next = await dhis2Service.getNextVmid(baseUrl);
       setCloneDialog(prev => ({ ...prev, suggestedVmid: next }));
     } catch {
       const fallback = Number(instance.vmid);
@@ -1451,13 +1567,37 @@ export const DHIS2Page = () => {
     if (!source) return;
 
     const steps: ProvisionStep[] = [
-      { key: 'submit', label: 'Submitting clone job to backend', status: 'pending' },
-      { key: 'connect', label: 'Connecting to orchestrator host', status: 'pending' },
-      { key: 'clone', label: `Phase 3 — clone LXC ${source.vmid} -> ${payload.vmid} on ${payload.node}`, status: 'pending' },
-      { key: 'cloneDb', label: `Phase 5b — clone database (strategy: ${payload.dbStrategy})`, status: 'pending' },
-      { key: 'dhis2config', label: 'Phase 6 — re-render dhis.conf inside cloned LXC', status: 'pending' },
+      {
+        key: 'submit',
+        label: 'Submitting clone job to backend',
+        status: 'pending',
+      },
+      {
+        key: 'connect',
+        label: 'Connecting to orchestrator host',
+        status: 'pending',
+      },
+      {
+        key: 'clone',
+        label: `Phase 3 — clone LXC ${source.vmid} -> ${payload.vmid} on ${payload.node}`,
+        status: 'pending',
+      },
+      {
+        key: 'cloneDb',
+        label: `Phase 5b — clone database (strategy: ${payload.dbStrategy})`,
+        status: 'pending',
+      },
+      {
+        key: 'dhis2config',
+        label: 'Phase 6 — re-render dhis.conf inside cloned LXC',
+        status: 'pending',
+      },
       { key: 'restart', label: 'Phase 6 — restart Tomcat', status: 'pending' },
-      { key: 'proxy', label: `Phase 7 — central Nginx vhost for ${payload.domain}`, status: 'pending' },
+      {
+        key: 'proxy',
+        label: `Phase 7 — central Nginx vhost for ${payload.domain}`,
+        status: 'pending',
+      },
       { key: 'finalize', label: 'Finalizing clone', status: 'pending' },
     ];
 
@@ -1512,11 +1652,7 @@ export const DHIS2Page = () => {
           if (!merged.apiTokenSecret && tokenSecret) {
             merged.apiTokenSecret = tokenSecret;
           }
-          if (
-            !merged.apiUser &&
-            !tokenId.includes('!') &&
-            username
-          ) {
+          if (!merged.apiUser && !tokenId.includes('!') && username) {
             merged.apiUser = username;
           }
         }
@@ -1545,14 +1681,28 @@ export const DHIS2Page = () => {
       appendProvisionLog(`Backend accepted job ${jobId}. Streaming progress…`);
       setCloneDialog(prev => ({ ...prev, open: false, submitting: false }));
 
-      const CLONE_STEP_MARKERS: Array<{ pattern: RegExp; advanceTo: string }> = [
-        { pattern: /PLAY \[Phase 3 — clone LXC/i, advanceTo: 'clone' },
-        { pattern: /PLAY \[Phase 5b — clone DB|CREATE DATABASE/i, advanceTo: 'cloneDb' },
-        { pattern: /PLAY \[Phase 6 — apply DHIS2 config|Push dhis\.conf into LXC/i, advanceTo: 'dhis2config' },
-        { pattern: /Restart Tomcat inside LXC|systemctl restart tomcat/i, advanceTo: 'restart' },
-        { pattern: /PLAY \[Phase 7[ab]?\b|TASK \[proxy\s*:/i, advanceTo: 'proxy' },
-        { pattern: /STEP_DONE: clone vmid=/i, advanceTo: 'finalize' },
-      ];
+      const CLONE_STEP_MARKERS: Array<{ pattern: RegExp; advanceTo: string }> =
+        [
+          { pattern: /PLAY \[Phase 3 — clone LXC/i, advanceTo: 'clone' },
+          {
+            pattern: /PLAY \[Phase 5b — clone DB|CREATE DATABASE/i,
+            advanceTo: 'cloneDb',
+          },
+          {
+            pattern:
+              /PLAY \[Phase 6 — apply DHIS2 config|Push dhis\.conf into LXC/i,
+            advanceTo: 'dhis2config',
+          },
+          {
+            pattern: /Restart Tomcat inside LXC|systemctl restart tomcat/i,
+            advanceTo: 'restart',
+          },
+          {
+            pattern: /PLAY \[Phase 7[ab]?\b|TASK \[proxy\s*:/i,
+            advanceTo: 'proxy',
+          },
+          { pattern: /STEP_DONE: clone vmid=/i, advanceTo: 'finalize' },
+        ];
 
       let lastLineCount = 0;
       const deadline = Date.now() + 60 * 60 * 1000;
@@ -1641,9 +1791,21 @@ export const DHIS2Page = () => {
     if (!target) return;
 
     const steps: ProvisionStep[] = [
-      { key: 'submit', label: 'Submitting upgrade job to backend', status: 'pending' },
-      { key: 'connect', label: 'Connecting to orchestrator host', status: 'pending' },
-      { key: 'preflight', label: `Phase 1 — pre-flight checks on LXC ${target.vmid}`, status: 'pending' },
+      {
+        key: 'submit',
+        label: 'Submitting upgrade job to backend',
+        status: 'pending',
+      },
+      {
+        key: 'connect',
+        label: 'Connecting to orchestrator host',
+        status: 'pending',
+      },
+      {
+        key: 'preflight',
+        label: `Phase 1 — pre-flight checks on LXC ${target.vmid}`,
+        status: 'pending',
+      },
       {
         key: 'backup',
         label:
@@ -1652,9 +1814,21 @@ export const DHIS2Page = () => {
             : 'Phase 2 — pg_dump backup of current database',
         status: 'pending',
       },
-      { key: 'stage', label: `Phase 3 — stage DHIS2 ${payload.toVersion} WAR on PVE host`, status: 'pending' },
-      { key: 'swap', label: 'Phase 4 — stop Tomcat, archive current WAR, push new WAR', status: 'pending' },
-      { key: 'health', label: 'Phase 5 — restart Tomcat and health-check DHIS2', status: 'pending' },
+      {
+        key: 'stage',
+        label: `Phase 3 — stage DHIS2 ${payload.toVersion} WAR on PVE host`,
+        status: 'pending',
+      },
+      {
+        key: 'swap',
+        label: 'Phase 4 — stop Tomcat, archive current WAR, push new WAR',
+        status: 'pending',
+      },
+      {
+        key: 'health',
+        label: 'Phase 5 — restart Tomcat and health-check DHIS2',
+        status: 'pending',
+      },
       { key: 'finalize', label: 'Finalizing upgrade', status: 'pending' },
     ];
 
@@ -1734,12 +1908,31 @@ export const DHIS2Page = () => {
       appendProvisionLog(`Backend accepted job ${jobId}. Streaming progress…`);
       setUpgradeDialog(prev => ({ ...prev, open: false, submitting: false }));
 
-      const UPGRADE_STEP_MARKERS: Array<{ pattern: RegExp; advanceTo: string }> = [
-        { pattern: /PLAY \[Phase 1 — pre-flight upgrade/i, advanceTo: 'preflight' },
-        { pattern: /PLAY \[Phase 2 — (run )?pg_dump|pg_dump '/i, advanceTo: 'backup' },
-        { pattern: /PLAY \[Phase 3 — stage|Download WAR from|Copy pre-staged WAR/i, advanceTo: 'stage' },
-        { pattern: /PLAY \[Phase 4 — swap|Stop Tomcat|Push new WAR/i, advanceTo: 'swap' },
-        { pattern: /PLAY \[Phase 5 — health-check|Poll Tomcat for upgraded/i, advanceTo: 'health' },
+      const UPGRADE_STEP_MARKERS: Array<{
+        pattern: RegExp;
+        advanceTo: string;
+      }> = [
+        {
+          pattern: /PLAY \[Phase 1 — pre-flight upgrade/i,
+          advanceTo: 'preflight',
+        },
+        {
+          pattern: /PLAY \[Phase 2 — (run )?pg_dump|pg_dump '/i,
+          advanceTo: 'backup',
+        },
+        {
+          pattern:
+            /PLAY \[Phase 3 — stage|Download WAR from|Copy pre-staged WAR/i,
+          advanceTo: 'stage',
+        },
+        {
+          pattern: /PLAY \[Phase 4 — swap|Stop Tomcat|Push new WAR/i,
+          advanceTo: 'swap',
+        },
+        {
+          pattern: /PLAY \[Phase 5 — health-check|Poll Tomcat for upgraded/i,
+          advanceTo: 'health',
+        },
         { pattern: /STEP_DONE: upgrade vmid=/i, advanceTo: 'finalize' },
       ];
 
@@ -1826,8 +2019,7 @@ export const DHIS2Page = () => {
       );
       return { lines: result.lines, path: result.path };
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : String(error);
+      const message = error instanceof Error ? error.message : String(error);
       // eslint-disable-next-line no-console
       console.error('Failed to load instance logs:', error);
       return {
@@ -1883,8 +2075,6 @@ export const DHIS2Page = () => {
       source: 'auto',
     });
 
-
-
   const runningInstances = instances.filter(i => i.status === 'running').length;
 
   // Cluster-wide totals derived from the live Proxmox node list. These
@@ -1909,8 +2099,13 @@ export const DHIS2Page = () => {
 
   return (
     <Page themeId="tool">
-      <Header title="DHIS2 Orchestration" subtitle="Manage DHIS2 instances on Proxmox LXC containers">
-        <SupportButton>Orchestrate and manage DHIS2 instances on your Proxmox cluster</SupportButton>
+      <Header
+        title="DHIS2 Orchestration"
+        subtitle="Manage DHIS2 instances on Proxmox LXC containers"
+      >
+        <SupportButton>
+          Orchestrate and manage DHIS2 instances on your Proxmox cluster
+        </SupportButton>
       </Header>
       <Content>
         <ContentHeader title="Overview">
@@ -1929,7 +2124,11 @@ export const DHIS2Page = () => {
 
         {/* Tabs */}
         <Paper style={{ marginBottom: 24 }}>
-          <Tabs value={tabValue} onChange={(_e, newValue) => setTabValue(newValue)} indicatorColor="primary">
+          <Tabs
+            value={tabValue}
+            onChange={(_e, newValue) => setTabValue(newValue)}
+            indicatorColor="primary"
+          >
             <Tab label="Proxmox Cluster" />
             <Tab label="DHIS2 Instances" />
             <Tab label="Logs" />
@@ -1962,69 +2161,126 @@ export const DHIS2Page = () => {
 
           {/* Proxmox Cluster Tab */}
           <TabPanel value={tabValue} index={0}>
-            <Grid container spacing={3} alignItems="stretch" style={{ marginBottom: 24 }}>
+            <Grid
+              container
+              spacing={3}
+              alignItems="stretch"
+              style={{ marginBottom: 24 }}
+            >
               <Grid item xs={12} sm={6} md={4} lg={2}>
                 <Card className={classes.statCard}>
-                  <StorageIcon className={classes.statIcon} style={{ color: '#1976d2' }} />
-                  <Typography className={classes.statValue}>{instances.length}</Typography>
-                  <Typography variant="subtitle1" color="textSecondary" className={classes.statLabel}>
+                  <StorageIcon
+                    className={classes.statIcon}
+                    style={{ color: '#1976d2' }}
+                  />
+                  <Typography className={classes.statValue}>
+                    {instances.length}
+                  </Typography>
+                  <Typography
+                    variant="subtitle1"
+                    color="textSecondary"
+                    className={classes.statLabel}
+                  >
                     Total Instances
                   </Typography>
                 </Card>
               </Grid>
               <Grid item xs={12} sm={6} md={4} lg={2}>
                 <Card className={classes.statCard}>
-                  <PlayArrowIcon className={classes.statIcon} style={{ color: '#4caf50' }} />
-                  <Typography className={classes.statValue}>{runningInstances}</Typography>
-                  <Typography variant="subtitle1" color="textSecondary" className={classes.statLabel}>
+                  <PlayArrowIcon
+                    className={classes.statIcon}
+                    style={{ color: '#4caf50' }}
+                  />
+                  <Typography className={classes.statValue}>
+                    {runningInstances}
+                  </Typography>
+                  <Typography
+                    variant="subtitle1"
+                    color="textSecondary"
+                    className={classes.statLabel}
+                  >
                     Running
                   </Typography>
                 </Card>
               </Grid>
               <Grid item xs={12} sm={6} md={4} lg={2}>
                 <Card className={classes.statCard}>
-                  <CloudIcon className={classes.statIcon} style={{ color: '#ff9800' }} />
-                  <Typography className={classes.statValue}>{totalVCPUs}</Typography>
-                  <Typography variant="subtitle1" color="textSecondary" className={classes.statLabel}>
+                  <CloudIcon
+                    className={classes.statIcon}
+                    style={{ color: '#ff9800' }}
+                  />
+                  <Typography className={classes.statValue}>
+                    {totalVCPUs}
+                  </Typography>
+                  <Typography
+                    variant="subtitle1"
+                    color="textSecondary"
+                    className={classes.statLabel}
+                  >
                     Total vCPUs
                   </Typography>
                 </Card>
               </Grid>
               <Grid item xs={12} sm={6} md={4} lg={2}>
                 <Card className={classes.statCard}>
-                  <DnsIcon className={classes.statIcon} style={{ color: '#9c27b0' }} />
+                  <DnsIcon
+                    className={classes.statIcon}
+                    style={{ color: '#9c27b0' }}
+                  />
                   <Typography className={classes.statValue}>
                     {formatCapacity(totalMemoryBytes)}
                   </Typography>
-                  <Typography variant="subtitle1" color="textSecondary" className={classes.statLabel}>
+                  <Typography
+                    variant="subtitle1"
+                    color="textSecondary"
+                    className={classes.statLabel}
+                  >
                     Total Memory
                   </Typography>
                 </Card>
               </Grid>
               <Grid item xs={12} sm={6} md={4} lg={2}>
                 <Card className={classes.statCard}>
-                  <SdStorageIcon className={classes.statIcon} style={{ color: '#00897b' }} />
+                  <SdStorageIcon
+                    className={classes.statIcon}
+                    style={{ color: '#00897b' }}
+                  />
                   <Typography className={classes.statValue}>
                     {formatCapacity(totalDiskBytes)}
                   </Typography>
-                  <Typography variant="subtitle1" color="textSecondary" className={classes.statLabel}>
+                  <Typography
+                    variant="subtitle1"
+                    color="textSecondary"
+                    className={classes.statLabel}
+                  >
                     Storage Capacity
                   </Typography>
                 </Card>
               </Grid>
               <Grid item xs={12} sm={6} md={4} lg={2}>
                 <Card className={classes.statCard}>
-                  <DeviceHubIcon className={classes.statIcon} style={{ color: '#3949ab' }} />
+                  <DeviceHubIcon
+                    className={classes.statIcon}
+                    style={{ color: '#3949ab' }}
+                  />
                   <Typography className={classes.statValue}>
                     {onlineNodes}
                     <Typography
                       component="span"
-                      style={{ fontSize: '1.25rem', color: 'inherit', opacity: 0.6 }}
+                      style={{
+                        fontSize: '1.25rem',
+                        color: 'inherit',
+                        opacity: 0.6,
+                      }}
                     >
                       {` / ${nodes.length}`}
                     </Typography>
                   </Typography>
-                  <Typography variant="subtitle1" color="textSecondary" className={classes.statLabel}>
+                  <Typography
+                    variant="subtitle1"
+                    color="textSecondary"
+                    className={classes.statLabel}
+                  >
                     Cluster Nodes
                   </Typography>
                 </Card>
@@ -2043,9 +2299,18 @@ export const DHIS2Page = () => {
         </Paper>
 
         {/* Instance Logs Dialog */}
-        <Dialog open={logsDialog.open} onClose={closeLogsDialog} maxWidth="md" fullWidth>
+        <Dialog
+          open={logsDialog.open}
+          onClose={closeLogsDialog}
+          maxWidth="md"
+          fullWidth
+        >
           <DialogTitle>
-            <Box display="flex" alignItems="center" justifyContent="space-between">
+            <Box
+              display="flex"
+              alignItems="center"
+              justifyContent="space-between"
+            >
               <span>
                 Logs
                 {logsDialog.instance ? ` — ${logsDialog.instance.name}` : ''}
@@ -2223,9 +2488,7 @@ export const DHIS2Page = () => {
                     />
                   );
                 } else if (step.status === 'error') {
-                  icon = (
-                    <ErrorOutlineIcon color="error" fontSize="small" />
-                  );
+                  icon = <ErrorOutlineIcon color="error" fontSize="small" />;
                 } else if (step.status === 'running') {
                   icon = <CircularProgress size={18} />;
                 } else {
@@ -2257,12 +2520,9 @@ export const DHIS2Page = () => {
                       <Typography
                         variant="body2"
                         style={{
-                          fontWeight:
-                            step.status === 'running' ? 600 : 400,
+                          fontWeight: step.status === 'running' ? 600 : 400,
                           color:
-                            step.status === 'pending'
-                              ? '#9e9e9e'
-                              : undefined,
+                            step.status === 'pending' ? '#9e9e9e' : undefined,
                         }}
                       >
                         {step.label}
@@ -2271,9 +2531,7 @@ export const DHIS2Page = () => {
                         <Typography
                           variant="caption"
                           color={
-                            step.status === 'error'
-                              ? 'error'
-                              : 'textSecondary'
+                            step.status === 'error' ? 'error' : 'textSecondary'
                           }
                         >
                           {step.detail}
@@ -2284,290 +2542,341 @@ export const DHIS2Page = () => {
                 );
               })}
             </Box>
-            {provisionLog.length > 0 && (() => {
-              // What the operator currently sees in the Paper.
-              const displayedLog = replayActive
-                ? lastRunLog.slice(0, replayIndex)
-                : provisionLog;
-              const replaySource = lastRunLog.length > 0 ? lastRunLog : provisionLog;
-              const runFinished = provisionDone || provisionError !== null;
-              const canReplay = runFinished && replaySource.length > 0;
-              const cycleSpeed = () => {
-                setReplaySpeed(prev =>
-                  prev === 50 ? 25 : prev === 25 ? 10 : 50,
-                );
-              };
-              const speedLabel =
-                replaySpeed === 50 ? '1x' : replaySpeed === 25 ? '2x' : '4x';
-              const startReplay = () => {
-                setReplayActive(true);
-                setReplayIndex(0);
-                setReplayPlaying(true);
-                setAutoScroll(true);
-              };
-              const resumeReplay = () => setReplayPlaying(true);
-              const pauseReplay = () => setReplayPlaying(false);
-              const stopReplay = () => {
-                setReplayPlaying(false);
-                setReplayActive(false);
-                setReplayIndex(0);
-                setAutoScroll(true);
-              };
-              const handleScroll = () => {
-                const el = logScrollRef.current;
-                if (!el) return;
-                const nearBottom =
-                  el.scrollHeight - el.scrollTop - el.clientHeight < 24;
-                setAutoScroll(nearBottom);
-              };
-              const jumpToBottom = () => {
-                setAutoScroll(true);
-                const el = logScrollRef.current;
-                if (el) el.scrollTop = el.scrollHeight;
-              };
-              const copyText = displayedLog.join('\n');
-              return (
-              <Box mt={2}>
-                <Box
-                  display="flex"
-                  alignItems="center"
-                  justifyContent="space-between"
-                  mb={0.5}
-                >
-                  <Box display="flex" alignItems="center" style={{ gap: 8 }}>
-                    <Typography variant="caption" color="textSecondary">
-                      Activity log
-                    </Typography>
-                    {replayActive && (
-                      <Typography
-                        variant="caption"
-                        style={{
-                          color: '#c084fc',
-                          fontWeight: 600,
-                          letterSpacing: 0.5,
-                          textTransform: 'uppercase',
-                        }}
+            {provisionLog.length > 0 &&
+              (() => {
+                // What the operator currently sees in the Paper.
+                const displayedLog = replayActive
+                  ? lastRunLog.slice(0, replayIndex)
+                  : provisionLog;
+                const replaySource =
+                  lastRunLog.length > 0 ? lastRunLog : provisionLog;
+                const runFinished = provisionDone || provisionError !== null;
+                const canReplay = runFinished && replaySource.length > 0;
+                const cycleSpeed = () => {
+                  setReplaySpeed(prev =>
+                    prev === 50 ? 25 : prev === 25 ? 10 : 50,
+                  );
+                };
+                const speedLabel =
+                  replaySpeed === 50 ? '1x' : replaySpeed === 25 ? '2x' : '4x';
+                const startReplay = () => {
+                  setReplayActive(true);
+                  setReplayIndex(0);
+                  setReplayPlaying(true);
+                  setAutoScroll(true);
+                };
+                const resumeReplay = () => setReplayPlaying(true);
+                const pauseReplay = () => setReplayPlaying(false);
+                const stopReplay = () => {
+                  setReplayPlaying(false);
+                  setReplayActive(false);
+                  setReplayIndex(0);
+                  setAutoScroll(true);
+                };
+                const handleScroll = () => {
+                  const el = logScrollRef.current;
+                  if (!el) return;
+                  const nearBottom =
+                    el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+                  setAutoScroll(nearBottom);
+                };
+                const jumpToBottom = () => {
+                  setAutoScroll(true);
+                  const el = logScrollRef.current;
+                  if (el) el.scrollTop = el.scrollHeight;
+                };
+                const copyText = displayedLog.join('\n');
+                return (
+                  <Box mt={2}>
+                    <Box
+                      display="flex"
+                      alignItems="center"
+                      justifyContent="space-between"
+                      mb={0.5}
+                    >
+                      <Box
+                        display="flex"
+                        alignItems="center"
+                        style={{ gap: 8 }}
                       >
-                        Replay {replayIndex}/{replaySource.length}
-                      </Typography>
-                    )}
-                    {!replayActive && !autoScroll && (
-                      <Typography
-                        variant="caption"
-                        style={{ color: '#fbbf24' }}
-                      >
-                        Auto-scroll paused
-                      </Typography>
-                    )}
-                  </Box>
-                  <Box display="flex" alignItems="center">
-                    {!replayActive && !autoScroll && (
-                      <Tooltip title="Jump to latest">
-                        <IconButton size="small" onClick={jumpToBottom} aria-label="Jump to latest log line">
-                          <VerticalAlignBottomIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {canReplay && !replayActive && (
-                      <Tooltip title="Replay this run">
-                        <IconButton size="small" onClick={startReplay} aria-label="Replay activity log">
-                          <PlayArrowIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {replayActive && !replayPlaying && replayIndex < replaySource.length && (
-                      <Tooltip title="Resume">
-                        <IconButton size="small" onClick={resumeReplay} aria-label="Resume replay">
-                          <PlayArrowIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {replayActive && replayPlaying && (
-                      <Tooltip title="Pause">
-                        <IconButton size="small" onClick={pauseReplay} aria-label="Pause replay">
-                          <PauseIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {replayActive && replayIndex >= replaySource.length && (
-                      <Tooltip title="Restart replay">
-                        <IconButton size="small" onClick={startReplay} aria-label="Restart replay">
-                          <ReplayIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {replayActive && (
-                      <Tooltip title="Exit replay (back to live)">
-                        <IconButton size="small" onClick={stopReplay} aria-label="Exit replay">
-                          <StopIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {replayActive && (
-                      <Tooltip title={`Playback speed: ${speedLabel} (click to cycle)`}>
-                        <IconButton size="small" onClick={cycleSpeed} aria-label="Cycle replay speed">
-                          <Box display="flex" alignItems="center" style={{ gap: 2 }}>
-                            <SpeedIcon fontSize="small" />
-                            <Typography variant="caption" style={{ fontWeight: 600 }}>
-                              {speedLabel}
-                            </Typography>
-                          </Box>
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    <Tooltip title={logCopied ? 'Copied!' : 'Copy logs'}>
-                      <IconButton
-                        size="small"
-                        onClick={() => {
-                          const text = copyText;
-                          const fallback = () => {
-                            try {
-                              const ta = document.createElement('textarea');
-                              ta.value = text;
-                              ta.style.position = 'fixed';
-                              ta.style.opacity = '0';
-                              document.body.appendChild(ta);
-                              ta.select();
-                              document.execCommand('copy');
-                              document.body.removeChild(ta);
-                            } catch {
-                              /* ignore */
-                            }
-                          };
-                          const done = () => {
-                            setLogCopied(true);
-                            window.setTimeout(() => setLogCopied(false), 1500);
-                          };
-                          if (
-                            navigator.clipboard &&
-                            typeof navigator.clipboard.writeText === 'function'
-                          ) {
-                            navigator.clipboard
-                              .writeText(text)
-                              .then(done)
-                              .catch(() => {
-                                fallback();
-                                done();
-                              });
-                          } else {
-                            fallback();
-                            done();
-                          }
-                        }}
-                        aria-label="Copy activity log"
-                      >
-                        <FileCopyIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                </Box>
-                <Paper
-                  variant="outlined"
-                  ref={logScrollRef as React.Ref<HTMLDivElement>}
-                  onScroll={handleScroll}
-                  style={{
-                    maxHeight: 280,
-                    overflowY: 'auto',
-                    padding: 8,
-                    marginTop: 4,
-                    background: '#0e1116',
-                    color: '#d0d7de',
-                    fontFamily:
-                      'ui-monospace, SFMono-Regular, Menlo, monospace',
-                    fontSize: 12,
-                  }}
-                >
-                  {(() => {
-                    const groups = groupLogByPhase(displayedLog);
-                    // The currently-running phase is whichever group was
-                    // appended last. We render a single sticky banner at
-                    // the top of the scrolling pane so the user always
-                    // sees the active phase regardless of which group's
-                    // <Box> currently intersects the viewport. Per-group
-                    // headers below are kept (non-sticky) purely as
-                    // section demarcators in the scroll history.
-                    const activePhase: LogPhase =
-                      groups.length > 0
-                        ? groups[groups.length - 1].phase
-                        : 'Submit';
-                    const activeColor = PHASE_COLORS[activePhase];
-                    return (
-                      <>
-                        <Box
-                          style={{
-                            position: 'sticky',
-                            top: -8,
-                            zIndex: 1,
-                            marginLeft: -8,
-                            marginRight: -8,
-                            marginTop: -8,
-                            paddingLeft: 8,
-                            paddingRight: 8,
-                            paddingTop: 6,
-                            paddingBottom: 6,
-                            marginBottom: 6,
-                            background: '#0e1116',
-                            borderBottom: `2px solid ${activeColor}`,
-                            color: activeColor,
-                            fontWeight: 700,
-                            fontSize: 11,
-                            letterSpacing: 0.5,
-                            textTransform: 'uppercase',
-                          }}
-                        >
-                          {phaseLabel(activePhase)}
-                          {!provisionDone && !provisionError && ' — running…'}
-                        </Box>
-                        {groups.map((group, gIdx) => {
-                          const color = PHASE_COLORS[group.phase];
-                          return (
-                            <Box
-                              key={gIdx}
-                              mb={1}
-                              style={{
-                                borderLeft: `3px solid ${color}`,
-                                paddingLeft: 8,
-                              }}
+                        <Typography variant="caption" color="textSecondary">
+                          Activity log
+                        </Typography>
+                        {replayActive && (
+                          <Typography
+                            variant="caption"
+                            style={{
+                              color: '#c084fc',
+                              fontWeight: 600,
+                              letterSpacing: 0.5,
+                              textTransform: 'uppercase',
+                            }}
+                          >
+                            Replay {replayIndex}/{replaySource.length}
+                          </Typography>
+                        )}
+                        {!replayActive && !autoScroll && (
+                          <Typography
+                            variant="caption"
+                            style={{ color: '#fbbf24' }}
+                          >
+                            Auto-scroll paused
+                          </Typography>
+                        )}
+                      </Box>
+                      <Box display="flex" alignItems="center">
+                        {!replayActive && !autoScroll && (
+                          <Tooltip title="Jump to latest">
+                            <IconButton
+                              size="small"
+                              onClick={jumpToBottom}
+                              aria-label="Jump to latest log line"
+                            >
+                              <VerticalAlignBottomIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {canReplay && !replayActive && (
+                          <Tooltip title="Replay this run">
+                            <IconButton
+                              size="small"
+                              onClick={startReplay}
+                              aria-label="Replay activity log"
+                            >
+                              <PlayArrowIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {replayActive &&
+                          !replayPlaying &&
+                          replayIndex < replaySource.length && (
+                            <Tooltip title="Resume">
+                              <IconButton
+                                size="small"
+                                onClick={resumeReplay}
+                                aria-label="Resume replay"
+                              >
+                                <PlayArrowIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                        {replayActive && replayPlaying && (
+                          <Tooltip title="Pause">
+                            <IconButton
+                              size="small"
+                              onClick={pauseReplay}
+                              aria-label="Pause replay"
+                            >
+                              <PauseIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {replayActive && replayIndex >= replaySource.length && (
+                          <Tooltip title="Restart replay">
+                            <IconButton
+                              size="small"
+                              onClick={startReplay}
+                              aria-label="Restart replay"
+                            >
+                              <ReplayIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {replayActive && (
+                          <Tooltip title="Exit replay (back to live)">
+                            <IconButton
+                              size="small"
+                              onClick={stopReplay}
+                              aria-label="Exit replay"
+                            >
+                              <StopIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {replayActive && (
+                          <Tooltip
+                            title={`Playback speed: ${speedLabel} (click to cycle)`}
+                          >
+                            <IconButton
+                              size="small"
+                              onClick={cycleSpeed}
+                              aria-label="Cycle replay speed"
                             >
                               <Box
-                                style={{
-                                  color,
-                                  fontWeight: 600,
-                                  fontSize: 11,
-                                  letterSpacing: 0.5,
-                                  textTransform: 'uppercase',
-                                  marginBottom: 2,
-                                  paddingTop: 2,
-                                  paddingBottom: 2,
-                                }}
+                                display="flex"
+                                alignItems="center"
+                                style={{ gap: 2 }}
                               >
-                                {phaseLabel(group.phase)}
+                                <SpeedIcon fontSize="small" />
+                                <Typography
+                                  variant="caption"
+                                  style={{ fontWeight: 600 }}
+                                >
+                                  {speedLabel}
+                                </Typography>
                               </Box>
-                              {group.lines.map((line, lIdx) => (
-                                <div
-                                  key={lIdx}
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        <Tooltip title={logCopied ? 'Copied!' : 'Copy logs'}>
+                          <IconButton
+                            size="small"
+                            onClick={() => {
+                              const text = copyText;
+                              const fallback = () => {
+                                try {
+                                  const ta = document.createElement('textarea');
+                                  ta.value = text;
+                                  ta.style.position = 'fixed';
+                                  ta.style.opacity = '0';
+                                  document.body.appendChild(ta);
+                                  ta.select();
+                                  document.execCommand('copy');
+                                  document.body.removeChild(ta);
+                                } catch {
+                                  /* ignore */
+                                }
+                              };
+                              const done = () => {
+                                setLogCopied(true);
+                                window.setTimeout(
+                                  () => setLogCopied(false),
+                                  1500,
+                                );
+                              };
+                              if (
+                                navigator.clipboard &&
+                                typeof navigator.clipboard.writeText ===
+                                  'function'
+                              ) {
+                                navigator.clipboard
+                                  .writeText(text)
+                                  .then(done)
+                                  .catch(() => {
+                                    fallback();
+                                    done();
+                                  });
+                              } else {
+                                fallback();
+                                done();
+                              }
+                            }}
+                            aria-label="Copy activity log"
+                          >
+                            <FileCopyIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    </Box>
+                    <Paper
+                      variant="outlined"
+                      ref={logScrollRef as React.Ref<HTMLDivElement>}
+                      onScroll={handleScroll}
+                      style={{
+                        maxHeight: 280,
+                        overflowY: 'auto',
+                        padding: 8,
+                        marginTop: 4,
+                        background: '#0e1116',
+                        color: '#d0d7de',
+                        fontFamily:
+                          'ui-monospace, SFMono-Regular, Menlo, monospace',
+                        fontSize: 12,
+                      }}
+                    >
+                      {(() => {
+                        const groups = groupLogByPhase(displayedLog);
+                        // The currently-running phase is whichever group was
+                        // appended last. We render a single sticky banner at
+                        // the top of the scrolling pane so the user always
+                        // sees the active phase regardless of which group's
+                        // <Box> currently intersects the viewport. Per-group
+                        // headers below are kept (non-sticky) purely as
+                        // section demarcators in the scroll history.
+                        const activePhase: LogPhase =
+                          groups.length > 0
+                            ? groups[groups.length - 1].phase
+                            : 'Submit';
+                        const activeColor = PHASE_COLORS[activePhase];
+                        return (
+                          <>
+                            <Box
+                              style={{
+                                position: 'sticky',
+                                top: -8,
+                                zIndex: 1,
+                                marginLeft: -8,
+                                marginRight: -8,
+                                marginTop: -8,
+                                paddingLeft: 8,
+                                paddingRight: 8,
+                                paddingTop: 6,
+                                paddingBottom: 6,
+                                marginBottom: 6,
+                                background: '#0e1116',
+                                borderBottom: `2px solid ${activeColor}`,
+                                color: activeColor,
+                                fontWeight: 700,
+                                fontSize: 11,
+                                letterSpacing: 0.5,
+                                textTransform: 'uppercase',
+                              }}
+                            >
+                              {phaseLabel(activePhase)}
+                              {!provisionDone &&
+                                !provisionError &&
+                                ' — running…'}
+                            </Box>
+                            {groups.map((group, gIdx) => {
+                              const color = PHASE_COLORS[group.phase];
+                              return (
+                                <Box
+                                  key={gIdx}
+                                  mb={1}
                                   style={{
-                                    whiteSpace: 'pre-wrap',
-                                    wordBreak: 'break-word',
-                                    color:
-                                      group.phase === 'Error'
-                                        ? '#fca5a5'
-                                        : undefined,
+                                    borderLeft: `3px solid ${color}`,
+                                    paddingLeft: 8,
                                   }}
                                 >
-                                  {line}
-                                </div>
-                              ))}
-                            </Box>
-                          );
-                        })}
-                      </>
-                    );
-                  })()}
-                </Paper>
-              </Box>
-              );
-            })()}
+                                  <Box
+                                    style={{
+                                      color,
+                                      fontWeight: 600,
+                                      fontSize: 11,
+                                      letterSpacing: 0.5,
+                                      textTransform: 'uppercase',
+                                      marginBottom: 2,
+                                      paddingTop: 2,
+                                      paddingBottom: 2,
+                                    }}
+                                  >
+                                    {phaseLabel(group.phase)}
+                                  </Box>
+                                  {group.lines.map((line, lIdx) => (
+                                    <div
+                                      key={lIdx}
+                                      style={{
+                                        whiteSpace: 'pre-wrap',
+                                        wordBreak: 'break-word',
+                                        color:
+                                          group.phase === 'Error'
+                                            ? '#fca5a5'
+                                            : undefined,
+                                      }}
+                                    >
+                                      {line}
+                                    </div>
+                                  ))}
+                                </Box>
+                              );
+                            })}
+                          </>
+                        );
+                      })()}
+                    </Paper>
+                  </Box>
+                );
+              })()}
           </DialogContent>
           <DialogActions>
             <Button
@@ -2596,9 +2905,7 @@ export const DHIS2Page = () => {
           clusterNodes={nodes.map(n => n.node)}
           versions={versions}
           suggestedVmid={cloneDialog.suggestedVmid}
-          baseDomain={
-            (settingsService.load().proxy.baseDomain ?? [])[0] ?? ''
-          }
+          baseDomain={(settingsService.load().proxy.baseDomain ?? [])[0] ?? ''}
           submitting={cloneDialog.submitting}
           errorMessage={cloneDialog.error}
           onClose={() =>

@@ -51,7 +51,7 @@ export interface TransferSnapshot {
     options: Required<
       Pick<
         TransferOptions,
-        'createTargetDatabase'
+        | 'createTargetDatabase'
         | 'dropTargetIfExists'
         | 'noOwner'
         | 'noPrivileges'
@@ -87,7 +87,8 @@ function streamLines(
     buf += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
     const parts = buf.split('\n');
     buf = parts.pop() ?? '';
-    for (const line of parts) appendLine(job, prefix ? `${prefix}${line}` : line);
+    for (const line of parts)
+      appendLine(job, prefix ? `${prefix}${line}` : line);
   });
   stream.on('end', () => {
     if (buf) appendLine(job, prefix ? `${prefix}${buf}` : buf);
@@ -106,6 +107,7 @@ function quoteIdent(name: string): string {
 function validIdentifier(name: string): boolean {
   // Postgres allows up to 63 chars; we accept a permissive printable subset
   // but disallow embedded double quotes (defense in depth).
+  // eslint-disable-next-line no-control-regex -- intentional: reject control chars in SQL identifiers
   return name.length > 0 && name.length <= 63 && !/[\u0000-\u001f"]/.test(name);
 }
 
@@ -123,7 +125,9 @@ function validateEndpoint(label: string, ep: DbEndpoint): void {
     throw new Error(`${label}.password is required`);
   }
   if (!ep.database || !validIdentifier(ep.database)) {
-    throw new Error(`${label}.database is required and must be a valid identifier`);
+    throw new Error(
+      `${label}.database is required and must be a valid identifier`,
+    );
   }
 }
 
@@ -169,7 +173,9 @@ export class DatabaseTransferService {
       instances = await this.provisionService.listInstancesOrThrow();
     } catch (err) {
       throw new Error(
-        `Failed to validate instance ${req.instanceId}: could not read the instance list (${
+        `Failed to validate instance ${
+          req.instanceId
+        }: could not read the instance list (${
           err instanceof Error ? err.message : String(err)
         })`,
       );
@@ -270,10 +276,14 @@ export class DatabaseTransferService {
       `-U ${shellQuote(req.target.user)} -v ON_ERROR_STOP=1`;
 
     if (opts.dropTargetIfExists) {
-      const dropSql = `DROP DATABASE IF EXISTS ${quoteIdent(req.target.database)};`;
+      const dropSql = `DROP DATABASE IF EXISTS ${quoteIdent(
+        req.target.database,
+      )};`;
       const code = await runShell(
         job,
-        `${tgtEnv} psql ${tgtBaseConn} -d ${shellQuote(opts.maintenanceDatabase)} -c ${shellQuote(dropSql)}`,
+        `${tgtEnv} psql ${tgtBaseConn} -d ${shellQuote(
+          opts.maintenanceDatabase,
+        )} -c ${shellQuote(dropSql)}`,
         `DROP DATABASE IF EXISTS ${req.target.database}`,
       );
       if (code !== 0) {
@@ -293,11 +303,17 @@ export class DatabaseTransferService {
       // dump into it.
       const createSql = `CREATE DATABASE ${quoteIdent(req.target.database)};`;
       const createStep =
-        `${tgtEnv} psql ${tgtBaseConn} -d ${shellQuote(opts.maintenanceDatabase)} ` +
+        `${tgtEnv} psql ${tgtBaseConn} -d ${shellQuote(
+          opts.maintenanceDatabase,
+        )} ` +
         `-c ${shellQuote(createSql)} 2>&1 | grep -v 'already exists' || true`;
       const verifyStep =
-        `${tgtEnv} psql -h ${shellQuote(req.target.host)} -p ${String(req.target.port)} ` +
-        `-U ${shellQuote(req.target.user)} -d ${shellQuote(req.target.database)} -tAc 'SELECT 1'`;
+        `${tgtEnv} psql -h ${shellQuote(req.target.host)} -p ${String(
+          req.target.port,
+        )} ` +
+        `-U ${shellQuote(req.target.user)} -d ${shellQuote(
+          req.target.database,
+        )} -tAc 'SELECT 1'`;
       const code = await runShell(
         job,
         `${createStep}; ${verifyStep}`,
@@ -329,8 +345,9 @@ export class DatabaseTransferService {
       `-h ${shellQuote(req.source.host)} -p ${String(req.source.port)} ` +
       `-U ${shellQuote(req.source.user)} -d ${shellQuote(req.source.database)}`;
 
-    const psqlCmd =
-      `${tgtEnv} psql ${tgtBaseConn} -d ${shellQuote(req.target.database)}`;
+    const psqlCmd = `${tgtEnv} psql ${tgtBaseConn} -d ${shellQuote(
+      req.target.database,
+    )}`;
 
     // pipefail makes the pipeline fail if pg_dump errors out, even if psql
     // exits 0. Wrap the inner command in single quotes for `bash -lc`.
