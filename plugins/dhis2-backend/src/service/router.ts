@@ -104,7 +104,14 @@ async function withClient<T>(
     password: creds.password,
     database,
     connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
-    statement_timeout: STATEMENT_TIMEOUT_MS,
+    // node-postgres sends a `statement_timeout` config key as a startup
+    // packet parameter rather than a `SET` command. Real PostgreSQL accepts
+    // arbitrary settable GUCs there, but a remote host behind PgBouncer
+    // rejects anything outside its ignore_startup_parameters allowlist with
+    // "unsupported startup parameter: statement_timeout". `query_timeout`
+    // enforces the same limit purely client-side (pg never puts it in the
+    // startup packet), so it works against PostgreSQL and PgBouncer alike.
+    query_timeout: STATEMENT_TIMEOUT_MS,
     // Browser-supplied creds; never reuse across requests.
     application_name: 'backstage-dhis2-plugin',
   });
