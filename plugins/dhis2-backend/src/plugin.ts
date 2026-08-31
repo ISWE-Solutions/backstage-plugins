@@ -86,8 +86,16 @@ export const dhis2Plugin = createBackendPlugin({
         httpRouter: coreServices.httpRouter,
         httpAuth: coreServices.httpAuth,
         database: coreServices.database,
+        scheduler: coreServices.scheduler,
       },
-      async init({ logger, config, httpRouter, httpAuth, database }) {
+      async init({
+        logger,
+        config,
+        httpRouter,
+        httpAuth,
+        database,
+        scheduler,
+      }) {
         let orchestrator: OrchestratorConfig | null = null;
         try {
           // Pull the sub-config if present, but never *require* it: a single-
@@ -223,6 +231,36 @@ export const dhis2Plugin = createBackendPlugin({
           instanceStore,
         );
         await provisionService.importLegacyStateFile();
+
+        // Automatic live-state reconciliation: without this, `resources`,
+        // `version`, `tomcatVersion`, and `database` connection details are
+        // only ever written when the plugin itself performs an action, and
+        // silently go stale the moment someone changes the real instance
+        // out-of-band (resizing the LXC, upgrading DHIS2 by hand, rotating
+        // a DB password directly). See `reconcileAllLiveState` for what's
+        // actually checked. Runs only when the orchestrator is configured —
+        // there's nothing to reconcile against otherwise.
+        if (orchestrator) {
+          await scheduler.scheduleTask({
+            id: 'dhis2-reconcile-live-state',
+            frequency: { minutes: 30 },
+            timeout: { minutes: 10 },
+            initialDelay: { minutes: 2 },
+            fn: async () => {
+              const results = await provisionService.reconcileAllLiveState();
+              const drifted = results.filter(
+                r => Object.keys(r.changes).length > 0,
+              );
+              const errored = results.filter(r => r.errors.length > 0);
+              if (drifted.length > 0 || errored.length > 0) {
+                logger.info(
+                  `DHIS2: live-state reconciliation checked ${results.length} instance(s) — ${drifted.length} updated, ${errored.length} had probe errors`,
+                );
+              }
+            },
+          });
+        }
+
         const databaseTransferService = new DatabaseTransferService(
           logger,
           provisionService,

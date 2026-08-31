@@ -11,6 +11,7 @@ import {
   getNextClusterVmid,
   ensureLxcTags,
   getLxcIpv4,
+  getLxcConfig,
 } from './proxmoxApi';
 import { InstanceStore } from './instanceStore';
 
@@ -160,6 +161,27 @@ export interface PersistedInstance {
   };
   created: string;
   updated: string;
+}
+
+/**
+ * Result of comparing a persisted instance record against what's actually
+ * running, for fields the plugin never re-checks once it writes them at
+ * provision/edit time. `changes` is populated only for fields that were
+ * both (a) successfully probed and (b) different from the stored value —
+ * an empty `changes` with no `errors` means "checked, nothing has drifted".
+ */
+export interface LiveStateDrift {
+  instanceId: string;
+  name: string;
+  checkedAt: string;
+  /** Best-effort: a failed individual probe never aborts the others. */
+  errors: string[];
+  changes: {
+    resources?: { cpu: number; memory: number; storage: number };
+    tomcatVersion?: string;
+    version?: string;
+    database?: PersistedInstance['database'];
+  };
 }
 
 interface SafeRequestEcho {
@@ -2852,6 +2874,260 @@ export class ProvisionService {
       path: usedPath,
       lines: splitLines,
     };
+  }
+
+  /**
+   * Compare one instance's persisted record against what's actually
+   * running and persist any drift found. This is the fix for the plugin
+   * being write-through only: without this, fields like `resources`,
+   * `version`, `tomcatVersion`, and `database` connection details are only
+   * ever set at provision/edit time and silently go stale the moment
+   * someone changes the real system out-of-band (resizing the LXC via the
+   * Proxmox UI, upgrading DHIS2 by hand, rotating the DB password
+   * directly, editing dhis.conf).
+   *
+   * Two independent probes, each best-effort:
+   *   - Proxmox API (`getLxcConfig`) for `resources` (cpu/memory/storage) —
+   *     cheap, no SSH needed, ground truth for the LXC's actual allocation.
+   *   - SSH into the container (same IP-discovery + ansible/root fallback
+   *     used by `tailInstanceLogs`) for anything only knowable from inside:
+   *     the Tomcat major version (via lxc_bootstrap's own
+   *     `.installed-<release>` marker file), `dhis.conf`'s live database
+   *     connection details, and the actually-running DHIS2 version (via
+   *     its own `/api/system/info.json`, not a static file).
+   *
+   * The database password is read and persisted like every other field
+   * here, matching how it's already stored — never logged.
+   */
+  async reconcileLiveState(instanceId: string): Promise<LiveStateDrift> {
+    if (!this.cfg) throw new Error('Orchestrator not configured.');
+    const cfg = this.cfg;
+    const inst = await this.findInstance(instanceId);
+    if (!inst) throw new Error(`Instance "${instanceId}" not found.`);
+
+    const result: LiveStateDrift = {
+      instanceId: inst.id,
+      name: inst.name,
+      checkedAt: new Date().toISOString(),
+      errors: [],
+      changes: {},
+    };
+
+    const vmidStr = String(inst.vmid).trim();
+    const proxmoxCreds = this.proxmoxCredentials();
+
+    // ----- Resources, via the Proxmox API (no SSH needed) -----
+    if (proxmoxCreds) {
+      try {
+        const lxcCfg = await getLxcConfig(proxmoxCreds, inst.node, vmidStr);
+        const cpu = Number(lxcCfg.cores);
+        const memory = Number(lxcCfg.memory);
+        const rootfs = typeof lxcCfg.rootfs === 'string' ? lxcCfg.rootfs : '';
+        const sizeMatch = rootfs.match(/size=(\d+(?:\.\d+)?)([KMGT])/i);
+        let storage: number | undefined;
+        if (sizeMatch) {
+          const raw = Number(sizeMatch[1]);
+          const gbPerUnit: Record<string, number> = {
+            K: 1 / (1024 * 1024),
+            M: 1 / 1024,
+            G: 1,
+            T: 1024,
+          };
+          storage = Math.round(
+            raw * (gbPerUnit[sizeMatch[2].toUpperCase()] ?? 1),
+          );
+        }
+        if (
+          Number.isFinite(cpu) &&
+          Number.isFinite(memory) &&
+          storage !== undefined
+        ) {
+          const live = { cpu, memory, storage };
+          const stored = inst.resources;
+          if (
+            !stored ||
+            stored.cpu !== live.cpu ||
+            stored.memory !== live.memory ||
+            stored.storage !== live.storage
+          ) {
+            result.changes.resources = live;
+          }
+        } else {
+          result.errors.push(
+            'resources: could not parse cores/memory/rootfs from Proxmox LXC config',
+          );
+        }
+      } catch (err) {
+        result.errors.push(
+          `resources: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    } else {
+      result.errors.push('resources: Proxmox API credentials not configured');
+    }
+
+    // ----- App-level state, via SSH into the container -----
+    let containerIp: string | undefined;
+    if (proxmoxCreds) {
+      try {
+        containerIp = await getLxcIpv4(proxmoxCreds, inst.node, vmidStr);
+      } catch (err) {
+        result.errors.push(
+          `ssh: failed to discover container IP: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+
+    if (containerIp) {
+      const sshPort = cfg.port || 22;
+      const keyPath = normalizeSshPrivateKeyPath(cfg.privateKeyFile);
+      const runInContainer = async (
+        remoteCmd: string,
+      ): Promise<{ code: number; stdout: string; stderr: string }> => {
+        let last: { code: number; stdout: string; stderr: string } = {
+          code: -1,
+          stdout: '',
+          stderr: 'no candidate user succeeded',
+        };
+        for (const user of ['ansible', 'root']) {
+          const access: ProxyAccess = {
+            host: containerIp!,
+            port: sshPort,
+            user,
+            keyPath,
+          };
+          const wrapped =
+            user === 'root'
+              ? remoteCmd
+              : `sudo -n bash -lc ${shellQuote(remoteCmd)}`;
+          const r = await sshExec(access, wrapped);
+          if (r.code === 0) return r;
+          last = r;
+        }
+        return last;
+      };
+
+      // Tomcat major version, via lxc_bootstrap's own install marker —
+      // reflects whatever was actually installed, not what was requested.
+      try {
+        const r = await runInContainer(
+          'ls /opt/tomcat/.installed-* 2>/dev/null | head -1',
+        );
+        const m = r.stdout.trim().match(/\.installed-(\d+)\./);
+        if (m && inst.tomcatVersion !== m[1]) {
+          result.changes.tomcatVersion = m[1];
+        }
+      } catch (err) {
+        result.errors.push(
+          `tomcatVersion: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+
+      // dhis.conf's actual database connection details.
+      try {
+        const r = await runInContainer(
+          'cat /opt/dhis2/config/dhis.conf 2>/dev/null',
+        );
+        if (r.code === 0 && r.stdout) {
+          const conf = r.stdout;
+          const urlMatch = conf.match(
+            /connection\.url\s*=\s*jdbc:postgresql:\/\/([^:/\s]+):?(\d+)?\/(\S+)/,
+          );
+          const userMatch = conf.match(/connection\.username\s*=\s*(\S+)/);
+          const passMatch = conf.match(/connection\.password\s*=\s*(\S+)/);
+          if (urlMatch) {
+            const liveHost = urlMatch[1];
+            const livePort = urlMatch[2] ? Number(urlMatch[2]) : 5432;
+            const liveName = urlMatch[3];
+            const liveUser = userMatch?.[1];
+            const livePassword = passMatch?.[1];
+            const dbChanges: Partial<PersistedInstance['database']> = {};
+            if (inst.database.host !== liveHost) dbChanges.host = liveHost;
+            if (inst.database.port !== livePort) dbChanges.port = livePort;
+            if (inst.database.name !== liveName) dbChanges.name = liveName;
+            if (liveUser && inst.database.user !== liveUser) {
+              dbChanges.user = liveUser;
+            }
+            if (livePassword && inst.database.password !== livePassword) {
+              dbChanges.password = livePassword;
+            }
+            if (Object.keys(dbChanges).length > 0) {
+              result.changes.database = { ...inst.database, ...dbChanges };
+            }
+          }
+        }
+      } catch (err) {
+        result.errors.push(
+          `database: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+
+      // Actually-running DHIS2 version, via its own API — not a static
+      // file, so this reflects reality even if someone swapped the WAR
+      // by hand without going through any documented upgrade path.
+      try {
+        const r = await runInContainer(
+          'curl -s -m 5 http://localhost:8080/api/system/info.json 2>/dev/null || true',
+        );
+        const m = r.stdout.match(/"version"\s*:\s*"([^"]+)"/);
+        if (m?.[1] && inst.version !== m[1]) {
+          result.changes.version = m[1];
+        }
+      } catch (err) {
+        result.errors.push(
+          `version: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    } else if (proxmoxCreds) {
+      result.errors.push('ssh: could not determine container IP address');
+    }
+
+    // ----- Persist whatever drift was found -----
+    if (Object.keys(result.changes).length > 0) {
+      const patch: Partial<PersistedInstance> = {};
+      if (result.changes.resources) patch.resources = result.changes.resources;
+      if (result.changes.tomcatVersion) {
+        patch.tomcatVersion = result.changes.tomcatVersion;
+      }
+      if (result.changes.version) patch.version = result.changes.version;
+      if (result.changes.database) patch.database = result.changes.database;
+      await updateInstanceInState(
+        this.instanceStore,
+        inst.id,
+        patch,
+        this.logger,
+      );
+      this.logger.info(
+        `DHIS2: reconciled live state for ${inst.name} (${
+          inst.id
+        }) — updated: ${Object.keys(result.changes).join(', ')}`,
+      );
+    }
+
+    return result;
+  }
+
+  /** Run `reconcileLiveState` across every persisted instance. Best-effort
+   * per instance — one failing never stops the rest. */
+  async reconcileAllLiveState(): Promise<LiveStateDrift[]> {
+    const instances = await this.listInstances();
+    const results: LiveStateDrift[] = [];
+    for (const inst of instances) {
+      try {
+        results.push(await this.reconcileLiveState(inst.id));
+      } catch (err) {
+        results.push({
+          instanceId: inst.id,
+          name: inst.name,
+          checkedAt: new Date().toISOString(),
+          errors: [err instanceof Error ? err.message : String(err)],
+          changes: {},
+        });
+      }
+    }
+    return results;
   }
 
   /**

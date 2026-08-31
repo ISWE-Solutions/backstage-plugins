@@ -1950,6 +1950,35 @@ export async function createRouter(
     res.json(report);
   });
 
+  // Live-state reconciliation (resources, DHIS2/Tomcat version, database
+  // connection) — distinct from the Proxmox-existence/tag check above.
+  // Also runs automatically on a schedule; these two endpoints exist for
+  // manual/on-demand triggering (e.g. right after a known out-of-band
+  // change) without waiting for the next scheduled pass.
+  router.post('/instances/:id/reconcile-live', async (req, res) => {
+    if (!provisionService.isConfigured()) {
+      res.status(503).json({ error: 'DHIS2 orchestrator is not configured.' });
+      return;
+    }
+    try {
+      const result = await provisionService.reconcileLiveState(req.params.id);
+      res.json(result);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn(`DHIS2: live-state reconcile failed: ${message}`);
+      res.status(400).json({ error: message });
+    }
+  });
+
+  router.post('/instances/reconcile-live', async (_req, res) => {
+    if (!provisionService.isConfigured()) {
+      res.status(503).json({ error: 'DHIS2 orchestrator is not configured.' });
+      return;
+    }
+    const results = await provisionService.reconcileAllLiveState();
+    res.json({ results });
+  });
+
   // ---------------------------------------------------------------------
   // Database transfer (pg_dump | psql) between source and target servers
   // ---------------------------------------------------------------------
