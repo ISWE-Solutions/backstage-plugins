@@ -1051,40 +1051,58 @@ export const CreateInstanceDialog = ({
           <Typography variant="h6" gutterBottom style={{ marginTop: 16 }}>
             Database Configurations
           </Typography>
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={useRemoteDb}
-                onChange={e => {
-                  const next = e.target.checked;
-                  setUseRemoteDb(next);
-                  if (!next) {
-                    // Collapse all remote-only sub-state so re-opening the
-                    // toggle later starts from a clean slate.
-                    setUseExistingDb(false);
-                    setCreateDbAccount(false);
-                    setAvailableDatabases([]);
-                    setDatabasesError(null);
-                    setDbTestResult(null);
-                    setExistingDbCompatibility(null);
-                  }
-                }}
-                color="primary"
-              />
-            }
-            label={
-              <Box>
-                <Typography variant="body2">
-                  Use a remote PostgreSQL server
-                </Typography>
-                <Typography variant="caption" color="textSecondary">
-                  {useRemoteDb
-                    ? 'DHIS2 will connect to the external PostgreSQL host configured below.'
-                    : 'Off — PostgreSQL is installed inside the new LXC container and a strong database password is auto-generated.'}
-                </Typography>
-              </Box>
-            }
-          />
+          <Box
+            display="flex"
+            alignItems="center"
+            flexWrap="wrap"
+            style={{ gap: 8 }}
+          >
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={useRemoteDb}
+                  onChange={e => {
+                    const next = e.target.checked;
+                    setUseRemoteDb(next);
+                    if (!next) {
+                      // Collapse all remote-only sub-state so re-opening the
+                      // toggle later starts from a clean slate.
+                      setUseExistingDb(false);
+                      setCreateDbAccount(false);
+                      setAvailableDatabases([]);
+                      setDatabasesError(null);
+                      setDbTestResult(null);
+                      setExistingDbCompatibility(null);
+                    }
+                  }}
+                  color="primary"
+                />
+              }
+              label={
+                <Box>
+                  <Typography variant="body2">
+                    Use a remote PostgreSQL server
+                  </Typography>
+                  <Typography variant="caption" color="textSecondary">
+                    {useRemoteDb
+                      ? 'DHIS2 will connect to the external PostgreSQL host configured below.'
+                      : 'Off — PostgreSQL is installed inside the new LXC container and a strong database password is auto-generated.'}
+                  </Typography>
+                </Box>
+              }
+            />
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => fetchExistingDatabases()}
+              disabled={!useRemoteDb || loadingDatabases}
+              startIcon={
+                loadingDatabases ? <CircularProgress size={16} /> : undefined
+              }
+            >
+              Test connection
+            </Button>
+          </Box>
           {useRemoteDb && (
             <>
               <Typography
