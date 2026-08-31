@@ -684,6 +684,14 @@ export const DHIS2Page = () => {
       'admin@example.com';
     const proxmoxOverrides = (() => {
       const pm = settings.proxmox;
+      // "Route through Backstage backend proxy" (recommended, and the
+      // default) means exactly that: don't send our own apiUrl/credentials
+      // at all, and let the backend fall back to its own configured
+      // Proxmox connection. Sending pm.apiUrl unconditionally here used to
+      // override the backend's correct internal-network config with
+      // whatever's in DEFAULT_SETTINGS (a public hostname), breaking every
+      // provisioning attempt for anyone who never touched this panel.
+      if (pm.useBackstageProxy) return undefined;
       const apiUrl = (pm.apiUrl ?? '').trim();
       const tokenId = (pm.tokenId ?? '').trim();
       const tokenSecret = (pm.tokenSecret ?? '').trim();
@@ -941,27 +949,35 @@ export const DHIS2Page = () => {
       };
     } = {
       action,
-      proxmox: (() => {
-        const apiUrl = (pm.apiUrl ?? '').trim();
-        const tokenId = (pm.tokenId ?? '').trim();
-        const tokenSecret = (pm.tokenSecret ?? '').trim();
-        const username = (pm.username ?? '').trim();
-        const fields: {
-          apiUrl?: string;
-          apiUser?: string;
-          apiTokenId?: string;
-          apiTokenSecret?: string;
-          validateApiCerts?: boolean;
-        } = {};
-        if (apiUrl) fields.apiUrl = apiUrl;
-        if (pm.authMethod === 'token') {
-          if (tokenId) fields.apiTokenId = tokenId;
-          if (tokenSecret) fields.apiTokenSecret = tokenSecret;
-          if (!tokenId.includes('!') && username) fields.apiUser = username;
-        }
-        fields.validateApiCerts = Boolean(pm.verifyTls);
-        return Object.keys(fields).length > 0 ? fields : undefined;
-      })(),
+      // "Route through Backstage backend proxy" (recommended, default)
+      // means don't send our own apiUrl/credentials - let the backend use
+      // its own configured Proxmox connection instead of whatever's in
+      // DEFAULT_SETTINGS (a public hostname unreachable from the backend).
+      proxmox: pm.useBackstageProxy
+        ? undefined
+        : (() => {
+            const apiUrl = (pm.apiUrl ?? '').trim();
+            const tokenId = (pm.tokenId ?? '').trim();
+            const tokenSecret = (pm.tokenSecret ?? '').trim();
+            const username = (pm.username ?? '').trim();
+            const fields: {
+              apiUrl?: string;
+              apiUser?: string;
+              apiTokenId?: string;
+              apiTokenSecret?: string;
+              validateApiCerts?: boolean;
+            } = {};
+            if (apiUrl) fields.apiUrl = apiUrl;
+            if (pm.authMethod === 'token') {
+              if (tokenId) fields.apiTokenId = tokenId;
+              if (tokenSecret) fields.apiTokenSecret = tokenSecret;
+              if (!tokenId.includes('!') && username) {
+                fields.apiUser = username;
+              }
+            }
+            fields.validateApiCerts = Boolean(pm.verifyTls);
+            return Object.keys(fields).length > 0 ? fields : undefined;
+          })(),
     };
 
     try {
@@ -1205,27 +1221,35 @@ export const DHIS2Page = () => {
         if (nginxReloadCommand) fields.nginxReloadCommand = nginxReloadCommand;
         return Object.keys(fields).length > 0 ? fields : undefined;
       })(),
-      proxmox: (() => {
-        const apiUrl = (pm.apiUrl ?? '').trim();
-        const tokenId = (pm.tokenId ?? '').trim();
-        const tokenSecret = (pm.tokenSecret ?? '').trim();
-        const username = (pm.username ?? '').trim();
-        const fields: {
-          apiUrl?: string;
-          apiUser?: string;
-          apiTokenId?: string;
-          apiTokenSecret?: string;
-          validateApiCerts?: boolean;
-        } = {};
-        if (apiUrl) fields.apiUrl = apiUrl;
-        if (pm.authMethod === 'token') {
-          if (tokenId) fields.apiTokenId = tokenId;
-          if (tokenSecret) fields.apiTokenSecret = tokenSecret;
-          if (!tokenId.includes('!') && username) fields.apiUser = username;
-        }
-        fields.validateApiCerts = Boolean(pm.verifyTls);
-        return Object.keys(fields).length > 0 ? fields : undefined;
-      })(),
+      // "Route through Backstage backend proxy" (recommended, default)
+      // means don't send our own apiUrl/credentials - let the backend use
+      // its own configured Proxmox connection instead of whatever's in
+      // DEFAULT_SETTINGS (a public hostname unreachable from the backend).
+      proxmox: pm.useBackstageProxy
+        ? undefined
+        : (() => {
+            const apiUrl = (pm.apiUrl ?? '').trim();
+            const tokenId = (pm.tokenId ?? '').trim();
+            const tokenSecret = (pm.tokenSecret ?? '').trim();
+            const username = (pm.username ?? '').trim();
+            const fields: {
+              apiUrl?: string;
+              apiUser?: string;
+              apiTokenId?: string;
+              apiTokenSecret?: string;
+              validateApiCerts?: boolean;
+            } = {};
+            if (apiUrl) fields.apiUrl = apiUrl;
+            if (pm.authMethod === 'token') {
+              if (tokenId) fields.apiTokenId = tokenId;
+              if (tokenSecret) fields.apiTokenSecret = tokenSecret;
+              if (!tokenId.includes('!') && username) {
+                fields.apiUser = username;
+              }
+            }
+            fields.validateApiCerts = Boolean(pm.verifyTls);
+            return Object.keys(fields).length > 0 ? fields : undefined;
+          })(),
     };
 
     try {
@@ -1439,27 +1463,35 @@ export const DHIS2Page = () => {
         if (sshKeyPath) fields.sshKeyPath = sshKeyPath;
         return Object.keys(fields).length > 0 ? fields : undefined;
       })(),
-      proxmox: (() => {
-        const apiUrl = (pm.apiUrl ?? '').trim();
-        const tokenId = (pm.tokenId ?? '').trim();
-        const tokenSecret = (pm.tokenSecret ?? '').trim();
-        const username = (pm.username ?? '').trim();
-        const fields: {
-          apiUrl?: string;
-          apiUser?: string;
-          apiTokenId?: string;
-          apiTokenSecret?: string;
-          validateApiCerts?: boolean;
-        } = {};
-        if (apiUrl) fields.apiUrl = apiUrl;
-        if (pm.authMethod === 'token') {
-          if (tokenId) fields.apiTokenId = tokenId;
-          if (tokenSecret) fields.apiTokenSecret = tokenSecret;
-          if (!tokenId.includes('!') && username) fields.apiUser = username;
-        }
-        fields.validateApiCerts = Boolean(pm.verifyTls);
-        return Object.keys(fields).length > 0 ? fields : undefined;
-      })(),
+      // "Route through Backstage backend proxy" (recommended, default)
+      // means don't send our own apiUrl/credentials - let the backend use
+      // its own configured Proxmox connection instead of whatever's in
+      // DEFAULT_SETTINGS (a public hostname unreachable from the backend).
+      proxmox: pm.useBackstageProxy
+        ? undefined
+        : (() => {
+            const apiUrl = (pm.apiUrl ?? '').trim();
+            const tokenId = (pm.tokenId ?? '').trim();
+            const tokenSecret = (pm.tokenSecret ?? '').trim();
+            const username = (pm.username ?? '').trim();
+            const fields: {
+              apiUrl?: string;
+              apiUser?: string;
+              apiTokenId?: string;
+              apiTokenSecret?: string;
+              validateApiCerts?: boolean;
+            } = {};
+            if (apiUrl) fields.apiUrl = apiUrl;
+            if (pm.authMethod === 'token') {
+              if (tokenId) fields.apiTokenId = tokenId;
+              if (tokenSecret) fields.apiTokenSecret = tokenSecret;
+              if (!tokenId.includes('!') && username) {
+                fields.apiUser = username;
+              }
+            }
+            fields.validateApiCerts = Boolean(pm.verifyTls);
+            return Object.keys(fields).length > 0 ? fields : undefined;
+          })(),
     };
 
     try {

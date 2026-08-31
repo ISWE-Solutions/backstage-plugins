@@ -507,7 +507,12 @@ export interface OrchestrationLogEntry {
 
 export const DEFAULT_SETTINGS: DHIS2PluginSettings = {
   proxmox: {
-    apiUrl: 'https://pve10.example.org:8006',
+    // Internal cluster address, not the public hostname (pve10.example.org
+    // resolves to a public IP that doesn't forward port 8006 - every
+    // direct call against that hostname eventually times out). Only
+    // consulted at all when useBackstageProxy is off; see DHIS2Page.tsx /
+    // CreateInstanceDialog.tsx for where that toggle is enforced.
+    apiUrl: 'https://10.20.30.10:8006',
     useBackstageProxy: true,
     backstageProxyPath: '/api/proxy/proxmox',
     authMethod: 'token',

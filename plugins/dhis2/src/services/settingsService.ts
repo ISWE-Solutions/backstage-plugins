@@ -51,6 +51,16 @@ export class SettingsService {
           (merged.proxy as any)[key] = DEFAULT_SETTINGS.proxy[key];
         }
       });
+      // pve10.example.org resolves to a public IP that doesn't forward
+      // port 8006 (or does so with 100+ second latency), so any stored
+      // apiUrl still pointing at that hostname must be corrected to the
+      // internal cluster address — otherwise every direct (non-proxied)
+      // Proxmox call from this browser times out. Applies regardless of
+      // useBackstageProxy, since users may flip that toggle off later.
+      const staleApiUrls = ['https://pve10.example.org:8006'];
+      if (staleApiUrls.includes(merged.proxmox.apiUrl)) {
+        merged.proxmox.apiUrl = DEFAULT_SETTINGS.proxmox.apiUrl;
+      }
       // Older builds defaulted proxmox.verifyTls to true, which then
       // forwards as validateApiCerts=true into every provision request
       // and causes CERTIFICATE_VERIFY_FAILED against PVE's stock

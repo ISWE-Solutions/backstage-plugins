@@ -539,28 +539,40 @@ export const CreateInstanceDialog = ({
       setLoadingConfirmDeleteVmid(true);
       const settings = settingsService.load();
       const pm = settings.proxmox;
-      const apiUrl = (pm.apiUrl ?? '').trim();
-      const tokenId = (pm.tokenId ?? '').trim();
-      const tokenSecret = (pm.tokenSecret ?? '').trim();
-      const username = (pm.username ?? '').trim();
-      const proxmoxOverrides: {
-        apiUrl?: string;
-        apiUser?: string;
-        apiTokenId?: string;
-        apiTokenSecret?: string;
-        validateApiCerts?: boolean;
-      } = {};
-      if (apiUrl) proxmoxOverrides.apiUrl = apiUrl;
-      if (pm.authMethod === 'token') {
-        if (tokenId) proxmoxOverrides.apiTokenId = tokenId;
-        if (tokenSecret) proxmoxOverrides.apiTokenSecret = tokenSecret;
-        if (!tokenId.includes('!') && username) {
-          proxmoxOverrides.apiUser = username;
-        }
-      }
-      proxmoxOverrides.validateApiCerts = Boolean(pm.verifyTls);
-      const effectiveOverrides =
-        Object.keys(proxmoxOverrides).length > 0 ? proxmoxOverrides : undefined;
+      // "Route through Backstage backend proxy" (recommended, and the
+      // default) means don't send our own apiUrl/credentials at all - let
+      // the backend fall back to its own configured Proxmox connection.
+      // Sending pm.apiUrl unconditionally here used to override the
+      // backend's correct internal-network config with whatever's in
+      // DEFAULT_SETTINGS (a public hostname), breaking this lookup for
+      // anyone who never touched the Proxmox settings panel.
+      const effectiveOverrides = pm.useBackstageProxy
+        ? undefined
+        : (() => {
+            const apiUrl = (pm.apiUrl ?? '').trim();
+            const tokenId = (pm.tokenId ?? '').trim();
+            const tokenSecret = (pm.tokenSecret ?? '').trim();
+            const username = (pm.username ?? '').trim();
+            const proxmoxOverrides: {
+              apiUrl?: string;
+              apiUser?: string;
+              apiTokenId?: string;
+              apiTokenSecret?: string;
+              validateApiCerts?: boolean;
+            } = {};
+            if (apiUrl) proxmoxOverrides.apiUrl = apiUrl;
+            if (pm.authMethod === 'token') {
+              if (tokenId) proxmoxOverrides.apiTokenId = tokenId;
+              if (tokenSecret) proxmoxOverrides.apiTokenSecret = tokenSecret;
+              if (!tokenId.includes('!') && username) {
+                proxmoxOverrides.apiUser = username;
+              }
+            }
+            proxmoxOverrides.validateApiCerts = Boolean(pm.verifyTls);
+            return Object.keys(proxmoxOverrides).length > 0
+              ? proxmoxOverrides
+              : undefined;
+          })();
       discoveryApi
         .getBaseUrl('dhis2')
         .then(baseUrl =>
