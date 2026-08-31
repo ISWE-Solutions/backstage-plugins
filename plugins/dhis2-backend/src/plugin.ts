@@ -252,6 +252,16 @@ export const dhis2Plugin = createBackendPlugin({
                 r => Object.keys(r.changes).length > 0,
               );
               const errored = results.filter(r => r.errors.length > 0);
+              // Per-instance detail for errors — the summary line alone
+              // doesn't say *which* instance or *why*, and this task runs
+              // unattended every 30 minutes with nobody watching by default.
+              for (const r of errored) {
+                logger.warn(
+                  `DHIS2: live-state probe errors for ${r.name} (${
+                    r.instanceId
+                  }): ${r.errors.join('; ')}`,
+                );
+              }
               if (drifted.length > 0 || errored.length > 0) {
                 logger.info(
                   `DHIS2: live-state reconciliation checked ${results.length} instance(s) — ${drifted.length} updated, ${errored.length} had probe errors`,
