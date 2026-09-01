@@ -836,6 +836,37 @@ export async function createRouter(
       return;
     }
 
+    // The check above only catches instances that finished a previous
+    // provision successfully — InstanceStore never learns about a job
+    // that failed partway through, so a failed attempt's leftover LXC is
+    // invisible to it. Cross-check live Proxmox state too, otherwise
+    // retrying a failed name just keeps stacking up orphaned containers.
+    let liveMatch;
+    try {
+      liveMatch = await provisionService.findLiveInstanceByName(
+        payload.name,
+        payload.proxmox,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn(
+        `DHIS2: live Proxmox name-collision check failed for "${payload.name}", proceeding without it: ${message}`,
+      );
+      liveMatch = null;
+    }
+    if (liveMatch) {
+      res.status(409).json({
+        error: `A Proxmox ${liveMatch.type} named "${
+          liveMatch.name
+        }" already exists (vmid ${liveMatch.vmid} on node ${
+          liveMatch.node
+        }, status: ${
+          liveMatch.status ?? 'unknown'
+        }) but isn't tracked as a completed DHIS2 instance — most likely left over from a previous failed provisioning attempt. Remove or rename it in Proxmox before retrying with this name.`,
+      });
+      return;
+    }
+
     let job;
     try {
       job = provisionService.startJob(payload);

@@ -8,10 +8,12 @@ import { randomUUID, randomBytes } from 'crypto';
 import {
   DHIS2_TAGS,
   ProxmoxApiCredentials,
+  ProxmoxClusterResource,
   getNextClusterVmid,
   ensureLxcTags,
   getLxcIpv4,
   getLxcConfig,
+  listClusterResources,
 } from './proxmoxApi';
 import { InstanceStore } from './instanceStore';
 
@@ -2435,6 +2437,30 @@ export class ProvisionService {
       );
     }
     return await getNextClusterVmid(creds);
+  }
+
+  /**
+   * Look up a live Proxmox VM/CT whose name matches (case-insensitive).
+   * InstanceStore only records instances once a provision job finishes
+   * successfully, so a failed attempt leaves its LXC behind with no
+   * corresponding record — the next retry with the same name would sail
+   * past a store-only uniqueness check and create a second container.
+   * Querying Proxmox directly catches that orphaned state too. Returns
+   * null (rather than throwing) when credentials aren't configured, since
+   * this is a pre-flight safety check, not a hard requirement to provision.
+   */
+  async findLiveInstanceByName(
+    name: string,
+    overrides?: ProxmoxOverride,
+  ): Promise<ProxmoxClusterResource | null> {
+    const creds = this.resolveEffectiveProxmoxCredentials(overrides);
+    if (!creds) return null;
+    const normalized = name.trim().toLowerCase();
+    const resources = await listClusterResources(creds);
+    return (
+      resources.find(r => (r.name ?? '').trim().toLowerCase() === normalized) ??
+      null
+    );
   }
 
   private resolveEffectiveProxmoxCredentials(
