@@ -225,7 +225,21 @@
     group: '{{ tomcat_group }}'
     mode: '0640'
 
-- name: Configure Tomcat defaults (JAVA_OPTS + DHIS2_HOME)
+- name: Create OTel directory
+  ansible.builtin.file:
+    path: '{{ dhis2_otel_javaagent_path | dirname }}'
+    state: directory
+    mode: '0755'
+  when: dhis2_otel_enabled
+
+- name: Download OpenTelemetry Java agent {{ dhis2_otel_javaagent_version }}
+  ansible.builtin.get_url:
+    url: '{{ dhis2_otel_javaagent_url }}'
+    dest: '{{ dhis2_otel_javaagent_path }}'
+    mode: '0644'
+  when: dhis2_otel_enabled
+
+- name: Configure Tomcat defaults (JAVA_OPTS + DHIS2_HOME + OTEL_*)
   ansible.builtin.template:
     src: tomcat.defaults.j2
     dest: '{{ tomcat_defaults_file }}'

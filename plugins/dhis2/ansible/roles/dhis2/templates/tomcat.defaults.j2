@@ -1,3 +1,13 @@
 # Managed by the dhis2 Ansible role — edits will be overwritten.
-JAVA_OPTS="{{ tomcat_java_opts }}"
+JAVA_OPTS="{{ tomcat_java_opts }}{{ ' -javaagent:' ~ dhis2_otel_javaagent_path if dhis2_otel_enabled else '' }}"
 DHIS2_HOME={{ dhis2_home }}
+{% if dhis2_otel_enabled %}
+OTEL_SERVICE_NAME={{ dhis2_otel_service_name }}
+OTEL_EXPORTER_OTLP_ENDPOINT={{ dhis2_otel_exporter_endpoint }}
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+OTEL_METRICS_EXPORTER=otlp
+OTEL_LOGS_EXPORTER=none
+OTEL_TRACES_SAMPLER=parentbased_traceidratio
+OTEL_TRACES_SAMPLER_ARG={{ dhis2_otel_traces_sampler_arg }}
+OTEL_RESOURCE_ATTRIBUTES=deployment.environment=production,service.namespace=dhis2
+{% endif %}
