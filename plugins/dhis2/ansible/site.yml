@@ -96,7 +96,13 @@
           ansible.builtin.shell: |
             set -u
             ctx='{{ ("/" ~ dhis2_context_path) if (dhis2_context_path | default("", true) | length > 0) else "" }}'
-            url="http://127.0.0.1:8080${ctx}/dhis-web-commons/security/login.action"
+            # dhis-web-commons/security/login.action is the legacy JSP login
+            # page, removed in DHIS2 v42+ in favour of the React "Login app"
+            # — hitting it on 2.42+ 404s forever even when the instance is
+            # perfectly healthy. The context root itself always redirects
+            # to login (302) regardless of DHIS2 version, so poll that
+            # instead; 302 is already treated as healthy below.
+            url="http://127.0.0.1:8080${ctx}/"
             code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$url" || echo 000)
             if [ "$code" = "200" ] || [ "$code" = "302" ]; then
               echo "HEALTHY $code"
