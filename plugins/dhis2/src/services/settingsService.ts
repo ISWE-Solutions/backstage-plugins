@@ -37,7 +37,11 @@ export class SettingsService {
       // to clear localStorage manually.
       const stalePlaceholders: Record<keyof typeof merged.proxy, string[]> = {
         baseDomain: ['dhis2.example.com'],
-        host: ['proxy.example.com'],
+        // 10.20.30.143 is the REDCap server, not the central nginx
+        // proxy (that's 10.20.30.101). It shipped as the default for a
+        // while and provisioning failed in Phase 5b against it, so
+        // migrate any browser still carrying it.
+        host: ['proxy.example.com', '10.20.30.143'],
         sshKeyPath: ['/var/lib/backstage/.ssh/id_ed25519'],
         // Old Debian/Ubuntu sites-available layout — superseded by the
         // single conf.d directory (which nginx auto-includes).

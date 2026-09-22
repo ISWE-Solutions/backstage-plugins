@@ -541,7 +541,7 @@ export const DEFAULT_SETTINGS: DHIS2PluginSettings = {
     mode: 'path',
     baseDomain: 'dhis2.example.org',
     pathPrefix: '',
-    host: '10.20.30.143',
+    host: '10.20.30.101',
     sshPort: 22,
     sshUser: 'root',
     authMethod: 'ssh-key',
