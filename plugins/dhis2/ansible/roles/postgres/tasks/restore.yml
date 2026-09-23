@@ -41,6 +41,15 @@
       - postgresql-client
       - gzip
       - zstd
+      # community.postgresql's modules (used below to terminate backends,
+      # drop/recreate the database and reinstall extensions) import psycopg2
+      # on the work host. During provisioning it arrives with the postgres
+      # role's main task list, but these tasks are also reachable on their
+      # own (restore.yml runs them against an already-provisioned instance
+      # via tasks_from), where nothing else guarantees it. Without it the
+      # first module call fails — after the dump has been taken and before
+      # the database is dropped.
+      - python3-psycopg2
     state: present
     update_cache: false
   delegate_to: '{{ _dhis2_restore_workhost }}'
