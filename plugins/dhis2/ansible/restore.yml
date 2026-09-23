@@ -1,0 +1,254 @@
+---
+# restore.yml — restore a database dump into an EXISTING DHIS2 instance.
+#
+# site.yml already knows how to restore, but only while a NEW instance is
+# being provisioned: the database is empty and Tomcat has never started.
+# This playbook targets an instance that is already live, so it has to
+# quiesce the application around the swap.
+#
+# What it does, in order:
+#   Phase 1 — Resolve the container's IPv4 via the Proxmox REST API and
+#             register it in the `instances` group. The registry stores
+#             vmid/node, not an address, so we look it up the same way
+#             the pve_lxc role does after creating a container.
+#   Phase 2 — Stop Tomcat. DHIS2 holds a connection pool open against the
+#             database we are about to drop; leaving it running means the
+#             drop blocks (or races a reconnect) and DHIS2 ends up talking
+#             to a half-restored schema.
+#   Phase 3 — Stage the dump (stage_restore), in its own play because it
+#             ends the play to signal "nothing to stage".
+#   Phase 4 — Replace the database (postgres role, tasks_from: restore).
+#             That task file already terminates leftover backends, drops
+#             and recreates the database, reinstalls the extensions,
+#             applies the dump and re-grants privileges — it is reused
+#             here verbatim rather than reimplemented.
+#   Phase 5 — Start Tomcat and wait for the web endpoint to answer.
+#
+# Phase headers ("PLAY [Phase N — ...]") follow the create/update wording
+# so the Backstage activity-log classifier groups the output the same way.
+#
+# Required extra-vars (rendered by scripts/restore-instance.sh):
+#   pve_api_host, pve_api_user, pve_api_token_id, pve_api_token_secret,
+#   pve_validate_certs           — Proxmox API; used only to resolve the IP
+#   pve_node, pve_vmid           — target container
+#   instance_name                — display name; also the inventory hostname
+#   fqdn                         — '<host>' or '<host>/<segment>'; the
+#                                  segment becomes the health-check context
+#   ansible_user_target          — SSH user inside the LXC (default 'ansible')
+#   ansible_ssh_private_key_file_orchestrator
+#                                — private key for that user
+#   dhis2_db_host, dhis2_db_port, dhis2_db_name, dhis2_db_user,
+#   dhis2_db_password            — the instance's own DB connection
+#   dhis2_db_admin_user, dhis2_db_admin_password
+#                                — role used to drop/create the database
+#   dhis2_db_remote              — true when the DB lives off-container;
+#                                  selects the restore role's work host
+#   dhis2_restore                — restore spec dict (kind + source fields)
+#   tomcat_service_name          — default 'tomcat'
+
+# ---------------------------------------------------------------------------
+# Phase 1 — resolve the target container
+# ---------------------------------------------------------------------------
+- name: 'Phase 1 — resolve target container address'
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Validate required vars
+      ansible.builtin.assert:
+        that:
+          - pve_vmid is defined
+          - pve_node is defined and pve_node | length > 0
+          - instance_name is defined and instance_name | length > 0
+          - dhis2_restore is defined
+          - dhis2_db_name is defined and dhis2_db_name | length > 0
+          - dhis2_db_user is defined and dhis2_db_user | length > 0
+        fail_msg: >-
+          restore.yml is missing required variables. Need pve_vmid, pve_node,
+          instance_name, dhis2_restore and the dhis2_db_* connection details.
+
+    - name: Fetch container interfaces from the Proxmox API
+      ansible.builtin.uri:
+        url: 'https://{{ pve_api_host }}/api2/json/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/interfaces'
+        method: GET
+        headers:
+          Authorization: 'PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}'
+        validate_certs: '{{ pve_validate_certs | default(false) }}'
+        return_content: true
+      register: pve_iface_resp
+      until: >-
+        (pve_iface_resp.json.data | default([])
+         | selectattr('name', 'ne', 'lo')
+         | selectattr('inet', 'defined')
+         | map(attribute='inet')
+         | reject('match', '^127\\.')
+         | list | length > 0)
+      retries: 12
+      delay: 5
+      no_log: '{{ not (dhis2_debug | default(false) | bool) }}'
+
+    - name: Extract container IPv4 address
+      ansible.builtin.set_fact:
+        restore_target_ip: >-
+          {{
+            (pve_iface_resp.json.data
+             | selectattr('name', 'ne', 'lo')
+             | selectattr('inet', 'defined')
+             | map(attribute='inet')
+             | reject('match', '^127\\.')
+             | first
+            ).split('/')[0]
+          }}
+
+    - name: Show restore target
+      ansible.builtin.debug:
+        msg: >-
+          Restoring into {{ instance_name }} (vmid={{ pve_vmid }} at
+          {{ restore_target_ip }}); database {{ dhis2_db_name }} on
+          {{ dhis2_db_host | default('localhost') }} will be dropped and
+          recreated from restore kind={{ dhis2_restore.kind }}.
+
+    - name: Register the target instance in the inventory
+      ansible.builtin.add_host:
+        name: '{{ instance_name }}'
+        groups:
+          - instances
+        ansible_host: '{{ restore_target_ip }}'
+        ansible_user: "{{ ansible_user_target | default('ansible') }}"
+        ansible_ssh_private_key_file: '{{ ansible_ssh_private_key_file_orchestrator }}'
+        ansible_python_interpreter: /usr/bin/python3
+        ansible_become: true
+        ansible_become_method: sudo
+        database_host: '{{ instance_name }}'
+      changed_when: false
+
+- name: 'Pre-flight — verify SSH reachability'
+  hosts: instances
+  gather_facts: false
+  tasks:
+    - name: Ping the target instance
+      ansible.builtin.ping:
+
+# ---------------------------------------------------------------------------
+# Phase 2 — quiesce the application
+# ---------------------------------------------------------------------------
+- name: 'Phase 2 — stop Tomcat before replacing the database'
+  hosts: instances
+  become: true
+  gather_facts: false
+  tasks:
+    # Deliberately allowed to fail loudly: restoring underneath a running
+    # DHIS2 corrupts the result, so we would rather abort here than press
+    # on. If the unit is named something else, pass --tomcat-service.
+    - name: Stop Tomcat
+      ansible.builtin.systemd:
+        name: "{{ tomcat_service_name | default('tomcat') }}"
+        state: stopped
+
+# ---------------------------------------------------------------------------
+# Phases 3 & 4 — stage the dump, then replace the database
+# ---------------------------------------------------------------------------
+# stage_restore gets a play to itself, exactly as in site.yml: it signals
+# "nothing to stage" with `meta: end_play` (for kind=instance/url/s3, and
+# for any remote-DB target). Sharing a play with the restore below would
+# mean those cases end the play early and silently skip the restore.
+- name: 'Phase 3 — stage restore source'
+  hosts: instances
+  become: true
+  gather_facts: true
+  roles:
+    - role: stage_restore
+
+- name: 'Phase 4 — replace the database from the staged dump'
+  hosts: instances
+  become: true
+  gather_facts: false
+  tasks:
+    # tasks_from: restore reuses the provisioning path's restore logic
+    # (terminate backends → drop → recreate → extensions → apply dump →
+    # grant). include_role also pulls in the postgres role's defaults,
+    # which is where postgresql_extensions comes from.
+    #
+    # The rescue exists because we get here with Tomcat already stopped:
+    # a bare failure would leave the instance down with no explanation of
+    # what state its database is in. We deliberately do NOT restart Tomcat
+    # — the restore tasks acquire the dump before dropping anything, so an
+    # early failure (e.g. no disk left for the dump) leaves the old
+    # database intact, while a late one leaves it half-applied. Starting
+    # DHIS2 against a half-applied schema is worse than leaving it stopped
+    # for an operator to decide.
+    - name: Replace the database from the staged dump
+      block:
+        - name: Replace the database from the staged dump
+          ansible.builtin.include_role:
+            name: postgres
+            tasks_from: restore
+      rescue:
+        - name: Report that the instance was left stopped
+          ansible.builtin.fail:
+            msg: >-
+              Restore of "{{ dhis2_db_name }}" failed and Tomcat on
+              {{ instance_name }} has been left STOPPED on purpose. The dump
+              is acquired before the database is dropped, so if this failed
+              during staging/pg_dump the old database is still intact and
+              you can simply start Tomcat again; if it failed during
+              pg_restore the database is partially applied and should be
+              restored again from a known-good source before starting
+              DHIS2. See the failing task above to tell the two apart.
+
+# ---------------------------------------------------------------------------
+# Phase 5 — bring the instance back up
+# ---------------------------------------------------------------------------
+- name: 'Phase 5 — start Tomcat and verify the instance'
+  hosts: instances
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Start Tomcat
+      ansible.builtin.systemd:
+        name: "{{ tomcat_service_name | default('tomcat') }}"
+        state: started
+        enabled: true
+
+    # Same polling contract as site.yml's post-provision check: the
+    # context root always redirects to the login app (302) regardless of
+    # DHIS2 version, and exit 2 short-circuits on an unrecoverable Tomcat
+    # startup error instead of waiting out the full retry budget. A
+    # same-version restore skips Flyway migrations, so 10 minutes is a
+    # generous ceiling here (create allows 15).
+    - name: Wait for DHIS2 web endpoint to respond (fail fast on Tomcat startup error)
+      ansible.builtin.shell: |
+        set -u
+        ctx='{{ ("/" ~ fqdn.split("/", 1)[1] | trim("/")) if (fqdn is defined and "/" in fqdn) else "" }}'
+        url="http://127.0.0.1:8080${ctx}/"
+        code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$url" || echo 000)
+        if [ "$code" = "200" ] || [ "$code" = "302" ]; then
+          echo "HEALTHY $code"
+          exit 0
+        fi
+        log=/opt/tomcat/logs/catalina.out
+        if [ -f "$log" ] && grep -E -q \
+          'Context \[[^]]*\] startup failed|One or more listeners failed to start|FATAL|ApplicationContext .* failed|BeanCreationException' \
+          "$log"; then
+          echo "FATAL Tomcat reported an unrecoverable startup failure (code=$code)"
+          grep -E -n \
+            'Context \[[^]]*\] startup failed|One or more listeners failed to start|FATAL|ApplicationContext .* failed|BeanCreationException|Caused by:' \
+            "$log" | tail -n 20
+          exit 2
+        fi
+        echo "PENDING $code"
+        exit 1
+      args:
+        executable: /bin/bash
+      register: dhis2_restore_health
+      retries: 60
+      delay: 10
+      until: dhis2_restore_health.rc == 0 or dhis2_restore_health.rc == 2
+      failed_when: dhis2_restore_health.rc != 0
+      changed_when: false
+
+    - name: Report restore result
+      ansible.builtin.debug:
+        msg: >-
+          Restore complete — {{ instance_name }} is serving again
+          ({{ dhis2_restore_health.stdout | default('') | trim }}).

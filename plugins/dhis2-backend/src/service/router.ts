@@ -1787,6 +1787,110 @@ export async function createRouter(
   });
 
   // ---------------------------------------------------------------------
+  // Restore an existing instance's database from a dump
+  // ---------------------------------------------------------------------
+  // The counterpart to the restore performed during provisioning: same
+  // RestoreSource shapes, same Ansible roles, but against an instance that
+  // is already live (see ansible/restore.yml). Destructive — the target's
+  // database is dropped and recreated, which the UI warns about before
+  // calling this.
+  router.post('/instances/:id/restore', async (req, res) => {
+    if (!provisionService.isConfigured()) {
+      res.status(503).json({
+        error:
+          'Provisioning orchestrator is not configured. Set dhis2.orchestrator in app-config.yaml.',
+      });
+      return;
+    }
+    const instanceId = req.params.id;
+    const instances = await provisionService.listInstances();
+    const instance = instances.find(i => i.id === instanceId);
+    if (!instance) {
+      res.status(404).json({ error: `Instance ${instanceId} not found` });
+      return;
+    }
+    if (!instance.database?.name || !instance.database?.user) {
+      res.status(400).json({
+        error: `Instance ${instanceId} has no database name/user recorded — cannot restore into it.`,
+      });
+      return;
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const sourceKind = String(body.kind ?? '').trim();
+
+    // Restoring an instance from itself is always a mistake: it would stop
+    // Tomcat and drop the database only to re-apply a dump of that same
+    // database. Catch it here rather than letting the playbook do it.
+    if (
+      sourceKind === 'instance' &&
+      String(body.sourceInstanceId ?? '').trim() === instanceId
+    ) {
+      res.status(400).json({
+        error:
+          'restore.instance: the source and target instance are the same. Pick a different source.',
+      });
+      return;
+    }
+
+    // With a remote database the restore role drops/recreates over TCP
+    // using the stored admin credentials; with a container-local one it
+    // goes through the postgres unix socket and needs no password.
+    const dbHost = (instance.database.host ?? '').trim().toLowerCase();
+    const dbIsRemote =
+      dbHost !== '' &&
+      !['localhost', '127.0.0.1', '::1', 'postgres'].includes(dbHost);
+    if (dbIsRemote && !instance.database.password) {
+      res.status(400).json({
+        error: `No stored password for ${instance.name} — it is required to drop and recreate "${instance.database.name}" on ${instance.database.host}. Re-enter credentials in the Edit dialog and retry.`,
+      });
+      return;
+    }
+
+    let spec: Record<string, unknown> | null;
+    try {
+      spec = await provisionService.translateRestoreSource(body);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(400).json({ error: message });
+      return;
+    }
+    if (!spec) {
+      res.status(400).json({
+        error:
+          'A restore source is required (kind: upload | url | s3 | instance).',
+      });
+      return;
+    }
+
+    let job;
+    try {
+      job = provisionService.startRestoreJob({
+        instance,
+        spec,
+        uploadToken:
+          sourceKind === 'upload'
+            ? String(body.uploadToken ?? '') || undefined
+            : undefined,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(400).json({ error: message });
+      return;
+    }
+
+    logger.info(
+      `DHIS2: restore job ${job.id} started for ${instanceId} (vmid=${instance.vmid}) from kind=${spec.kind}`,
+    );
+    res.status(202).json({
+      jobId: job.id,
+      instanceId,
+      status: job.status,
+      startedAt: job.startedAt,
+    });
+  });
+
+  // ---------------------------------------------------------------------
   // Per-instance nginx proxy files (upstream snippet + vhost / dhis.conf)
   // ---------------------------------------------------------------------
   function parseProxyAccessOverrides(body: unknown): {

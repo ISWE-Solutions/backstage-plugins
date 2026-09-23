@@ -1516,6 +1516,89 @@ function buildUpgradeCommand(
   return `${envPrefix} bash -lc ${shellQuote(quotedArgs)}`;
 }
 
+/**
+ * A restore into an already-provisioned instance. The RestoreSource from
+ * the frontend has already been translated into the `--restore-spec` JSON
+ * shape by `translateRestoreSource`, so the job runner only has to write
+ * it to a tempfile and hand the path to restore-instance.sh.
+ */
+export interface RestoreRequest {
+  /** The instance whose database is being replaced. */
+  instance: PersistedInstance;
+  /** Translated restore spec (the create flow's `--restore-spec` shape). */
+  spec: Record<string, unknown>;
+  /** Set for kind=upload so the staged file is cleaned up afterwards. */
+  uploadToken?: string;
+}
+
+function buildRestoreCommand(
+  cfg: OrchestratorConfig,
+  req: RestoreRequest,
+  specPath: string,
+  scriptPath: string,
+): string {
+  const inst = req.instance;
+  const db = inst.database ?? { name: '', user: '' };
+
+  const args: string[] = [
+    scriptPath,
+    '--vmid',
+    String(inst.vmid),
+    '--node',
+    inst.node,
+    '--instance-name',
+    inst.name,
+    '--hostname',
+    inst.name,
+    '--domain',
+    inst.domain,
+    '--restore-spec',
+    specPath,
+    '--db-name',
+    db.name,
+    '--db-user',
+    db.user,
+  ];
+  if (db.host && db.host.trim() !== '') {
+    args.push('--db-host', db.host.trim());
+  }
+  if (typeof db.port === 'number' && Number.isInteger(db.port) && db.port > 0) {
+    args.push('--db-port', String(db.port));
+  }
+  // restore.yml SSHes into the container as the ansible user created at
+  // provision time; the script defaults the username, we only supply the
+  // key. (Unlike upgrade, no PVE host is needed — the only Proxmox call
+  // is the REST lookup that resolves the container's address.)
+  const sshKey = normalizeSshPrivateKeyPath(cfg.privateKeyFile);
+  if (sshKey) {
+    args.push('--ssh-key', sshKey);
+  }
+
+  const { apiUser, apiTokenId } = normalizeProxmoxCreds(
+    cfg.apiUser,
+    cfg.apiTokenId,
+  );
+  const env: Record<string, string> = {
+    PROXMOX_API_URL: cfg.apiUrl,
+    PROXMOX_USER: apiUser,
+    PROXMOX_TOKEN_ID: apiTokenId,
+    PROXMOX_TOKEN_SECRET: cfg.apiTokenSecret,
+    PROXMOX_VALIDATE_CERTS: cfg.validateApiCerts ? 'true' : 'false',
+  };
+  if (db.password) {
+    env.DHIS2_DB_PASS = db.password;
+  }
+  const debugFlag = process.env.DHIS2_DEBUG;
+  if (debugFlag && debugFlag !== '0' && debugFlag.toLowerCase() !== 'false') {
+    env.DHIS2_DEBUG = '1';
+  }
+  const envPrefix = Object.entries(env)
+    .map(([k, v]) => `${k}=${shellQuote(v)}`)
+    .join(' ');
+  const quotedArgs = args.map(shellQuote).join(' ');
+  return `${envPrefix} bash -lc ${shellQuote(quotedArgs)}`;
+}
+
 export class ProvisionService {
   /**
    * In-memory registry of staged dump uploads, keyed by opaque token.
@@ -2402,6 +2485,118 @@ export class ProvisionService {
         job,
         `[backend] WARN: instance ${req.instanceId} not found in registry — version not persisted.`,
       );
+    }
+  }
+
+  /**
+   * Start a restore job against an existing instance. Returns the job id
+   * immediately; restore-instance.sh runs asynchronously and streams
+   * stdout/stderr into the job's log buffer, exactly like startUpgradeJob.
+   *
+   * Destructive by nature: the playbook stops Tomcat, drops and recreates
+   * the instance's database, applies the dump and starts Tomcat again.
+   */
+  startRestoreJob(req: RestoreRequest): JobSnapshot {
+    if (!this.cfg) {
+      throw new Error(
+        'Restore is not configured. Set dhis2.orchestrator in app-config.yaml.',
+      );
+    }
+    const cfg = this.cfg;
+    const id = randomUUID();
+    const job: JobSnapshot = {
+      id,
+      status: 'queued',
+      startedAt: new Date().toISOString(),
+      lines: [],
+      request: {
+        name: req.instance.name,
+        domain: req.instance.domain,
+        version: req.instance.version,
+        node: req.instance.node,
+        vmid: Number(req.instance.vmid),
+      },
+    };
+    jobs.set(id, job);
+
+    this.runRestoreJob(job, cfg, req).catch(err => {
+      job.status = 'failed';
+      job.error = err instanceof Error ? err.message : String(err);
+      job.finishedAt = new Date().toISOString();
+      appendLine(job, `[backend] FATAL: ${job.error}`);
+      this.logger.error(`DHIS2: restore job ${id} crashed: ${job.error}`);
+    });
+
+    return snapshot(job);
+  }
+
+  private async runRestoreJob(
+    job: JobSnapshot,
+    cfg: OrchestratorConfig,
+    req: RestoreRequest,
+  ): Promise<void> {
+    job.status = 'running';
+    const restoreScript = path.join(
+      path.dirname(cfg.scriptPath),
+      'restore-instance.sh',
+    );
+    const inst = req.instance;
+    appendLine(
+      job,
+      `[backend] Restoring instance "${inst.name}" (vmid=${inst.vmid}, node=${inst.node}) from restore kind=${req.spec.kind}.`,
+    );
+    appendLine(
+      job,
+      `[backend] Tomcat will be stopped and database "${inst.database.name}" dropped and recreated.`,
+    );
+
+    // The spec carries the source instance's password for kind=instance,
+    // so it lands in the staging dir at 0600 and is removed in the finally
+    // below — never on argv, never in the job log.
+    let specPath: string | undefined;
+    try {
+      const stagingDir = await this.resolveRestoreStagingDir();
+      specPath = path.join(stagingDir, `restore-spec-${job.id}.json`);
+      await fs.writeFile(specPath, JSON.stringify(req.spec), { mode: 0o600 });
+    } catch (err) {
+      job.status = 'failed';
+      job.error = `restore-spec preparation failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+      job.finishedAt = new Date().toISOString();
+      appendLine(job, `[backend] FATAL: ${job.error}`);
+      return;
+    }
+
+    try {
+      const command = buildRestoreCommand(cfg, req, specPath, restoreScript);
+      appendLine(
+        job,
+        `[backend] Executing: ${restoreScript} --vmid ${inst.vmid} --node ${inst.node} --instance-name ${inst.name} --domain ${inst.domain} --db-name ${inst.database.name} (secrets via env)`,
+      );
+
+      const exitCode = await runLocal(job, command);
+      job.exitCode = exitCode;
+      job.finishedAt = new Date().toISOString();
+
+      if (exitCode !== 0) {
+        job.status = 'failed';
+        job.error = `restore-instance.sh exited with code ${exitCode}`;
+        appendLine(job, `[backend] ${job.error}`);
+        return;
+      }
+
+      job.status = 'success';
+      appendLine(job, `[backend] restore-instance.sh exited 0`);
+      appendLine(
+        job,
+        `[backend] ${inst.name} now holds the restored database; no registry fields changed.`,
+      );
+    } finally {
+      if (specPath) {
+        await fs.unlink(specPath).catch(() => {});
+      }
+      await this.consumeUploadToken(req.uploadToken);
     }
   }
 
