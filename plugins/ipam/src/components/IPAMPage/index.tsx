@@ -4,6 +4,7 @@ import { makeStyles } from '@material-ui/core/styles';
 import { DashboardView } from '../DashboardView/DashboardView';
 import { IPListView } from '../IPListView/IPListView';
 import { SubnetListView } from '../SubnetListView/SubnetListView';
+import { AttentionView } from '../AttentionView/AttentionView';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -56,6 +57,7 @@ export const IPAMPage = () => {
           <Tab label="Dashboard" />
           <Tab label="IP Addresses" />
           <Tab label="Subnets" />
+          <Tab label="Attention" />
         </Tabs>
       </Paper>
 
@@ -69,6 +71,10 @@ export const IPAMPage = () => {
 
       <TabPanel value={activeTab} index={2}>
         <SubnetListView />
+      </TabPanel>
+
+      <TabPanel value={activeTab} index={3}>
+        <AttentionView />
       </TabPanel>
     </Box>
   );

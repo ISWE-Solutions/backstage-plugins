@@ -29,6 +29,8 @@ import AddIcon from '@material-ui/icons/Add';
 import ViewColumnIcon from '@material-ui/icons/ViewColumn';
 import { IPAddress, IPStatus, IPFilter, Subnet, VLAN } from '../../types';
 import { useApi } from '@backstage/core-plugin-api';
+import { usePermission } from '@backstage/plugin-permission-react';
+import { ipamAddressCreatePermission } from '@internal/plugin-ipam-common';
 import { ipamApiRef } from '../../services/ipamService';
 import { AddIPDialog } from '../AddIPDialog/AddIPDialog';
 import {
@@ -136,6 +138,9 @@ const getStatusColor = (status: IPStatus) => {
 export const IPListView = () => {
   const classes = useStyles();
   const ipamService = useApi(ipamApiRef);
+  const { allowed: canCreate } = usePermission({
+    permission: ipamAddressCreatePermission,
+  });
   const [ipAddresses, setIPAddresses] = useState<IPAddress[]>([]);
   const [subnets, setSubnets] = useState<Subnet[]>([]);
   const [vlans, setVLANs] = useState<VLAN[]>([]);
@@ -419,14 +424,25 @@ export const IPListView = () => {
           </MenuItem>
         </Menu>
 
-        <Button
-          variant="contained"
-          color="primary"
-          startIcon={<AddIcon />}
-          onClick={() => setAddDialogOpen(true)}
+        <Tooltip
+          title={
+            canCreate
+              ? ''
+              : 'You need the IPAM editor role (phpIPAM Admins or Operators group in SSO)'
+          }
         >
-          Add IP Address
-        </Button>
+          <span>
+            <Button
+              variant="contained"
+              color="primary"
+              startIcon={<AddIcon />}
+              disabled={!canCreate}
+              onClick={() => setAddDialogOpen(true)}
+            >
+              Add IP Address
+            </Button>
+          </span>
+        </Tooltip>
       </Box>
 
       {ipAddresses.length === 0 ? (

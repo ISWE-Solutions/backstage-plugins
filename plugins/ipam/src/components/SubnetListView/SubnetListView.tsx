@@ -10,6 +10,7 @@ import {
   TableRow,
   Typography,
   Button,
+  Tooltip,
   LinearProgress,
   Chip,
 } from '@material-ui/core';
@@ -18,6 +19,8 @@ import { makeStyles } from '@material-ui/core/styles';
 import AddIcon from '@material-ui/icons/Add';
 import { Subnet, VLAN } from '../../types';
 import { useApi } from '@backstage/core-plugin-api';
+import { usePermission } from '@backstage/plugin-permission-react';
+import { ipamSubnetCreatePermission } from '@internal/plugin-ipam-common';
 import { ipamApiRef } from '../../services/ipamService';
 import { AddSubnetDialog } from '../AddSubnetDialog/AddSubnetDialog';
 
@@ -55,6 +58,9 @@ const getUtilizationColor = (percent: number) => {
 
 export const SubnetListView = () => {
   const ipamService = useApi(ipamApiRef);
+  const { allowed: canCreate } = usePermission({
+    permission: ipamSubnetCreatePermission,
+  });
   const classes = useStyles();
   const [subnets, setSubnets] = useState<Subnet[]>([]);
   const [vlans, setVLANs] = useState<VLAN[]>([]);
@@ -101,14 +107,25 @@ export const SubnetListView = () => {
     <Box className={classes.root}>
       <Box className={classes.header}>
         <Typography variant="h5">Subnets</Typography>
-        <Button
-          variant="contained"
-          color="primary"
-          startIcon={<AddIcon />}
-          onClick={() => setAddDialogOpen(true)}
+        <Tooltip
+          title={
+            canCreate
+              ? ''
+              : 'You need the IPAM editor role (phpIPAM Admins or Operators group in SSO)'
+          }
         >
-          Add Subnet
-        </Button>
+          <span>
+            <Button
+              variant="contained"
+              color="primary"
+              startIcon={<AddIcon />}
+              disabled={!canCreate}
+              onClick={() => setAddDialogOpen(true)}
+            >
+              Add Subnet
+            </Button>
+          </span>
+        </Tooltip>
       </Box>
 
       {subnets.length === 0 ? (

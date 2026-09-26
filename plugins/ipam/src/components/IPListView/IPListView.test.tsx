@@ -1,5 +1,10 @@
 import { fireEvent, screen, within } from '@testing-library/react';
-import { renderInTestApp, TestApiProvider } from '@backstage/test-utils';
+import {
+  MockPermissionApi,
+  renderInTestApp,
+  TestApiProvider,
+} from '@backstage/test-utils';
+import { permissionApiRef } from '@backstage/plugin-permission-react';
 import { IPListView } from './IPListView';
 import { ipamApiRef } from '../../services/ipamService';
 import { IPStatus } from '../../types';
@@ -43,7 +48,12 @@ const api = {
 
 const renderList = () =>
   renderInTestApp(
-    <TestApiProvider apis={[[ipamApiRef, api]]}>
+    <TestApiProvider
+      apis={[
+        [ipamApiRef, api],
+        [permissionApiRef, new MockPermissionApi()],
+      ]}
+    >
       <IPListView />
     </TestApiProvider>,
   );

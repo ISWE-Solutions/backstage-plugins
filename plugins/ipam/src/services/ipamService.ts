@@ -16,8 +16,9 @@ import {
 } from '../types';
 
 /**
- * Client for phpIPAM (LXC 116, 10.20.30.127), reached through the Backstage
- * proxy at /api/proxy/phpipam, which injects the `backstage` API app code.
+ * Client for phpIPAM (LXC 116, 10.20.30.127), reached through the ipam
+ * backend plugin at /api/ipam/phpipam, which holds the `backstage` API app
+ * code and checks the ipam.*.create permissions on writes.
  * Addresses are populated by phpIPAM's own ping/discovery scans and by the
  * ipam_sync.py job (Proxmox guests, DHCP leases, ARP) — see the IPAM docs.
  */
@@ -76,7 +77,7 @@ export class IPAMService {
     path: string,
     body?: object,
   ): Promise<T | undefined> {
-    const base = `${await this.discoveryApi.getBaseUrl('proxy')}/phpipam`;
+    const base = `${await this.discoveryApi.getBaseUrl('ipam')}/phpipam`;
     const response = await this.fetchApi.fetch(
       `${base}/${path.replace(/^\/|\/$/g, '')}/`,
       {

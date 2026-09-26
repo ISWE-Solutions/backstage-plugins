@@ -73,7 +73,7 @@ const responses: Record<string, { status: number; body: unknown }> = {
 const fetchApi: FetchApi = {
   fetch: jest.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
-    const key = url.replace('http://backstage/api/proxy/phpipam/', '');
+    const key = url.replace('http://backstage/api/ipam/phpipam/', '');
     const r = responses[key] ?? {
       status: 500,
       body: { success: false, message: `unexpected ${key}` },
@@ -87,7 +87,7 @@ const fetchApi: FetchApi = {
   }),
 };
 const discoveryApi: DiscoveryApi = {
-  getBaseUrl: async () => 'http://backstage/api/proxy',
+  getBaseUrl: async () => 'http://backstage/api/ipam',
 };
 
 describe('IPAMService (phpIPAM)', () => {
