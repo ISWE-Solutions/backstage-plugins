@@ -40,6 +40,8 @@ const STATUS_TO_TAG: Record<IPStatus, number> = {
 };
 
 const DISCOVERY_MARKER = 'discovery:';
+// note phpIPAM's own discoveryCheck.php puts on hosts found by its ping sweep
+const SCAN_NOTE = 'This host was autodiscovered';
 
 interface PhpIpamResponse<T> {
   code: number;
@@ -57,12 +59,10 @@ const toIso = (value?: string | null) =>
 
 /** "discovery: proxmox+arp; LXC 115 on pve11; last seen ..." -> "proxmox+arp" */
 const sourceFromNote = (note?: string | null) => {
-  const line = (note ?? '')
-    .split('\n')
-    .find(l => l.startsWith(DISCOVERY_MARKER));
-  return line
-    ? line.slice(DISCOVERY_MARKER.length).split(';')[0].trim()
-    : 'manual';
+  const lines = (note ?? '').split('\n');
+  const line = lines.find(l => l.startsWith(DISCOVERY_MARKER));
+  if (line) return line.slice(DISCOVERY_MARKER.length).split(';')[0].trim();
+  return lines.some(l => l.startsWith(SCAN_NOTE)) ? 'scan' : 'manual';
 };
 
 export class IPAMService {

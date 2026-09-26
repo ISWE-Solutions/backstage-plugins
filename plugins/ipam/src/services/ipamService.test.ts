@@ -46,7 +46,7 @@ const addresses = [
     ip: '10.20.30.50',
     hostname: '',
     tag: '1',
-    note: 'SAN portal',
+    note: 'This host was autodiscovered on 2026-09-26 07:39:10',
     lastSeen: '0000-00-00 00:00:00',
   },
 ];
@@ -98,7 +98,7 @@ describe('IPAMService (phpIPAM)', () => {
     expect(result.map(a => [a.ipAddress, a.status, a.source])).toEqual([
       ['10.20.30.126', IPStatus.ALLOCATED, 'proxmox+arp'],
       ['10.20.30.200', IPStatus.DHCP, 'manual'],
-      ['10.20.30.50', IPStatus.OFFLINE, 'manual'],
+      ['10.20.30.50', IPStatus.OFFLINE, 'scan'],
     ]);
     expect(result[0].macAddress).toBe('bc:24:11:aa:bb:cc');
     expect(result[0].lastSeen).toBe(
