@@ -83,7 +83,15 @@ export function findAttentionItems(
       items.push({ category: 'conflict', address, detail: conflict });
     }
 
-    if (address.source === 'scan') {
+    // Seen only on the wire (ping sweep and/or ARP table) — no Proxmox guest,
+    // DHCP lease or manual record accounts for it. The sync rewrites scan
+    // records as "arp" once the ARP table has them, so both count.
+    const observedOnly =
+      !!address.source &&
+      address.source
+        .split('+')
+        .every(part => part === 'scan' || part === 'arp');
+    if (observedOnly) {
       items.push({
         category: 'unknown',
         address,

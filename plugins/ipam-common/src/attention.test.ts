@@ -36,6 +36,18 @@ describe('findAttentionItems', () => {
     ).toEqual(['unknown:10.20.30.164']);
   });
 
+  it('treats addresses seen only by ARP (or scan+arp) as unknown, not proxmox+arp', () => {
+    expect(
+      categories([
+        addr({ ipAddress: '10.20.30.2', source: 'arp' }),
+        addr({ ipAddress: '10.20.30.3', source: 'scan+arp' }),
+        addr({ ipAddress: '10.20.30.4', source: 'proxmox+arp' }),
+        addr({ ipAddress: '10.20.30.5', source: 'dhcp+arp' }),
+        addr({ ipAddress: '10.20.30.6', source: 'manual' }),
+      ]),
+    ).toEqual(['unknown:10.20.30.2', 'unknown:10.20.30.3']);
+  });
+
   it('reads MAC conflicts recorded by the sync', () => {
     const items = findAttentionItems(
       [
