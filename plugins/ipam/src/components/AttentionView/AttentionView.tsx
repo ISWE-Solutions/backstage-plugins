@@ -20,6 +20,7 @@ import { Alert } from '@material-ui/lab';
 import { makeStyles } from '@material-ui/core/styles';
 import { useApi } from '@backstage/core-plugin-api';
 import { ipamApiRef } from '../../services/ipamService';
+import { downloadText, toCsv } from '../IPListView/csv';
 import { IPAddress, Subnet } from '../../types';
 import {
   AttentionCategory,
@@ -124,6 +125,33 @@ export const AttentionView = () => {
     return s ? `${s.network}/${s.cidr}` : id;
   };
 
+  const exportCsv = () =>
+    downloadText(
+      `ipam-attention-${category ?? 'all'}-${new Date()
+        .toISOString()
+        .slice(0, 10)}.csv`,
+      toCsv([
+        [
+          'Issue',
+          'IP Address',
+          'Hostname',
+          'Subnet',
+          'Source',
+          'Detail',
+          'Last Seen',
+        ],
+        ...shown.map(i => [
+          CATEGORY_INFO[i.category].label,
+          i.address.ipAddress,
+          i.address.hostname ?? '',
+          subnetOf(i.address.subnetId),
+          i.address.source ?? '',
+          i.detail,
+          i.address.lastSeen ?? '',
+        ]),
+      ]),
+    );
+
   if (loading) return <LinearProgress />;
   if (loadError) {
     return (
@@ -167,6 +195,14 @@ export const AttentionView = () => {
             </Tooltip>
           ))}
         </Box>
+        <Button
+          variant="outlined"
+          size="small"
+          onClick={exportCsv}
+          disabled={shown.length === 0}
+        >
+          Export CSV
+        </Button>
       </Box>
 
       {category && (

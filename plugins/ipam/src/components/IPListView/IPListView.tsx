@@ -21,6 +21,7 @@ import {
   ListItemText,
   Divider,
   Tooltip,
+  IconButton,
 } from '@material-ui/core';
 import { Alert } from '@material-ui/lab';
 import { makeStyles } from '@material-ui/core/styles';
@@ -28,14 +29,24 @@ import SearchIcon from '@material-ui/icons/Search';
 import AddIcon from '@material-ui/icons/Add';
 import ViewColumnIcon from '@material-ui/icons/ViewColumn';
 import GetAppIcon from '@material-ui/icons/GetApp';
+import EditIcon from '@material-ui/icons/Edit';
+import DeleteIcon from '@material-ui/icons/Delete';
 import { IPAddress, IPStatus, IPFilter, Subnet, VLAN } from '../../types';
 import { useApi } from '@backstage/core-plugin-api';
 import { usePermission } from '@backstage/plugin-permission-react';
-import { ipamAddressCreatePermission } from '@internal/plugin-ipam-common';
+import {
+  ipamAddressCreatePermission,
+  ipamAddressDeletePermission,
+  ipamAddressUpdatePermission,
+} from '@internal/plugin-ipam-common';
 import { ipamApiRef } from '../../services/ipamService';
 import { AddIPDialog } from '../AddIPDialog/AddIPDialog';
 import { AllocateDialog } from '../AllocateDialog/AllocateDialog';
 import { AddressDetail } from '../AddressDetail/AddressDetail';
+import {
+  DeleteAddressDialog,
+  EditAddressDialog,
+} from '../AddressDetail/AddressDialogs';
 import { downloadText, toCsv } from './csv';
 import {
   ColumnDefinition,
@@ -122,6 +133,7 @@ const COLUMNS: ColumnDefinition[] = [
   { id: 'macAddress', label: 'MAC Address', defaultWidth: 160 },
   { id: 'description', label: 'Description', defaultWidth: 220 },
   { id: 'lastSeen', label: 'Last Seen', defaultWidth: 180 },
+  { id: 'actions', label: 'Actions', defaultWidth: 100 },
 ];
 
 const getStatusColor = (status: IPStatus) => {
@@ -145,6 +157,14 @@ export const IPListView = () => {
   const { allowed: canCreate } = usePermission({
     permission: ipamAddressCreatePermission,
   });
+  const { allowed: canUpdate } = usePermission({
+    permission: ipamAddressUpdatePermission,
+  });
+  const { allowed: canDelete } = usePermission({
+    permission: ipamAddressDeletePermission,
+  });
+  const [editTarget, setEditTarget] = useState<IPAddress>();
+  const [deleteTarget, setDeleteTarget] = useState<IPAddress>();
   const [ipAddresses, setIPAddresses] = useState<IPAddress[]>([]);
   const [subnets, setSubnets] = useState<Subnet[]>([]);
   const [vlans, setVLANs] = useState<VLAN[]>([]);
@@ -291,6 +311,48 @@ export const IPListView = () => {
         return ip.description || '-';
       case 'lastSeen':
         return ip.lastSeen ? new Date(ip.lastSeen).toLocaleString() : '-';
+      case 'actions':
+        return (
+          <span>
+            <Tooltip
+              title={canUpdate ? 'Edit' : 'Edit — needs ipam.address.update'}
+            >
+              <span>
+                <IconButton
+                  size="small"
+                  aria-label={`Edit ${ip.ipAddress}`}
+                  disabled={!canUpdate}
+                  onClick={e => {
+                    // keep the row click (which opens the detail panel) from firing
+                    e.stopPropagation();
+                    setEditTarget(ip);
+                  }}
+                >
+                  <EditIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip
+              title={
+                canDelete ? 'Delete' : 'Delete — needs ipam.address.delete'
+              }
+            >
+              <span>
+                <IconButton
+                  size="small"
+                  aria-label={`Delete ${ip.ipAddress}`}
+                  disabled={!canDelete}
+                  onClick={e => {
+                    e.stopPropagation();
+                    setDeleteTarget(ip);
+                  }}
+                >
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </span>
+        );
       default:
         return null;
     }
@@ -315,7 +377,7 @@ export const IPListView = () => {
   };
 
   const exportCsv = () => {
-    const cols = columns.visibleColumns;
+    const cols = columns.visibleColumns.filter(c => c.id !== 'actions');
     const rows = [
       cols.map(c => c.label),
       ...ipAddresses.map(ip => cols.map(c => cellTitle(c.id, ip))),
@@ -582,6 +644,23 @@ export const IPListView = () => {
           </TableContainer>
         </>
       )}
+
+      <EditAddressDialog
+        address={editTarget}
+        onClose={() => setEditTarget(undefined)}
+        onSaved={() => {
+          setEditTarget(undefined);
+          fetchData();
+        }}
+      />
+      <DeleteAddressDialog
+        address={deleteTarget}
+        onClose={() => setDeleteTarget(undefined)}
+        onDeleted={() => {
+          setDeleteTarget(undefined);
+          fetchData();
+        }}
+      />
 
       <AddressDetail
         address={selected}

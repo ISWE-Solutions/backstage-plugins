@@ -1,4 +1,4 @@
-import { fireEvent, screen, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import {
   MockPermissionApi,
   renderInTestApp,
@@ -44,6 +44,8 @@ const api = {
     total_entries: 1,
   })),
   getVLANs: jest.fn(async () => ({ vlans: [], total_entries: 0 })),
+  updateAddress: jest.fn(async () => undefined),
+  deleteAddress: jest.fn(async () => undefined),
   getConfig: jest.fn(async () => ({
     dhcpRanges: [],
     proxmoxUiUrls: {},
@@ -82,6 +84,7 @@ describe('IPListView columns', () => {
       'MAC Address',
       'Description',
       'Last Seen',
+      'Actions',
     ]);
   });
 
@@ -114,5 +117,27 @@ describe('IPListView columns', () => {
       JSON.parse(window.localStorage.getItem('ipam.ipListView.columns.v1')!)
         .widths,
     ).toEqual({ hostname: 200 });
+  });
+
+  it('edits and deletes an address from its table row', async () => {
+    await renderList();
+    await screen.findByText('keycloak');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit 10.20.30.126' }));
+    const hostname = await screen.findByLabelText('Hostname');
+    fireEvent.change(hostname, { target: { value: 'keycloak-01' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(api.updateAddress).toHaveBeenCalledWith(
+        '1',
+        expect.objectContaining({ hostname: 'keycloak-01' }),
+      ),
+    );
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Delete 10.20.30.126' }),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(api.deleteAddress).toHaveBeenCalledWith('1'));
   });
 });

@@ -71,7 +71,7 @@ export const DashboardView = () => {
       .then(setHistory)
       .catch(() => setHistory([]));
     ipamService
-      .getSyncStatus(5)
+      .getSyncStatus(100)
       .then(setSyncRuns)
       .catch(() => setSyncRuns([]));
   }, [ipamService]);

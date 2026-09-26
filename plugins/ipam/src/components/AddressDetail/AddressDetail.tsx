@@ -3,16 +3,10 @@ import {
   Box,
   Button,
   Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   Divider,
   Drawer,
   IconButton,
   Link,
-  MenuItem,
-  TextField,
   Typography,
 } from '@material-ui/core';
 import { Alert } from '@material-ui/lab';
@@ -24,8 +18,9 @@ import {
   ipamAddressUpdatePermission,
 } from '@internal/plugin-ipam-common';
 import { AddressChange, ipamApiRef } from '../../services/ipamService';
-import { IPAddress, IPStatus } from '../../types';
+import { IPAddress } from '../../types';
 import { backstageSearchLink, proxmoxGuestLink } from './links';
+import { DeleteAddressDialog, EditAddressDialog } from './AddressDialogs';
 
 interface Props {
   address?: IPAddress;
@@ -79,7 +74,6 @@ export const AddressDetail = ({
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string>();
-  const [form, setForm] = useState<Partial<IPAddress>>({});
 
   useEffect(() => {
     setHistory(undefined);
@@ -94,48 +88,6 @@ export const AddressDetail = ({
 
   if (!address) return null;
   const proxmox = proxmoxGuestLink(address, proxmoxUiUrls);
-
-  const startEdit = () => {
-    setForm({
-      hostname: address.hostname ?? '',
-      description: address.description ?? '',
-      assignedTo: address.assignedTo ?? '',
-      macAddress: address.macAddress ?? '',
-      status: address.status,
-      notes: address.notes ?? '',
-    });
-    setEditing(true);
-  };
-  const save = async () => {
-    try {
-      await ipamService.updateAddress(address.id, form);
-      setEditing(false);
-      onChanged();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  };
-  const remove = async () => {
-    try {
-      await ipamService.deleteAddress(address.id);
-      setConfirmDelete(false);
-      onChanged();
-      onClose();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  };
-  const field = (key: keyof IPAddress, label: string, extra: object = {}) => (
-    <TextField
-      id={`ipam-edit-${key}`}
-      label={label}
-      value={(form[key] as string) ?? ''}
-      onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-      fullWidth
-      margin="dense"
-      {...extra}
-    />
-  );
 
   return (
     <Drawer anchor="right" open onClose={onClose}>
@@ -208,7 +160,7 @@ export const AddressDetail = ({
             variant="outlined"
             color="primary"
             disabled={!canUpdate}
-            onClick={startEdit}
+            onClick={() => setEditing(true)}
           >
             Edit
           </Button>
@@ -254,59 +206,23 @@ export const AddressDetail = ({
         </Box>
       </Box>
 
-      <Dialog
-        open={editing}
+      <EditAddressDialog
+        address={editing ? address : undefined}
         onClose={() => setEditing(false)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>Edit {address.ipAddress}</DialogTitle>
-        <DialogContent>
-          {field('hostname', 'Hostname')}
-          {field('description', 'Description')}
-          {field('assignedTo', 'Owner')}
-          {field('macAddress', 'MAC address')}
-          <TextField
-            id="ipam-edit-status"
-            select
-            label="Status"
-            value={form.status ?? IPStatus.ALLOCATED}
-            onChange={e =>
-              setForm(f => ({ ...f, status: e.target.value as IPStatus }))
-            }
-            fullWidth
-            margin="dense"
-          >
-            <MenuItem value={IPStatus.ALLOCATED}>Used</MenuItem>
-            <MenuItem value={IPStatus.RESERVED}>Reserved</MenuItem>
-            <MenuItem value={IPStatus.OFFLINE}>Offline</MenuItem>
-            <MenuItem value={IPStatus.DHCP}>DHCP</MenuItem>
-          </TextField>
-          {field('notes', 'Note', { multiline: true, minRows: 3 })}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setEditing(false)}>Cancel</Button>
-          <Button color="primary" variant="contained" onClick={save}>
-            Save
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={confirmDelete} onClose={() => setConfirmDelete(false)}>
-        <DialogTitle>Delete {address.ipAddress}?</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2">
-            The record is removed from phpIPAM. If the address is still in use,
-            discovery will add it back as a new record.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmDelete(false)}>Cancel</Button>
-          <Button color="secondary" variant="contained" onClick={remove}>
-            Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
+        onSaved={() => {
+          setEditing(false);
+          onChanged();
+        }}
+      />
+      <DeleteAddressDialog
+        address={confirmDelete ? address : undefined}
+        onClose={() => setConfirmDelete(false)}
+        onDeleted={() => {
+          setConfirmDelete(false);
+          onChanged();
+          onClose();
+        }}
+      />
     </Drawer>
   );
 };

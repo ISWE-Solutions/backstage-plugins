@@ -5,6 +5,7 @@ import { DashboardView } from '../DashboardView/DashboardView';
 import { IPListView } from '../IPListView/IPListView';
 import { SubnetListView } from '../SubnetListView/SubnetListView';
 import { AttentionView } from '../AttentionView/AttentionView';
+import { SubnetMapView } from '../SubnetMap/SubnetMapView';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -37,7 +38,7 @@ const TabPanel = (props: TabPanelProps) => {
   );
 };
 
-const TABS = ['dashboard', 'addresses', 'subnets', 'attention'];
+const TABS = ['dashboard', 'addresses', 'subnets', 'map', 'attention'];
 
 export const IPAMPage = () => {
   const classes = useStyles();
@@ -64,6 +65,7 @@ export const IPAMPage = () => {
           <Tab label="Dashboard" />
           <Tab label="IP Addresses" />
           <Tab label="Subnets" />
+          <Tab label="Map" />
           <Tab label="Attention" />
         </Tabs>
       </Paper>
@@ -81,6 +83,10 @@ export const IPAMPage = () => {
       </TabPanel>
 
       <TabPanel value={activeTab} index={3}>
+        <SubnetMapView />
+      </TabPanel>
+
+      <TabPanel value={activeTab} index={4}>
         <AttentionView />
       </TabPanel>
     </Box>

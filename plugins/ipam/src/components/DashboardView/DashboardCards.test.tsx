@@ -16,25 +16,45 @@ const run = (finishedAt: string, over: object = {}) => ({
 const now = new Date('2026-09-26T12:00:00Z');
 
 describe('SyncStatusCard', () => {
-  it('shows the last real run with its counts', () => {
-    render(<SyncStatusCard now={now} runs={[run('2026-09-26T11:50:00Z')]} />);
-    expect(screen.getByText(/10 min ago, 8s/)).toBeTruthy();
+  it('shows the last successful run with records added and changed', () => {
+    render(
+      <SyncStatusCard
+        now={now}
+        runs={[run('2026-09-26T11:50:00Z', { created: 3, updated: 5 })]}
+      />,
+    );
+    expect(screen.getByText('Last successful run')).toBeTruthy();
+    expect(screen.getByText(/10 min ago/)).toBeTruthy();
+    expect(screen.getAllByText('3').length).toBeGreaterThan(0);
     expect(
       screen.getByText('Observed: proxmox 96 · dhcp 10 · arp 99'),
     ).toBeTruthy();
   });
 
-  it('warns when the sync has gone quiet and shows errors', () => {
+  it('keeps the last good run visible when the latest failed, and totals 24h', () => {
     render(
       <SyncStatusCard
         now={now}
         runs={[
-          run('2026-09-26T10:00:00Z', { errors: ['dhcp: failed: timeout'] }),
+          run('2026-09-26T11:55:00Z', {
+            errors: ['dhcp: failed: timeout'],
+            created: 0,
+            updated: 1,
+          }),
+          run('2026-09-26T11:40:00Z', { created: 2, updated: 4 }),
+          run('2026-09-25T09:00:00Z', { created: 50, updated: 50 }),
         ]}
       />,
     );
-    expect(screen.getByText(/finished 120 minutes ago/)).toBeTruthy();
     expect(screen.getByText('dhcp: failed: timeout')).toBeTruthy();
+    expect(screen.getByText(/20 min ago/)).toBeTruthy(); // last success at 11:40
+    // the 25 Sep run is older than 24 hours
+    expect(screen.getByText(/2 runs · records added:/)).toBeTruthy();
+  });
+
+  it('warns when the sync has gone quiet', () => {
+    render(<SyncStatusCard now={now} runs={[run('2026-09-26T10:00:00Z')]} />);
+    expect(screen.getByText(/No run reported for 120 minutes/)).toBeTruthy();
   });
 
   it('explains how to enable reporting when nothing has been reported', () => {
