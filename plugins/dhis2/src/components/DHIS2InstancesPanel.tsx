@@ -1,3 +1,7 @@
+import {
+  needsPermission,
+  useDhis2Permissions,
+} from '../hooks/useDhis2Permissions';
 import { useEffect, useMemo, useState } from 'react';
 
 import {
@@ -331,6 +335,7 @@ export const DHIS2InstancesPanel = ({
   reconcileWarning = null,
   clusterNodes,
 }: DHIS2InstancesPanelProps) => {
+  const can = useDhis2Permissions();
   const classes = useStyles();
 
   const [search, setSearch] = useState('');
@@ -896,7 +901,7 @@ export const DHIS2InstancesPanel = ({
           )
         }
         onClick={handleTestProxyConfig}
-        disabled={!!proxyBusy}
+        disabled={!can.proxy || !!proxyBusy}
       >
         Test Config
       </Button>
@@ -911,7 +916,7 @@ export const DHIS2InstancesPanel = ({
           )
         }
         onClick={handleReloadProxyNginx}
-        disabled={!!proxyBusy}
+        disabled={!can.proxy || !!proxyBusy}
       >
         Reload Nginx
       </Button>
@@ -920,7 +925,7 @@ export const DHIS2InstancesPanel = ({
         size="small"
         startIcon={<DescriptionIcon />}
         onClick={() => void openProxyLogs('access')}
-        disabled={!!proxyBusy}
+        disabled={!can.proxy || !!proxyBusy}
       >
         Access Log
       </Button>
@@ -929,7 +934,7 @@ export const DHIS2InstancesPanel = ({
         size="small"
         startIcon={<DescriptionIcon />}
         onClick={() => void openProxyLogs('error')}
-        disabled={!!proxyBusy}
+        disabled={!can.proxy || !!proxyBusy}
       >
         Error Log
       </Button>
@@ -938,6 +943,7 @@ export const DHIS2InstancesPanel = ({
         size="small"
         startIcon={<SettingsIcon />}
         onClick={openProxySettings}
+        disabled={!can.proxy}
       >
         Proxy Settings
       </Button>
@@ -945,7 +951,7 @@ export const DHIS2InstancesPanel = ({
       <ButtonGroup
         size="small"
         variant="outlined"
-        disabled={selected.size === 0}
+        disabled={!can.operate || selected.size === 0}
       >
         <Button startIcon={<PlayArrowIcon />} onClick={bulkStart}>
           Start
@@ -987,6 +993,7 @@ export const DHIS2InstancesPanel = ({
         size="small"
         startIcon={<AddIcon />}
         onClick={onCreateInstance}
+        disabled={!can.create}
       >
         Create Instance
       </Button>
@@ -1244,30 +1251,41 @@ export const DHIS2InstancesPanel = ({
                     </IconButton>
                   </Tooltip>
                   {instance.status === 'stopped' && (
-                    <Tooltip title="Start">
-                      <IconButton
-                        color="primary"
-                        onClick={() => onStart(instance.id)}
-                      >
-                        <PlayArrowIcon />
-                      </IconButton>
+                    <Tooltip title={needsPermission('Start', can.operate)}>
+                      <span>
+                        <IconButton
+                          disabled={!can.operate}
+                          color="primary"
+                          onClick={() => onStart(instance.id)}
+                        >
+                          <PlayArrowIcon />
+                        </IconButton>
+                      </span>
                     </Tooltip>
                   )}
                   {instance.status === 'running' && (
-                    <Tooltip title="Stop">
-                      <IconButton
-                        color="secondary"
-                        onClick={() => handleStop(instance)}
-                      >
-                        <StopIcon />
-                      </IconButton>
+                    <Tooltip title={needsPermission('Stop', can.operate)}>
+                      <span>
+                        <IconButton
+                          disabled={!can.operate}
+                          color="secondary"
+                          onClick={() => handleStop(instance)}
+                        >
+                          <StopIcon />
+                        </IconButton>
+                      </span>
                     </Tooltip>
                   )}
                   {instance.status === 'running' && (
-                    <Tooltip title="Restart">
-                      <IconButton onClick={() => handleRestart(instance)}>
-                        <ReplayIcon />
-                      </IconButton>
+                    <Tooltip title={needsPermission('Restart', can.operate)}>
+                      <span>
+                        <IconButton
+                          disabled={!can.operate}
+                          onClick={() => handleRestart(instance)}
+                        >
+                          <ReplayIcon />
+                        </IconButton>
+                      </span>
                     </Tooltip>
                   )}
                   {instance.status === 'running' && (
@@ -1277,43 +1295,70 @@ export const DHIS2InstancesPanel = ({
                       </IconButton>
                     </Tooltip>
                   )}
-                  <Tooltip title="View nginx access log for this site">
-                    <IconButton
-                      onClick={() => void openProxyLogs('access', instance)}
-                    >
-                      <ListAltIcon />
-                    </IconButton>
+                  <Tooltip
+                    title={needsPermission(
+                      'View nginx access log for this site',
+                      can.proxy,
+                    )}
+                  >
+                    <span>
+                      <IconButton
+                        disabled={!can.proxy}
+                        onClick={() => void openProxyLogs('access', instance)}
+                      >
+                        <ListAltIcon />
+                      </IconButton>
+                    </span>
                   </Tooltip>
-                  <Tooltip title="View nginx error log for this site">
-                    <IconButton
-                      onClick={() => void openProxyLogs('error', instance)}
-                    >
-                      <ErrorOutlineIcon />
-                    </IconButton>
+                  <Tooltip
+                    title={needsPermission(
+                      'View nginx error log for this site',
+                      can.proxy,
+                    )}
+                  >
+                    <span>
+                      <IconButton
+                        disabled={!can.proxy}
+                        onClick={() => void openProxyLogs('error', instance)}
+                      >
+                        <ErrorOutlineIcon />
+                      </IconButton>
+                    </span>
                   </Tooltip>
-                  <Tooltip title="Reload nginx for this site">
-                    <IconButton
-                      disabled={isProxyBusy('reload')}
-                      onClick={() => reloadProxySite(instance.domain)}
-                    >
-                      {isProxyBusy('reload') ? (
-                        <CircularProgress size={20} />
-                      ) : (
-                        <AutorenewIcon />
-                      )}
-                    </IconButton>
+                  <Tooltip
+                    title={needsPermission(
+                      'Reload nginx for this site',
+                      can.proxy,
+                    )}
+                  >
+                    <span>
+                      <IconButton
+                        disabled={!can.proxy || isProxyBusy('reload')}
+                        onClick={() => reloadProxySite(instance.domain)}
+                      >
+                        {isProxyBusy('reload') ? (
+                          <CircularProgress size={20} />
+                        ) : (
+                          <AutorenewIcon />
+                        )}
+                      </IconButton>
+                    </span>
                   </Tooltip>
-                  <Tooltip title="Renew SSL certificate">
-                    <IconButton
-                      disabled={isProxyBusy('ssl')}
-                      onClick={() => renewProxySsl(instance.domain)}
-                    >
-                      {isProxyBusy('ssl') ? (
-                        <CircularProgress size={20} />
-                      ) : (
-                        <VpnLockIcon />
-                      )}
-                    </IconButton>
+                  <Tooltip
+                    title={needsPermission('Renew SSL certificate', can.proxy)}
+                  >
+                    <span>
+                      <IconButton
+                        disabled={!can.proxy || isProxyBusy('ssl')}
+                        onClick={() => renewProxySsl(instance.domain)}
+                      >
+                        {isProxyBusy('ssl') ? (
+                          <CircularProgress size={20} />
+                        ) : (
+                          <VpnLockIcon />
+                        )}
+                      </IconButton>
+                    </span>
                   </Tooltip>
                   <Tooltip
                     title={
@@ -1323,7 +1368,7 @@ export const DHIS2InstancesPanel = ({
                     }
                   >
                     <IconButton
-                      disabled={isProxyBusy('toggle')}
+                      disabled={!can.proxy || isProxyBusy('toggle')}
                       onClick={() =>
                         toggleProxySite(
                           instance.domain,
@@ -1340,67 +1385,98 @@ export const DHIS2InstancesPanel = ({
                       )}
                     </IconButton>
                   </Tooltip>
-                  <Tooltip title="Backup now">
-                    <IconButton
-                      onClick={() => handleBackup(instance)}
-                      disabled={isBusy('backup')}
-                    >
-                      {isBusy('backup') ? (
-                        <CircularProgress size={20} />
-                      ) : (
-                        <BackupIcon />
-                      )}
-                    </IconButton>
+                  <Tooltip title={needsPermission('Backup now', can.operate)}>
+                    <span>
+                      <IconButton
+                        onClick={() => handleBackup(instance)}
+                        disabled={!can.operate || isBusy('backup')}
+                      >
+                        {isBusy('backup') ? (
+                          <CircularProgress size={20} />
+                        ) : (
+                          <BackupIcon />
+                        )}
+                      </IconButton>
+                    </span>
                   </Tooltip>
-                  <Tooltip title="Restore from backup">
-                    <IconButton onClick={() => onRestore(instance)}>
-                      <SettingsBackupRestoreIcon />
-                    </IconButton>
+                  <Tooltip
+                    title={needsPermission('Restore from backup', can.restore)}
+                  >
+                    <span>
+                      <IconButton
+                        disabled={!can.restore}
+                        onClick={() => onRestore(instance)}
+                      >
+                        <SettingsBackupRestoreIcon />
+                      </IconButton>
+                    </span>
                   </Tooltip>
-                  <Tooltip title="Transfer database to another server">
-                    <IconButton onClick={() => setTransferTarget(instance)}>
-                      <SwapHorizIcon />
-                    </IconButton>
+                  <Tooltip
+                    title={needsPermission(
+                      'Transfer database to another server',
+                      can.restore,
+                    )}
+                  >
+                    <span>
+                      <IconButton
+                        disabled={!can.restore}
+                        onClick={() => setTransferTarget(instance)}
+                      >
+                        <SwapHorizIcon />
+                      </IconButton>
+                    </span>
                   </Tooltip>
-                  <Tooltip title="Clone to new environment">
+                  <Tooltip
+                    title={needsPermission(
+                      'Clone to new environment',
+                      can.clone,
+                    )}
+                  >
                     <span>
                       <IconButton
                         onClick={() => onClone?.(instance)}
-                        disabled={!onClone}
+                        disabled={!can.clone || !onClone}
                       >
                         <FileCopyIcon />
                       </IconButton>
                     </span>
                   </Tooltip>
-                  <Tooltip title="Upgrade DHIS2 WAR">
+                  <Tooltip
+                    title={needsPermission('Upgrade DHIS2 WAR', can.update)}
+                  >
                     <span>
                       <IconButton
                         onClick={() => onUpgrade?.(instance)}
-                        disabled={!onUpgrade}
+                        disabled={!can.update || !onUpgrade}
                       >
                         <SystemUpdateAltIcon />
                       </IconButton>
                     </span>
                   </Tooltip>
-                  <Tooltip title="Edit settings">
-                    <IconButton
-                      onClick={() => handleOpenEdit(instance)}
-                      disabled={isBusy('edit')}
-                    >
-                      {isBusy('edit') ? (
-                        <CircularProgress size={20} />
-                      ) : (
-                        <SettingsIcon />
-                      )}
-                    </IconButton>
+                  <Tooltip title={needsPermission('Edit settings', can.update)}>
+                    <span>
+                      <IconButton
+                        onClick={() => handleOpenEdit(instance)}
+                        disabled={!can.update || isBusy('edit')}
+                      >
+                        {isBusy('edit') ? (
+                          <CircularProgress size={20} />
+                        ) : (
+                          <SettingsIcon />
+                        )}
+                      </IconButton>
+                    </span>
                   </Tooltip>
-                  <Tooltip title="Delete">
-                    <IconButton
-                      color="secondary"
-                      onClick={() => handleDelete(instance)}
-                    >
-                      <DeleteIcon />
-                    </IconButton>
+                  <Tooltip title={needsPermission('Delete', can.remove)}>
+                    <span>
+                      <IconButton
+                        disabled={!can.remove}
+                        color="secondary"
+                        onClick={() => handleDelete(instance)}
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </span>
                   </Tooltip>
                 </Box>
               </Box>

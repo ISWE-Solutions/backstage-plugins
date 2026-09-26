@@ -1,5 +1,22 @@
-import { LoggerService, HttpAuthService } from '@backstage/backend-plugin-api';
-import { InputError } from '@backstage/errors';
+import {
+  LoggerService,
+  HttpAuthService,
+  PermissionsService,
+} from '@backstage/backend-plugin-api';
+import { InputError, NotAllowedError } from '@backstage/errors';
+import {
+  AuthorizeResult,
+  BasicPermission,
+} from '@backstage/plugin-permission-common';
+import {
+  dhis2InstanceClonePermission,
+  dhis2InstanceCreatePermission,
+  dhis2InstanceDeletePermission,
+  dhis2InstanceOperatePermission,
+  dhis2InstanceRestorePermission,
+  dhis2InstanceUpdatePermission,
+  dhis2ProxyManagePermission,
+} from '@internal/plugin-dhis2-common';
 import express from 'express';
 import Router from 'express-promise-router';
 import { Client } from 'pg';
@@ -24,6 +41,7 @@ import {
 export interface RouterOptions {
   logger: LoggerService;
   httpAuth: HttpAuthService;
+  permissions: PermissionsService;
   provisionService: ProvisionService;
   databaseTransferService: DatabaseTransferService;
   instanceRegistryService: InstanceRegistryService;
@@ -177,10 +195,50 @@ export async function createRouter(
   const {
     logger,
     httpAuth,
+    permissions,
     provisionService,
     databaseTransferService,
     instanceRegistryService,
   } = options;
+
+  const create = dhis2InstanceCreatePermission;
+  const clone = dhis2InstanceClonePermission;
+  const update = dhis2InstanceUpdatePermission;
+  const operate = dhis2InstanceOperatePermission;
+  const restore = dhis2InstanceRestorePermission;
+  const del = dhis2InstanceDeletePermission;
+  const proxyManage = dhis2ProxyManagePermission;
+
+  /**
+   * Route middleware: allow the request when the user holds any of the given
+   * permissions (see rbac/policy.csv); otherwise 403.
+   */
+  const guard =
+    (...required: BasicPermission[]): express.RequestHandler =>
+    async (req, _res, next) => {
+      try {
+        const credentials = await httpAuth.credentials(req, {
+          allow: ['user'],
+        });
+        const decisions = await permissions.authorize(
+          required.map(permission => ({ permission })),
+          { credentials },
+        );
+        if (decisions.some(d => d.result === AuthorizeResult.ALLOW)) {
+          next();
+          return;
+        }
+        const names = required.map(p => p.name).join(' or ');
+        logger.info(
+          `DHIS2: ${credentials.principal.userEntityRef} denied ${req.method} ${req.path} (needs ${names})`,
+        );
+        throw new NotAllowedError(
+          `You need the ${names} permission for this action`,
+        );
+      } catch (err) {
+        next(err);
+      }
+    };
 
   const router = Router();
   router.use(express.json());
@@ -210,182 +268,220 @@ export async function createRouter(
   // `express.json()` (above) is a no-op for non-JSON content types so
   // the request body remains available as a Node stream on `req`.
   // ---------------------------------------------------------------------
-  router.post('/restore/upload', async (req, res, next) => {
-    try {
-      if (!provisionService.isConfigured()) {
-        res.status(503).json({
-          error:
-            'Provisioning orchestrator is not configured. Set dhis2.orchestrator in app-config.yaml.',
-        });
-        return;
+  router.post(
+    '/restore/upload',
+    guard(create, restore),
+    async (req, res, next) => {
+      try {
+        if (!provisionService.isConfigured()) {
+          res.status(503).json({
+            error:
+              'Provisioning orchestrator is not configured. Set dhis2.orchestrator in app-config.yaml.',
+          });
+          return;
+        }
+        const rawName =
+          (typeof req.header('x-filename') === 'string'
+            ? (req.header('x-filename') as string)
+            : '') || 'upload.bin';
+        const filename = rawName.replace(/[\r\n\0]/g, '').slice(-256);
+        const result = await provisionService.stageRestoreUpload(req, filename);
+        res.status(200).json(result);
+      } catch (err) {
+        logger.error(
+          `DHIS2: restore upload failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+        next(err);
       }
-      const rawName =
-        (typeof req.header('x-filename') === 'string'
-          ? (req.header('x-filename') as string)
-          : '') || 'upload.bin';
-      const filename = rawName.replace(/[\r\n\0]/g, '').slice(-256);
-      const result = await provisionService.stageRestoreUpload(req, filename);
-      res.status(200).json(result);
-    } catch (err) {
-      logger.error(
-        `DHIS2: restore upload failed: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-      next(err);
-    }
-  });
+    },
+  );
 
-  router.post('/databases/test', async (req, res) => {
-    const creds = parseCredentials(req.body);
-    const started = Date.now();
-    try {
-      const version = await withClient(creds, 'postgres', async client => {
-        const result = await client.query<{ version: string }>(
-          'SELECT version() AS version',
-        );
-        return result.rows[0]?.version ?? 'unknown';
-      });
-      logger.info(
-        `DHIS2: PG connection OK to ${creds.host}:${creds.port} as ${
-          creds.user
-        } (${Date.now() - started}ms)`,
-      );
-      res.json({
-        ok: true,
-        message: `Connected to ${creds.host}:${creds.port} (${version})`,
-        serverVersion: version,
-        durationMs: Date.now() - started,
-      });
-    } catch (err) {
-      const { message, code } = describeError(err, creds);
-      logger.warn(
-        `DHIS2: PG connection FAILED to ${creds.host}:${creds.port} as ${
-          creds.user
-        }: ${message}${code ? ` [${code}]` : ''}`,
-      );
-      res.status(200).json({
-        ok: false,
-        message,
-        code,
-        durationMs: Date.now() - started,
-      });
-    }
-  });
-
-  router.post('/databases/list', async (req, res) => {
-    const creds = parseCredentials(req.body);
-    try {
-      const databases = await withClient(creds, 'postgres', async client => {
-        const result = await client.query<{ datname: string }>(
-          'SELECT datname FROM pg_database WHERE NOT datistemplate ORDER BY 1',
-        );
-        return result.rows.map(r => r.datname);
-      });
-      res.json({ databases });
-    } catch (err) {
-      const { message, code } = describeError(err, creds);
-      logger.warn(
-        `DHIS2: listDatabases FAILED on ${creds.host}:${creds.port} as ${
-          creds.user
-        }: ${message}${code ? ` [${code}]` : ''}`,
-      );
-      res.status(502).json({ error: message, code });
-    }
-  });
-
-  router.post('/databases/check-compatibility', async (req, res) => {
-    const request = parseCompatibilityRequest(req.body);
-    try {
-      const result = await withClient(
-        request,
-        request.database,
-        async client => {
-          const flywayTableResult = await client.query<{ present: boolean }>(
-            `SELECT to_regclass('public.flyway_schema_history') IS NOT NULL AS present`,
+  router.post(
+    '/databases/test',
+    guard(create, clone, restore),
+    async (req, res) => {
+      const creds = parseCredentials(req.body);
+      const started = Date.now();
+      try {
+        const version = await withClient(creds, 'postgres', async client => {
+          const result = await client.query<{ version: string }>(
+            'SELECT version() AS version',
           );
-          const hasFlywayHistory = Boolean(flywayTableResult.rows[0]?.present);
+          return result.rows[0]?.version ?? 'unknown';
+        });
+        logger.info(
+          `DHIS2: PG connection OK to ${creds.host}:${creds.port} as ${
+            creds.user
+          } (${Date.now() - started}ms)`,
+        );
+        res.json({
+          ok: true,
+          message: `Connected to ${creds.host}:${creds.port} (${version})`,
+          serverVersion: version,
+          durationMs: Date.now() - started,
+        });
+      } catch (err) {
+        const { message, code } = describeError(err, creds);
+        logger.warn(
+          `DHIS2: PG connection FAILED to ${creds.host}:${creds.port} as ${
+            creds.user
+          }: ${message}${code ? ` [${code}]` : ''}`,
+        );
+        res.status(200).json({
+          ok: false,
+          message,
+          code,
+          durationMs: Date.now() - started,
+        });
+      }
+    },
+  );
 
-          if (!hasFlywayHistory) {
-            return {
-              compatible: false,
-              message:
-                `Database "${request.database}" does not contain public.flyway_schema_history. ` +
-                'This usually means it is not a DHIS2 schema with an upgrade path that can be validated safely.',
-              details: {
-                database: request.database,
-                hasFlywayHistory: false,
-                targetVersion: request.targetVersion,
-              },
-            };
-          }
+  router.post(
+    '/databases/list',
+    guard(create, clone, restore),
+    async (req, res) => {
+      const creds = parseCredentials(req.body);
+      try {
+        const databases = await withClient(creds, 'postgres', async client => {
+          const result = await client.query<{ datname: string }>(
+            'SELECT datname FROM pg_database WHERE NOT datistemplate ORDER BY 1',
+          );
+          return result.rows.map(r => r.datname);
+        });
+        res.json({ databases });
+      } catch (err) {
+        const { message, code } = describeError(err, creds);
+        logger.warn(
+          `DHIS2: listDatabases FAILED on ${creds.host}:${creds.port} as ${
+            creds.user
+          }: ${message}${code ? ` [${code}]` : ''}`,
+        );
+        res.status(502).json({ error: message, code });
+      }
+    },
+  );
 
-          const failedMigrationsResult = await client.query<{ count: string }>(
-            `SELECT COUNT(*)::text AS count
+  router.post(
+    '/databases/check-compatibility',
+    guard(create, clone, restore),
+    async (req, res) => {
+      const request = parseCompatibilityRequest(req.body);
+      try {
+        const result = await withClient(
+          request,
+          request.database,
+          async client => {
+            const flywayTableResult = await client.query<{ present: boolean }>(
+              `SELECT to_regclass('public.flyway_schema_history') IS NOT NULL AS present`,
+            );
+            const hasFlywayHistory = Boolean(
+              flywayTableResult.rows[0]?.present,
+            );
+
+            if (!hasFlywayHistory) {
+              return {
+                compatible: false,
+                message:
+                  `Database "${request.database}" does not contain public.flyway_schema_history. ` +
+                  'This usually means it is not a DHIS2 schema with an upgrade path that can be validated safely.',
+                details: {
+                  database: request.database,
+                  hasFlywayHistory: false,
+                  targetVersion: request.targetVersion,
+                },
+              };
+            }
+
+            const failedMigrationsResult = await client.query<{
+              count: string;
+            }>(
+              `SELECT COUNT(*)::text AS count
              FROM public.flyway_schema_history
              WHERE success = false`,
-          );
-          const failedMigrations = Number(
-            failedMigrationsResult.rows[0]?.count ?? '0',
-          );
-          if (failedMigrations > 0) {
-            return {
-              compatible: false,
-              message:
-                `Database "${request.database}" has ${failedMigrations} failed Flyway migration(s). ` +
-                'Repair the schema history or restore a clean backup before provisioning.',
-              details: {
-                database: request.database,
-                hasFlywayHistory: true,
-                failedMigrations,
-                targetVersion: request.targetVersion,
-              },
-            };
-          }
+            );
+            const failedMigrations = Number(
+              failedMigrationsResult.rows[0]?.count ?? '0',
+            );
+            if (failedMigrations > 0) {
+              return {
+                compatible: false,
+                message:
+                  `Database "${request.database}" has ${failedMigrations} failed Flyway migration(s). ` +
+                  'Repair the schema history or restore a clean backup before provisioning.',
+                details: {
+                  database: request.database,
+                  hasFlywayHistory: true,
+                  failedMigrations,
+                  targetVersion: request.targetVersion,
+                },
+              };
+            }
 
-          const latestResult = await client.query<{
-            version: string | null;
-            description: string | null;
-          }>(
-            `SELECT version, description
+            const latestResult = await client.query<{
+              version: string | null;
+              description: string | null;
+            }>(
+              `SELECT version, description
              FROM public.flyway_schema_history
              WHERE success = true
              ORDER BY installed_rank DESC
              LIMIT 1`,
-          );
-          const latest = latestResult.rows[0];
+            );
+            const latest = latestResult.rows[0];
 
-          const constraintResult = await client.query<{ present: boolean }>(
-            `SELECT EXISTS (
+            const constraintResult = await client.query<{ present: boolean }>(
+              `SELECT EXISTS (
                SELECT 1
                FROM pg_constraint c
                JOIN pg_namespace n ON n.oid = c.connamespace
                WHERE n.nspname = 'public'
                  AND c.conname = 'fk_organisationunit_fileresourceid'
              ) AS present`,
-          );
-          const migrationMarkerResult = await client.query<{
-            present: boolean;
-          }>(
-            `SELECT EXISTS (
+            );
+            const migrationMarkerResult = await client.query<{
+              present: boolean;
+            }>(
+              `SELECT EXISTS (
                SELECT 1
                FROM public.flyway_schema_history
                WHERE success = true AND version = '2.37.14'
              ) AS present`,
-          );
+            );
 
-          const hasKnownConstraint = Boolean(constraintResult.rows[0]?.present);
-          const hasMigrationMarker = Boolean(
-            migrationMarkerResult.rows[0]?.present,
-          );
+            const hasKnownConstraint = Boolean(
+              constraintResult.rows[0]?.present,
+            );
+            const hasMigrationMarker = Boolean(
+              migrationMarkerResult.rows[0]?.present,
+            );
 
-          if (hasKnownConstraint && !hasMigrationMarker) {
+            if (hasKnownConstraint && !hasMigrationMarker) {
+              return {
+                compatible: false,
+                message:
+                  `Database "${request.database}" appears to have a partially-applied schema state ` +
+                  '(constraint fk_organisationunit_fileresourceid exists but Flyway version 2.37.14 is not recorded). ' +
+                  'Provisioning is likely to fail with duplicate-constraint errors.',
+                details: {
+                  database: request.database,
+                  hasFlywayHistory: true,
+                  failedMigrations: 0,
+                  latestFlywayVersion: latest?.version ?? null,
+                  latestFlywayDescription: latest?.description ?? null,
+                  targetVersion: request.targetVersion,
+                },
+              };
+            }
+
+            const versionSuffix = latest?.version
+              ? ` Last successful Flyway version: ${latest.version}.`
+              : '';
             return {
-              compatible: false,
-              message:
-                `Database "${request.database}" appears to have a partially-applied schema state ` +
-                '(constraint fk_organisationunit_fileresourceid exists but Flyway version 2.37.14 is not recorded). ' +
-                'Provisioning is likely to fail with duplicate-constraint errors.',
+              compatible: true,
+              message: `Database "${request.database}" passed compatibility preflight.${versionSuffix}`,
               details: {
                 database: request.database,
                 hasFlywayHistory: true,
@@ -395,88 +491,83 @@ export async function createRouter(
                 targetVersion: request.targetVersion,
               },
             };
-          }
+          },
+        );
 
-          const versionSuffix = latest?.version
-            ? ` Last successful Flyway version: ${latest.version}.`
-            : '';
-          return {
-            compatible: true,
-            message: `Database "${request.database}" passed compatibility preflight.${versionSuffix}`,
-            details: {
-              database: request.database,
-              hasFlywayHistory: true,
-              failedMigrations: 0,
-              latestFlywayVersion: latest?.version ?? null,
-              latestFlywayDescription: latest?.description ?? null,
-              targetVersion: request.targetVersion,
-            },
-          };
-        },
-      );
-
-      res.status(200).json({
-        ok: true,
-        compatible: result.compatible,
-        message: result.message,
-        details: result.details,
-      });
-    } catch (err) {
-      const { message, code } = describeError(err, request);
-      logger.warn(
-        `DHIS2: compatibility check FAILED on ${request.host}:${request.port}/${
-          request.database
-        } as ${request.user}: ${message}${code ? ` [${code}]` : ''}`,
-      );
-      res.status(200).json({
-        ok: false,
-        compatible: false,
-        message,
-        code,
-      });
-    }
-  });
+        res.status(200).json({
+          ok: true,
+          compatible: result.compatible,
+          message: result.message,
+          details: result.details,
+        });
+      } catch (err) {
+        const { message, code } = describeError(err, request);
+        logger.warn(
+          `DHIS2: compatibility check FAILED on ${request.host}:${
+            request.port
+          }/${request.database} as ${request.user}: ${message}${
+            code ? ` [${code}]` : ''
+          }`,
+        );
+        res.status(200).json({
+          ok: false,
+          compatible: false,
+          message,
+          code,
+        });
+      }
+    },
+  );
 
   // ---------------------------------------------------------------------
   // Instance provisioning
   // ---------------------------------------------------------------------
 
-  router.post('/instances/next-vmid', async (req, res) => {
-    if (!provisionService.isConfigured()) {
-      res.status(503).json({
-        error:
-          'Provisioning orchestrator is not configured. Set dhis2.orchestrator in app-config.yaml (host defaults to localhost; user, privateKeyFile, scriptPath default for localhost; apiUrl, apiUser, apiTokenId, apiTokenSecret must be supplied).',
-      });
-      return;
-    }
-    const b =
-      req.body && typeof req.body === 'object'
-        ? (req.body as Record<string, any>)
-        : {};
-    const pm =
-      b.proxmox && typeof b.proxmox === 'object'
-        ? (b.proxmox as Record<string, any>)
-        : {};
-    try {
-      const vmid = await provisionService.getNextVmid({
-        apiUrl: typeof pm.apiUrl === 'string' ? pm.apiUrl.trim() : undefined,
-        apiUser: typeof pm.apiUser === 'string' ? pm.apiUser.trim() : undefined,
-        apiTokenId:
-          typeof pm.apiTokenId === 'string' ? pm.apiTokenId.trim() : undefined,
-        apiTokenSecret:
-          typeof pm.apiTokenSecret === 'string' ? pm.apiTokenSecret : undefined,
-        validateApiCerts:
-          typeof pm.validateApiCerts === 'boolean'
-            ? pm.validateApiCerts
-            : undefined,
-      });
-      res.json({ vmid });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.warn(`DHIS2: next-vmid failed: ${message}`);
-      res.status(502).json({ error: message });
-    }
-  });
+  router.post(
+    '/instances/next-vmid',
+    guard(create, clone),
+    async (req, res) => {
+      if (!provisionService.isConfigured()) {
+        res.status(503).json({
+          error:
+            'Provisioning orchestrator is not configured. Set dhis2.orchestrator in app-config.yaml (host defaults to localhost; user, privateKeyFile, scriptPath default for localhost; apiUrl, apiUser, apiTokenId, apiTokenSecret must be supplied).',
+        });
+        return;
+      }
+      const b =
+        req.body && typeof req.body === 'object'
+          ? (req.body as Record<string, any>)
+          : {};
+      const pm =
+        b.proxmox && typeof b.proxmox === 'object'
+          ? (b.proxmox as Record<string, any>)
+          : {};
+      try {
+        const vmid = await provisionService.getNextVmid({
+          apiUrl: typeof pm.apiUrl === 'string' ? pm.apiUrl.trim() : undefined,
+          apiUser:
+            typeof pm.apiUser === 'string' ? pm.apiUser.trim() : undefined,
+          apiTokenId:
+            typeof pm.apiTokenId === 'string'
+              ? pm.apiTokenId.trim()
+              : undefined,
+          apiTokenSecret:
+            typeof pm.apiTokenSecret === 'string'
+              ? pm.apiTokenSecret
+              : undefined,
+          validateApiCerts:
+            typeof pm.validateApiCerts === 'boolean'
+              ? pm.validateApiCerts
+              : undefined,
+        });
+        res.json({ vmid });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn(`DHIS2: next-vmid failed: ${message}`);
+        res.status(502).json({ error: message });
+      }
+    },
+  );
 
   function parseProvisionRequest(body: unknown): ProvisionRequest {
     if (!body || typeof body !== 'object') {
@@ -808,7 +899,7 @@ export async function createRouter(
     };
   }
 
-  router.post('/instances/provision', async (req, res) => {
+  router.post('/instances/provision', guard(create), async (req, res) => {
     if (!provisionService.isConfigured()) {
       res.status(503).json({
         error:
@@ -1016,7 +1107,7 @@ export async function createRouter(
     };
   }
 
-  router.post('/instances/:id/decommission', async (req, res) => {
+  router.post('/instances/:id/decommission', guard(del), async (req, res) => {
     if (!provisionService.isConfigured()) {
       res.status(503).json({
         error:
@@ -1052,7 +1143,7 @@ export async function createRouter(
     res.status(202).json({ jobId: job.id, status: job.status });
   });
 
-  router.post('/instances/:id/backup', async (req, res) => {
+  router.post('/instances/:id/backup', guard(operate), async (req, res) => {
     if (!provisionService.isConfigured()) {
       res.status(503).json({ error: 'DHIS2 orchestrator is not configured.' });
       return;
@@ -1212,7 +1303,7 @@ export async function createRouter(
     };
   }
 
-  router.post('/instances/:id/edit', async (req, res) => {
+  router.post('/instances/:id/edit', guard(update), async (req, res) => {
     if (!provisionService.isConfigured()) {
       res.status(503).json({
         error:
@@ -1319,7 +1410,7 @@ export async function createRouter(
     };
   }
 
-  router.post('/instances/:id/lifecycle', async (req, res) => {
+  router.post('/instances/:id/lifecycle', guard(operate), async (req, res) => {
     if (!provisionService.isConfigured()) {
       res.status(503).json({
         error:
@@ -1550,7 +1641,7 @@ export async function createRouter(
     };
   }
 
-  router.post('/instances/:id/clone', async (req, res) => {
+  router.post('/instances/:id/clone', guard(clone), async (req, res) => {
     if (!provisionService.isConfigured()) {
       res.status(503).json({
         error:
@@ -1740,7 +1831,7 @@ export async function createRouter(
     };
   }
 
-  router.post('/instances/:id/upgrade', async (req, res) => {
+  router.post('/instances/:id/upgrade', guard(update), async (req, res) => {
     if (!provisionService.isConfigured()) {
       res.status(503).json({
         error:
@@ -1800,7 +1891,7 @@ export async function createRouter(
   // is already live (see ansible/restore.yml). Destructive — the target's
   // database is dropped and recreated, which the UI warns about before
   // calling this.
-  router.post('/instances/:id/restore', async (req, res) => {
+  router.post('/instances/:id/restore', guard(restore), async (req, res) => {
     if (!provisionService.isConfigured()) {
       res.status(503).json({
         error:
@@ -1933,23 +2024,29 @@ export async function createRouter(
     };
   }
 
-  router.post('/instances/:id/proxy-files/read', async (req, res) => {
-    if (!provisionService.isConfigured()) {
-      res.status(503).json({ error: 'DHIS2 orchestrator is not configured.' });
-      return;
-    }
-    try {
-      const result = await provisionService.readProxyFiles(
-        req.params.id,
-        parseProxyAccessOverrides(req.body),
-      );
-      res.json(result);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.warn(`DHIS2: proxy-files read failed: ${message}`);
-      res.status(400).json({ error: message });
-    }
-  });
+  router.post(
+    '/instances/:id/proxy-files/read',
+    guard(proxyManage),
+    async (req, res) => {
+      if (!provisionService.isConfigured()) {
+        res
+          .status(503)
+          .json({ error: 'DHIS2 orchestrator is not configured.' });
+        return;
+      }
+      try {
+        const result = await provisionService.readProxyFiles(
+          req.params.id,
+          parseProxyAccessOverrides(req.body),
+        );
+        res.json(result);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn(`DHIS2: proxy-files read failed: ${message}`);
+        res.status(400).json({ error: message });
+      }
+    },
+  );
 
   router.post('/instances/:id/logs', async (req, res) => {
     if (!provisionService.isConfigured()) {
@@ -1998,69 +2095,81 @@ export async function createRouter(
     }
   });
 
-  router.post('/instances/:id/proxy-files/write', async (req, res) => {
-    if (!provisionService.isConfigured()) {
-      res.status(503).json({ error: 'DHIS2 orchestrator is not configured.' });
-      return;
-    }
-    const b =
-      req.body && typeof req.body === 'object'
-        ? (req.body as Record<string, unknown>)
-        : {};
-    const upstream =
-      typeof b.upstream === 'string' ? (b.upstream as string) : undefined;
-    const site = typeof b.site === 'string' ? (b.site as string) : undefined;
-    if (upstream === undefined && site === undefined) {
-      res
-        .status(400)
-        .json({ error: 'Provide "upstream" and/or "site" string fields.' });
-      return;
-    }
-    try {
-      const result = await provisionService.writeProxyFiles(
-        req.params.id,
-        parseProxyAccessOverrides(req.body),
-        { upstream, site, reload: b.reload !== false },
-      );
-      res.json(result);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.warn(`DHIS2: proxy-files write failed: ${message}`);
-      res.status(400).json({ error: message });
-    }
-  });
+  router.post(
+    '/instances/:id/proxy-files/write',
+    guard(proxyManage),
+    async (req, res) => {
+      if (!provisionService.isConfigured()) {
+        res
+          .status(503)
+          .json({ error: 'DHIS2 orchestrator is not configured.' });
+        return;
+      }
+      const b =
+        req.body && typeof req.body === 'object'
+          ? (req.body as Record<string, unknown>)
+          : {};
+      const upstream =
+        typeof b.upstream === 'string' ? (b.upstream as string) : undefined;
+      const site = typeof b.site === 'string' ? (b.site as string) : undefined;
+      if (upstream === undefined && site === undefined) {
+        res
+          .status(400)
+          .json({ error: 'Provide "upstream" and/or "site" string fields.' });
+        return;
+      }
+      try {
+        const result = await provisionService.writeProxyFiles(
+          req.params.id,
+          parseProxyAccessOverrides(req.body),
+          { upstream, site, reload: b.reload !== false },
+        );
+        res.json(result);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn(`DHIS2: proxy-files write failed: ${message}`);
+        res.status(400).json({ error: message });
+      }
+    },
+  );
 
   // Tail nginx access/error log for a single site (per-instance).
-  router.post('/instances/:id/proxy-logs/tail', async (req, res) => {
-    if (!provisionService.isConfigured()) {
-      res.status(503).json({ error: 'DHIS2 orchestrator is not configured.' });
-      return;
-    }
-    const b =
-      req.body && typeof req.body === 'object'
-        ? (req.body as Record<string, unknown>)
-        : {};
-    const kind = b.kind === 'error' ? 'error' : 'access';
-    const lines =
-      typeof b.lines === 'number' && Number.isFinite(b.lines)
-        ? (b.lines as number)
-        : undefined;
-    try {
-      const result = await provisionService.tailProxyLogs(
-        req.params.id,
-        parseProxyAccessOverrides(req.body),
-        { kind, lines },
-      );
-      res.json(result);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.warn(`DHIS2: proxy-logs tail failed: ${message}`);
-      res.status(400).json({ error: message });
-    }
-  });
+  router.post(
+    '/instances/:id/proxy-logs/tail',
+    guard(proxyManage),
+    async (req, res) => {
+      if (!provisionService.isConfigured()) {
+        res
+          .status(503)
+          .json({ error: 'DHIS2 orchestrator is not configured.' });
+        return;
+      }
+      const b =
+        req.body && typeof req.body === 'object'
+          ? (req.body as Record<string, unknown>)
+          : {};
+      const kind = b.kind === 'error' ? 'error' : 'access';
+      const lines =
+        typeof b.lines === 'number' && Number.isFinite(b.lines)
+          ? (b.lines as number)
+          : undefined;
+      try {
+        const result = await provisionService.tailProxyLogs(
+          req.params.id,
+          parseProxyAccessOverrides(req.body),
+          { kind, lines },
+        );
+        res.json(result);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn(`DHIS2: proxy-logs tail failed: ${message}`);
+        res.status(400).json({ error: message });
+      }
+    },
+  );
 
   // Tail the global nginx access/error log (not scoped to a site).
-  router.post('/proxy-logs/tail', async (req, res) => {
+  router.post('/proxy-logs/tail', guard(proxyManage), async (req, res) => {
     if (!provisionService.isConfigured()) {
       res.status(503).json({ error: 'DHIS2 orchestrator is not configured.' });
       return;
@@ -2103,29 +2212,41 @@ export async function createRouter(
   // Also runs automatically on a schedule; these two endpoints exist for
   // manual/on-demand triggering (e.g. right after a known out-of-band
   // change) without waiting for the next scheduled pass.
-  router.post('/instances/:id/reconcile-live', async (req, res) => {
-    if (!provisionService.isConfigured()) {
-      res.status(503).json({ error: 'DHIS2 orchestrator is not configured.' });
-      return;
-    }
-    try {
-      const result = await provisionService.reconcileLiveState(req.params.id);
-      res.json(result);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.warn(`DHIS2: live-state reconcile failed: ${message}`);
-      res.status(400).json({ error: message });
-    }
-  });
+  router.post(
+    '/instances/:id/reconcile-live',
+    guard(operate),
+    async (req, res) => {
+      if (!provisionService.isConfigured()) {
+        res
+          .status(503)
+          .json({ error: 'DHIS2 orchestrator is not configured.' });
+        return;
+      }
+      try {
+        const result = await provisionService.reconcileLiveState(req.params.id);
+        res.json(result);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn(`DHIS2: live-state reconcile failed: ${message}`);
+        res.status(400).json({ error: message });
+      }
+    },
+  );
 
-  router.post('/instances/reconcile-live', async (_req, res) => {
-    if (!provisionService.isConfigured()) {
-      res.status(503).json({ error: 'DHIS2 orchestrator is not configured.' });
-      return;
-    }
-    const results = await provisionService.reconcileAllLiveState();
-    res.json({ results });
-  });
+  router.post(
+    '/instances/reconcile-live',
+    guard(operate),
+    async (_req, res) => {
+      if (!provisionService.isConfigured()) {
+        res
+          .status(503)
+          .json({ error: 'DHIS2 orchestrator is not configured.' });
+        return;
+      }
+      const results = await provisionService.reconcileAllLiveState();
+      res.json({ results });
+    },
+  );
 
   // ---------------------------------------------------------------------
   // Database transfer (pg_dump | psql) between source and target servers
@@ -2182,37 +2303,41 @@ export async function createRouter(
     return opts;
   }
 
-  router.post('/instances/:id/transfer-database', async (req, res) => {
-    const instanceId = String(req.params.id);
-    let source: DbEndpoint;
-    let target: DbEndpoint;
-    let options: TransferOptions;
-    try {
-      const body = (req.body ?? {}) as Record<string, unknown>;
-      source = parseEndpoint('source', body.source);
-      target = parseEndpoint('target', body.target);
-      options = parseTransferOptions(body.options);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      res.status(400).json({ error: message });
-      return;
-    }
-    try {
-      const job = await databaseTransferService.startJob({
-        instanceId,
-        source,
-        target,
-        options,
-      });
-      logger.info(
-        `DHIS2: transfer job ${job.id} started for instance ${instanceId} (${source.database}@${source.host} \u2192 ${target.database}@${target.host})`,
-      );
-      res.status(202).json({ jobId: job.id, status: job.status });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      res.status(400).json({ error: message });
-    }
-  });
+  router.post(
+    '/instances/:id/transfer-database',
+    guard(restore),
+    async (req, res) => {
+      const instanceId = String(req.params.id);
+      let source: DbEndpoint;
+      let target: DbEndpoint;
+      let options: TransferOptions;
+      try {
+        const body = (req.body ?? {}) as Record<string, unknown>;
+        source = parseEndpoint('source', body.source);
+        target = parseEndpoint('target', body.target);
+        options = parseTransferOptions(body.options);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        res.status(400).json({ error: message });
+        return;
+      }
+      try {
+        const job = await databaseTransferService.startJob({
+          instanceId,
+          source,
+          target,
+          options,
+        });
+        logger.info(
+          `DHIS2: transfer job ${job.id} started for instance ${instanceId} (${source.database}@${source.host} \u2192 ${target.database}@${target.host})`,
+        );
+        res.status(202).json({ jobId: job.id, status: job.status });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        res.status(400).json({ error: message });
+      }
+    },
+  );
 
   router.get('/databases/transfers/:id', (req, res) => {
     const job = databaseTransferService.getJob(req.params.id);

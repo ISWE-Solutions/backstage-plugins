@@ -1,3 +1,4 @@
+import { dhis2Permissions } from '@internal/plugin-dhis2-common';
 import { createIpamAllocator } from './service/ipamAllocator';
 import {
   coreServices,
@@ -90,6 +91,8 @@ export const dhis2Plugin = createBackendPlugin({
         scheduler: coreServices.scheduler,
         discovery: coreServices.discovery,
         auth: coreServices.auth,
+        permissions: coreServices.permissions,
+        permissionsRegistry: coreServices.permissionsRegistry,
       },
       async init({
         logger,
@@ -100,7 +103,10 @@ export const dhis2Plugin = createBackendPlugin({
         scheduler,
         discovery,
         auth,
+        permissions,
+        permissionsRegistry,
       }) {
+        permissionsRegistry.addPermissions(dhis2Permissions);
         let orchestrator: OrchestratorConfig | null = null;
         try {
           // Pull the sub-config if present, but never *require* it: a single-
@@ -299,6 +305,7 @@ export const dhis2Plugin = createBackendPlugin({
           await createRouter({
             logger,
             httpAuth,
+            permissions,
             provisionService,
             databaseTransferService,
             instanceRegistryService,
