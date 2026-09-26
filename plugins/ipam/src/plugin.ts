@@ -1,15 +1,27 @@
 import {
+  createApiFactory,
   createPlugin,
   createRoutableExtension,
+  discoveryApiRef,
+  fetchApiRef,
 } from '@backstage/core-plugin-api';
 
 import { rootRouteRef } from './routes';
+import { IPAMService, ipamApiRef } from './services/ipamService';
 
 export const ipamPlugin = createPlugin({
   id: 'ipam',
   routes: {
     root: rootRouteRef,
   },
+  apis: [
+    createApiFactory({
+      api: ipamApiRef,
+      deps: { discoveryApi: discoveryApiRef, fetchApi: fetchApiRef },
+      factory: ({ discoveryApi, fetchApi }) =>
+        new IPAMService(discoveryApi, fetchApi),
+    }),
+  ],
 });
 
 export const IPAMPage = ipamPlugin.provide(

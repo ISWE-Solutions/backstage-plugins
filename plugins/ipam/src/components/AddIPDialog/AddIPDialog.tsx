@@ -43,7 +43,7 @@ export const AddIPDialog: React.FC<AddIPDialogProps> = ({
     subnetId: '',
     hostname: '',
     description: '',
-    status: IPStatus.AVAILABLE,
+    status: IPStatus.ALLOCATED,
     assignedTo: '',
     macAddress: '',
     deviceType: '',
@@ -86,7 +86,7 @@ export const AddIPDialog: React.FC<AddIPDialogProps> = ({
       subnetId: '',
       hostname: '',
       description: '',
-      status: IPStatus.AVAILABLE,
+      status: IPStatus.ALLOCATED,
       assignedTo: '',
       macAddress: '',
       deviceType: '',
@@ -188,10 +188,10 @@ export const AddIPDialog: React.FC<AddIPDialogProps> = ({
                 onChange={e => handleChange('status', e.target.value)}
                 className={classes.field}
               >
-                <MenuItem value={IPStatus.AVAILABLE}>Available</MenuItem>
-                <MenuItem value={IPStatus.ALLOCATED}>Allocated</MenuItem>
+                <MenuItem value={IPStatus.ALLOCATED}>Used</MenuItem>
                 <MenuItem value={IPStatus.RESERVED}>Reserved</MenuItem>
-                <MenuItem value={IPStatus.QUARANTINE}>Quarantine</MenuItem>
+                <MenuItem value={IPStatus.OFFLINE}>Offline</MenuItem>
+                <MenuItem value={IPStatus.DHCP}>DHCP</MenuItem>
               </TextField>
             </Grid>
 

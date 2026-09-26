@@ -21,7 +21,8 @@ import { makeStyles } from '@material-ui/core/styles';
 import SearchIcon from '@material-ui/icons/Search';
 import AddIcon from '@material-ui/icons/Add';
 import { IPAddress, IPStatus, IPFilter, Subnet, VLAN } from '../../types';
-import { ipamService } from '../../services/ipamService';
+import { useApi } from '@backstage/core-plugin-api';
+import { ipamApiRef } from '../../services/ipamService';
 import { AddIPDialog } from '../AddIPDialog/AddIPDialog';
 
 const useStyles = makeStyles(theme => ({
@@ -53,14 +54,14 @@ const useStyles = makeStyles(theme => ({
 
 const getStatusColor = (status: IPStatus) => {
   switch (status) {
-    case IPStatus.AVAILABLE:
-      return 'default';
     case IPStatus.ALLOCATED:
       return 'primary';
     case IPStatus.RESERVED:
       return 'secondary';
-    case IPStatus.QUARANTINE:
+    case IPStatus.OFFLINE:
       return 'error';
+    case IPStatus.DHCP:
+      return 'default';
     default:
       return 'default';
   }
@@ -68,6 +69,7 @@ const getStatusColor = (status: IPStatus) => {
 
 export const IPListView = () => {
   const classes = useStyles();
+  const ipamService = useApi(ipamApiRef);
   const [ipAddresses, setIPAddresses] = useState<IPAddress[]>([]);
   const [subnets, setSubnets] = useState<Subnet[]>([]);
   const [vlans, setVLANs] = useState<VLAN[]>([]);
@@ -180,10 +182,10 @@ export const IPListView = () => {
           }
         >
           <MenuItem value="">All Statuses</MenuItem>
-          <MenuItem value={IPStatus.AVAILABLE}>Available</MenuItem>
-          <MenuItem value={IPStatus.ALLOCATED}>Allocated</MenuItem>
+          <MenuItem value={IPStatus.ALLOCATED}>Used</MenuItem>
           <MenuItem value={IPStatus.RESERVED}>Reserved</MenuItem>
-          <MenuItem value={IPStatus.QUARANTINE}>Quarantine</MenuItem>
+          <MenuItem value={IPStatus.OFFLINE}>Offline</MenuItem>
+          <MenuItem value={IPStatus.DHCP}>DHCP</MenuItem>
         </TextField>
 
         <TextField
@@ -235,9 +237,9 @@ export const IPListView = () => {
                   <TableCell>Subnet</TableCell>
                   <TableCell>VLAN</TableCell>
                   <TableCell>Assigned To</TableCell>
-                  <TableCell>Device Type</TableCell>
+                  <TableCell>Source</TableCell>
                   <TableCell>MAC Address</TableCell>
-                  <TableCell>Location</TableCell>
+                  <TableCell>Description</TableCell>
                   <TableCell>Last Seen</TableCell>
                 </TableRow>
               </TableHead>
@@ -284,7 +286,7 @@ export const IPListView = () => {
                       </Typography>
                     </TableCell>
                     <TableCell>{ip.assignedTo || '-'}</TableCell>
-                    <TableCell>{ip.deviceType || '-'}</TableCell>
+                    <TableCell>{ip.source || '-'}</TableCell>
                     <TableCell>
                       <Typography
                         variant="body2"
@@ -293,7 +295,7 @@ export const IPListView = () => {
                         {ip.macAddress || '-'}
                       </Typography>
                     </TableCell>
-                    <TableCell>{ip.location || '-'}</TableCell>
+                    <TableCell>{ip.description || '-'}</TableCell>
                     <TableCell>
                       {ip.lastSeen
                         ? new Date(ip.lastSeen).toLocaleString()

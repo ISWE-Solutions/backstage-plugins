@@ -11,7 +11,8 @@ import {
 import { Alert } from '@material-ui/lab';
 import { makeStyles } from '@material-ui/core/styles';
 import { IPAMStatistics, Subnet } from '../../types';
-import { ipamService } from '../../services/ipamService';
+import { useApi } from '@backstage/core-plugin-api';
+import { ipamApiRef } from '../../services/ipamService';
 import RouterIcon from '@material-ui/icons/Router';
 import DnsIcon from '@material-ui/icons/Dns';
 import CheckCircleIcon from '@material-ui/icons/CheckCircle';
@@ -54,9 +55,11 @@ const useStyles = makeStyles(theme => ({
 }));
 
 export const DashboardView = () => {
+  const ipamService = useApi(ipamApiRef);
   const classes = useStyles();
   const [statistics, setStatistics] = useState<IPAMStatistics | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string>();
 
   useEffect(() => {
     const fetchStatistics = async () => {
@@ -64,14 +67,14 @@ export const DashboardView = () => {
         const stats = await ipamService.getStatistics();
         setStatistics(stats);
       } catch (error) {
-        console.error('Failed to fetch IPAM statistics:', error);
+        setLoadError(error instanceof Error ? error.message : String(error));
       } finally {
         setLoading(false);
       }
     };
 
     fetchStatistics();
-  }, []);
+  }, [ipamService]);
 
   if (loading) {
     return <LinearProgress />;
@@ -80,7 +83,8 @@ export const DashboardView = () => {
   if (!statistics) {
     return (
       <Alert severity="error">
-        Failed to load IPAM statistics. Please try again later.
+        Failed to load IPAM data from phpIPAM
+        {loadError ? `: ${loadError}` : '.'}
       </Alert>
     );
   }

@@ -17,7 +17,8 @@ import { Alert } from '@material-ui/lab';
 import { makeStyles } from '@material-ui/core/styles';
 import AddIcon from '@material-ui/icons/Add';
 import { Subnet, VLAN } from '../../types';
-import { ipamService } from '../../services/ipamService';
+import { useApi } from '@backstage/core-plugin-api';
+import { ipamApiRef } from '../../services/ipamService';
 import { AddSubnetDialog } from '../AddSubnetDialog/AddSubnetDialog';
 
 const useStyles = makeStyles(theme => ({
@@ -53,6 +54,7 @@ const getUtilizationColor = (percent: number) => {
 };
 
 export const SubnetListView = () => {
+  const ipamService = useApi(ipamApiRef);
   const classes = useStyles();
   const [subnets, setSubnets] = useState<Subnet[]>([]);
   const [vlans, setVLANs] = useState<VLAN[]>([]);

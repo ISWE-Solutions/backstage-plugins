@@ -9,6 +9,8 @@ export interface IPAddress {
   macAddress?: string;
   deviceType?: string;
   location?: string;
+  /** How the address got into phpIPAM: "manual", or discovery sources such as "proxmox+arp" */
+  source?: string;
   vlanId?: string;
   lastSeen?: string;
   notes?: string;
@@ -42,11 +44,12 @@ export interface VLAN {
   updatedAt: string;
 }
 
+/** phpIPAM address tags */
 export enum IPStatus {
-  AVAILABLE = 'available',
   ALLOCATED = 'allocated',
   RESERVED = 'reserved',
-  QUARANTINE = 'quarantine',
+  OFFLINE = 'offline',
+  DHCP = 'dhcp',
 }
 
 export interface IPCollection {
