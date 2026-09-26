@@ -22,6 +22,10 @@
 #   pve_storage          — default 100 (GB)
 #   pve_storage_pool     — default "local-lvm"
 #   pve_bridge           — default "vmbr0"
+#   pve_static_ip        — optional static IPv4 (from IPAM allocation); DHCP if unset
+#   pve_static_prefix    — prefix length for pve_static_ip, default 24
+#   pve_static_gateway   — gateway, required with pve_static_ip
+#   pve_nameserver       — default "10.20.30.8" (internal dnsmasq)
 #   pve_ostemplate       — default Ubuntu 22.04
 #   pve_validate_certs   — default false (self-signed PVE certs are common)
 #
@@ -41,6 +45,7 @@
       - pve_hostname is defined and pve_hostname | length > 0
       - pve_root_password is defined and pve_root_password | length > 0
       - pve_ssh_pubkey is defined and pve_ssh_pubkey | length > 0
+      - (pve_static_ip | default('') | length == 0) or (pve_static_gateway | default('') | length > 0)
     fail_msg: >-
       pve_lxc role is missing required variables. Check that the orchestrator
       is passing PVE API credentials (PROXMOX_API_*) and container specs.
@@ -60,8 +65,15 @@
     memory: '{{ pve_memory | default(8192) | int }}'
     disk: "{{ pve_storage_pool | default('local-lvm') }}:{{ pve_storage | default(100) | int }}"
     netif:
-      net0: "name=eth0,bridge={{ pve_bridge | default('vmbr0') }},ip=dhcp"
-    nameserver: "{{ pve_nameserver | default('8.8.8.8') }}"
+      # Static address allocated from IPAM when pve_static_ip is set (see
+      # docs/infrastructure/ipam); DHCP otherwise.
+      net0: >-
+        name=eth0,bridge={{ pve_bridge | default('vmbr0') }},{{
+        ('ip=' ~ pve_static_ip ~ '/' ~ (pve_static_prefix | default(24)) ~ ',gw=' ~ pve_static_gateway)
+        if (pve_static_ip | default('') | length > 0) else 'ip=dhcp' }}
+    # Internal resolver (dnsmasq on the DHCP LXC): resolves internal-only
+    # example.org names and forwards the rest.
+    nameserver: "{{ pve_nameserver | default('10.20.30.8') }}"
     features:
       - nesting=1
     unprivileged: true

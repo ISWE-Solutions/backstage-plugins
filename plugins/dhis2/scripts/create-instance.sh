@@ -28,6 +28,9 @@ Required:
   --vmid <int>              Proxmox VMID for the new container
   --node <name>             Proxmox node name
   --hostname <name>         Container hostname
+  --ip <addr>               Static IPv4 for the container (from IPAM allocation); DHCP if omitted
+  --ip-prefix <n>           Prefix length for --ip (default 24)
+  --gateway <addr>          Gateway for --ip (required with --ip)
   --domain <fqdn>           Public domain for the instance
   --email <addr>            Email for Let's Encrypt notifications
   --dhis2-version <ver>     DHIS2 version (e.g. 2.40, 2.42)
@@ -174,10 +177,24 @@ while [[ $# -gt 0 ]]; do
         --proxy-ssh-key) PROXY_SSH_KEY="$2"; shift 2;;
         --proxy-nginx-dir) PROXY_NGINX_DIR="$2"; shift 2;;
         --proxy-nginx-reload) PROXY_NGINX_RELOAD="$2"; shift 2;;
+        --ip) STATIC_IP="$2"; shift 2;;
+        --ip-prefix) STATIC_PREFIX="$2"; shift 2;;
+        --gateway) STATIC_GATEWAY="$2"; shift 2;;
         -h|--help) usage; exit 0;;
         *) echo "unknown option: $1" >&2; usage >&2; exit 2;;
     esac
 done
+
+# Optional static IPv4 from IPAM allocation (DHCP when --ip is omitted).
+STATIC_IP="${STATIC_IP:-}"
+STATIC_PREFIX="${STATIC_PREFIX:-24}"
+STATIC_GATEWAY="${STATIC_GATEWAY:-}"
+if [[ -n "${STATIC_IP}" ]]; then
+    ipv4='^[0-9]{1,3}(\.[0-9]{1,3}){3}$'
+    [[ "${STATIC_IP}" =~ ${ipv4} ]] || { echo "--ip must be an IPv4 address" >&2; exit 2; }
+    [[ "${STATIC_GATEWAY}" =~ ${ipv4} ]] || { echo "--gateway is required with --ip" >&2; exit 2; }
+    [[ "${STATIC_PREFIX}" =~ ^[0-9]{1,2}$ ]] || { echo "--ip-prefix must be a number" >&2; exit 2; }
+fi
 
 # Validate required flags.
 for var in VMID NODE HOSTNAME DOMAIN EMAIL DHIS2_VERSION DB_NAME DB_USER; do
@@ -508,6 +525,7 @@ pve_validate_certs: ${PROXMOX_VALIDATE_CERTS:-false}
 pve_node: $(yaml_escape "${NODE}")
 pve_vmid: ${VMID}
 pve_hostname: $(yaml_escape "${HOSTNAME}")
+$( [[ -n "${STATIC_IP}" ]] && printf 'pve_static_ip: %s\npve_static_prefix: %s\npve_static_gateway: %s\n' "$(yaml_escape "${STATIC_IP}")" "${STATIC_PREFIX}" "$(yaml_escape "${STATIC_GATEWAY}")" )
 pve_cpu: ${CPU}
 pve_memory: ${MEMORY}
 pve_storage: ${STORAGE}

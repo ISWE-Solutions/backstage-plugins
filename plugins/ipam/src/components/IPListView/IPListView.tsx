@@ -33,6 +33,7 @@ import { usePermission } from '@backstage/plugin-permission-react';
 import { ipamAddressCreatePermission } from '@internal/plugin-ipam-common';
 import { ipamApiRef } from '../../services/ipamService';
 import { AddIPDialog } from '../AddIPDialog/AddIPDialog';
+import { AllocateDialog } from '../AllocateDialog/AllocateDialog';
 import {
   ColumnDefinition,
   MIN_COLUMN_WIDTH,
@@ -147,6 +148,7 @@ export const IPListView = () => {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<IPFilter>({});
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [allocateOpen, setAllocateOpen] = useState(false);
   const [columnsMenuAnchor, setColumnsMenuAnchor] =
     useState<HTMLElement | null>(null);
   const columns = useColumnSettings(COLUMNS_STORAGE_KEY, COLUMNS);
@@ -424,6 +426,15 @@ export const IPListView = () => {
           </MenuItem>
         </Menu>
 
+        <Button
+          variant="outlined"
+          color="primary"
+          disabled={!canCreate}
+          onClick={() => setAllocateOpen(true)}
+        >
+          Allocate next IP
+        </Button>
+
         <Tooltip
           title={
             canCreate
@@ -526,6 +537,14 @@ export const IPListView = () => {
           </TableContainer>
         </>
       )}
+
+      <AllocateDialog
+        open={allocateOpen}
+        onClose={allocated => {
+          setAllocateOpen(false);
+          if (allocated) fetchData();
+        }}
+      />
 
       <AddIPDialog
         open={addDialogOpen}

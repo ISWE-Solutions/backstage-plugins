@@ -14,6 +14,13 @@ import {
   IPFilter,
   IPAMStatistics,
 } from '../types';
+import {
+  PhpIpamResponse,
+  Raw,
+  STATUS_TO_TAG,
+  toAddress,
+  toIso,
+} from '@internal/plugin-ipam-common';
 
 /**
  * Client for phpIPAM (LXC 116, 10.20.30.127), reached through the ipam
@@ -25,46 +32,6 @@ import {
 export const ipamApiRef = createApiRef<IPAMService>({
   id: 'plugin.ipam.service',
 });
-
-// phpIPAM address tags (ipTags table)
-const TAG_TO_STATUS: Record<string, IPStatus> = {
-  '1': IPStatus.OFFLINE,
-  '2': IPStatus.ALLOCATED,
-  '3': IPStatus.RESERVED,
-  '4': IPStatus.DHCP,
-};
-const STATUS_TO_TAG: Record<IPStatus, number> = {
-  [IPStatus.OFFLINE]: 1,
-  [IPStatus.ALLOCATED]: 2,
-  [IPStatus.RESERVED]: 3,
-  [IPStatus.DHCP]: 4,
-};
-
-const DISCOVERY_MARKER = 'discovery:';
-// note phpIPAM's own discoveryCheck.php puts on hosts found by its ping sweep
-const SCAN_NOTE = 'This host was autodiscovered';
-
-interface PhpIpamResponse<T> {
-  code: number;
-  success: boolean | number;
-  data?: T;
-  message?: string;
-}
-
-type Raw = Record<string, any>;
-
-const toIso = (value?: string | null) =>
-  value && !value.startsWith('0000')
-    ? new Date(value.replace(' ', 'T')).toISOString()
-    : undefined;
-
-/** "discovery: proxmox+arp; LXC 115 on pve11; last seen ..." -> "proxmox+arp" */
-const sourceFromNote = (note?: string | null) => {
-  const lines = (note ?? '').split('\n');
-  const line = lines.find(l => l.startsWith(DISCOVERY_MARKER));
-  if (line) return line.slice(DISCOVERY_MARKER.length).split(';')[0].trim();
-  return lines.some(l => l.startsWith(SCAN_NOTE)) ? 'scan' : 'manual';
-};
 
 export class IPAMService {
   constructor(
@@ -135,28 +102,6 @@ export class IPAMService {
     };
   }
 
-  private toAddress(
-    raw: Raw,
-    vlanBySubnet: Map<string, string | undefined>,
-  ): IPAddress {
-    return {
-      id: String(raw.id),
-      ipAddress: raw.ip,
-      subnetId: String(raw.subnetId),
-      hostname: raw.hostname ?? undefined,
-      description: raw.description ?? undefined,
-      status: TAG_TO_STATUS[String(raw.tag)] ?? IPStatus.ALLOCATED,
-      assignedTo: raw.owner ?? undefined,
-      macAddress: raw.mac ?? undefined,
-      source: sourceFromNote(raw.note),
-      vlanId: vlanBySubnet.get(String(raw.subnetId)),
-      lastSeen: toIso(raw.lastSeen),
-      notes: raw.note ?? undefined,
-      createdAt: toIso(raw.editDate) ?? new Date(0).toISOString(),
-      updatedAt: toIso(raw.editDate) ?? new Date(0).toISOString(),
-    };
-  }
-
   async getSubnets(): Promise<SubnetCollection> {
     const subnets = await Promise.all(
       (await this.rawSubnets()).map(s => this.toSubnet(s)),
@@ -197,7 +142,7 @@ export class IPAMService {
         s.vlanId && s.vlanId !== '0' ? String(s.vlanId) : undefined,
       ]),
     );
-    let addresses = (raw ?? []).map(a => this.toAddress(a, vlanBySubnet));
+    let addresses = (raw ?? []).map(a => toAddress(a, vlanBySubnet));
 
     if (filter?.status)
       addresses = addresses.filter(ip => ip.status === filter.status);
@@ -274,6 +219,36 @@ export class IPAMService {
           .filter(Boolean)
           .join('\n') || undefined,
     });
+  }
+
+  /** Reserve the next free address in the allocation pool (ipam backend) */
+  async allocate(request: { hostname: string; purpose: string }): Promise<{
+    id: string;
+    ip: string;
+    prefix: number;
+    gateway: string;
+  }> {
+    const base = await this.discoveryApi.getBaseUrl('ipam');
+    const response = await this.fetchApi.fetch(`${base}/allocations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(
+        body?.error?.message ?? `Allocation failed (${response.status})`,
+      );
+    }
+    return body;
+  }
+
+  async getAllocationPool(): Promise<
+    { from: string; to: string; gateway: string; prefix: number } | undefined
+  > {
+    const base = await this.discoveryApi.getBaseUrl('ipam');
+    const response = await this.fetchApi.fetch(`${base}/allocations/pool`);
+    return response.ok ? response.json() : undefined;
   }
 
   async addSubnet(

@@ -11,5 +11,23 @@ export interface Config {
       /** Verify phpIPAM's TLS certificate (default true; phpIPAM uses a self-signed one) */
       verifyTls?: boolean;
     };
+    /** Pool for automatic static-address allocation (e.g. new DHIS2 containers) */
+    allocation?: {
+      /** Network address of the phpIPAM subnet, e.g. 10.20.30.0 */
+      subnet: string;
+      prefix: number;
+      /** First and last address that may be allocated (inclusive) */
+      from: string;
+      to: string;
+      gateway: string;
+    };
+    /** Backstage notifications for new IPAM issues */
+    notifications?: {
+      enabled?: boolean;
+      /** Entity refs to notify (users or groups); default group:default/phpipam-admins */
+      recipients?: string[];
+      /** Subnet usage percentages that trigger a notification; default [80, 90] */
+      thresholds?: number[];
+    };
   };
 }

@@ -1,5 +1,6 @@
 import { LoggerService } from '@backstage/backend-plugin-api';
 import { spawn } from 'child_process';
+import { IpAllocation, IpAllocator } from './ipamAllocator';
 import { createWriteStream, existsSync, promises as fs } from 'fs';
 import { Readable } from 'stream';
 import * as os from 'os';
@@ -196,6 +197,8 @@ interface SafeRequestEcho {
 
 /** Shape the frontend sends to POST /instances/provision. */
 export interface ProvisionRequest {
+  /** Entity ref of the user who asked for this (recorded with the IP allocation) */
+  requestedBy?: string;
   name: string;
   domain: string;
   version: string;
@@ -480,6 +483,8 @@ export interface LifecycleRequest {
  * staging environment.
  */
 export interface CloneRequest {
+  /** Entity ref of the user who asked for this (recorded with the IP allocation) */
+  requestedBy?: string;
   /** Persisted id of the SOURCE instance. */
   sourceInstanceId: string;
   /** Source VMID / node / hostname / db.name resolved from the registry. */
@@ -745,10 +750,25 @@ export function deriveTomcatVersionForDhis2(
   return major <= 41 ? '9' : '10';
 }
 
+/** Script flags for a static IP from IPAM (none when using DHCP) */
+function staticIpArgs(allocation?: IpAllocation): string[] {
+  return allocation
+    ? [
+        '--ip',
+        allocation.ip,
+        '--ip-prefix',
+        String(allocation.prefix),
+        '--gateway',
+        allocation.gateway,
+      ]
+    : [];
+}
+
 function buildCommand(
   cfg: OrchestratorConfig,
   req: ProvisionRequest,
   restoreSpecPath?: string,
+  allocation?: IpAllocation,
 ): string {
   const args: string[] = [
     cfg.scriptPath,
@@ -780,6 +800,7 @@ function buildCommand(
   if (restoreSpecPath) {
     args.push('--restore-spec', restoreSpecPath);
   }
+  args.push(...staticIpArgs(allocation));
   if (req.newDbAccount?.user) {
     args.push('--new-db-user', req.newDbAccount.user);
   }
@@ -1256,6 +1277,7 @@ function buildCloneCommand(
   cfg: OrchestratorConfig,
   req: CloneRequest,
   scriptPath: string,
+  allocation?: IpAllocation,
 ): string {
   // Mirror resolvePveHost(): explicit override > cfg.host (if not local)
   // > target node hostname.
@@ -1318,6 +1340,7 @@ function buildCloneCommand(
   if (req.pauseSource === false) {
     args.push('--no-pause-source');
   }
+  args.push(...staticIpArgs(allocation));
   if (req.restartTomcat === false) {
     args.push('--no-restart-tomcat');
   }
@@ -1619,7 +1642,66 @@ export class ProvisionService {
     private readonly logger: LoggerService,
     private readonly cfg: OrchestratorConfig | null,
     private readonly instanceStore: InstanceStore,
+    /** When set, new and cloned containers get a static IP from IPAM */
+    private readonly ipAllocator?: IpAllocator,
   ) {}
+
+  /**
+   * Reserve a static IP for a new container. Returns undefined when IPAM
+   * allocation is not configured (the container then uses DHCP). Throws when
+   * it is configured but fails — a container must not silently fall back to
+   * DHCP when a static address was expected.
+   */
+  private async allocateIp(
+    job: JobSnapshot,
+    hostname: string,
+    purpose: string,
+    requestedBy?: string,
+  ): Promise<IpAllocation | undefined> {
+    if (!this.ipAllocator) return undefined;
+    const allocation = await this.ipAllocator.allocate({
+      hostname,
+      purpose,
+      requestedBy,
+    });
+    appendLine(
+      job,
+      `[backend] IPAM allocated ${allocation.ip}/${allocation.prefix} (gateway ${allocation.gateway}) for ${hostname}`,
+    );
+    return allocation;
+  }
+
+  /** Confirm the allocation after success, release it after failure */
+  private async settleIp(
+    job: JobSnapshot,
+    allocation: IpAllocation | undefined,
+    succeeded: boolean,
+    description: string,
+    hostname: string,
+  ): Promise<void> {
+    if (!allocation || !this.ipAllocator) return;
+    try {
+      if (succeeded) {
+        await this.ipAllocator.confirm(allocation.id, {
+          hostname,
+          description,
+        });
+        appendLine(job, `[backend] IPAM: ${allocation.ip} marked in use`);
+      } else {
+        await this.ipAllocator.release(allocation.id);
+        appendLine(job, `[backend] IPAM: released ${allocation.ip}`);
+      }
+    } catch (err) {
+      appendLine(
+        job,
+        `[backend] WARN: could not ${
+          succeeded ? 'confirm' : 'release'
+        } IPAM allocation ${allocation.ip}: ${
+          err instanceof Error ? err.message : String(err)
+        } — fix it on the IPAM page`,
+      );
+    }
+  }
 
   isConfigured(): boolean {
     return this.cfg !== null;
@@ -1825,7 +1907,26 @@ export class ProvisionService {
       return;
     }
 
-    const command = buildCommand(cfg, req, restoreSpecPath);
+    let allocation: IpAllocation | undefined;
+    try {
+      allocation = await this.allocateIp(
+        job,
+        req.hostname,
+        `DHIS2 instance ${req.name} (VMID ${req.vmid} on ${req.node})`,
+        req.requestedBy,
+      );
+    } catch (err) {
+      job.status = 'failed';
+      job.error = `IP allocation failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+      job.finishedAt = new Date().toISOString();
+      appendLine(job, `[backend] FATAL: ${job.error}`);
+      if (restoreSpecPath) await fs.unlink(restoreSpecPath).catch(() => {});
+      return;
+    }
+
+    const command = buildCommand(cfg, req, restoreSpecPath, allocation);
     // Surface the effective TLS validation policy so operators can see
     // when a stale browser setting was clamped by the app-config ceiling.
     const cfgValidate = Boolean(cfg.validateApiCerts);
@@ -1933,6 +2034,14 @@ export class ProvisionService {
       job.error = `${provisionScriptName} exited with code ${exitCode}`;
       appendLine(job, `[backend] ${job.error}`);
     }
+
+    await this.settleIp(
+      job,
+      allocation,
+      exitCode === 0,
+      `DHIS2 ${req.name}: LXC ${req.vmid} on ${req.node}`,
+      req.hostname,
+    );
 
     // Clean up the rendered restore spec + any consumed upload token,
     // regardless of job outcome. Best-effort; never let cleanup mask the
@@ -2338,7 +2447,25 @@ export class ProvisionService {
       `[backend] Cloning instance "${req.source.hostname}" (vmid=${req.source.vmid}, node=${req.source.node}) -> "${req.name}" (vmid=${req.vmid}, node=${req.node}, db_strategy=${req.dbStrategy}).`,
     );
 
-    const command = buildCloneCommand(cfg, req, cloneScript);
+    let allocation: IpAllocation | undefined;
+    try {
+      allocation = await this.allocateIp(
+        job,
+        req.hostname,
+        `DHIS2 clone ${req.name} of ${req.source.hostname} (VMID ${req.vmid} on ${req.node})`,
+        req.requestedBy,
+      );
+    } catch (err) {
+      job.status = 'failed';
+      job.error = `IP allocation failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+      job.finishedAt = new Date().toISOString();
+      appendLine(job, `[backend] FATAL: ${job.error}`);
+      return;
+    }
+
+    const command = buildCloneCommand(cfg, req, cloneScript, allocation);
     appendLine(
       job,
       `[backend] Executing: ${cloneScript} --src-vmid ${req.source.vmid} --vmid ${req.vmid} --node ${req.node} --hostname ${req.hostname} --domain ${req.domain} --db-strategy ${req.dbStrategy} (secrets via env)`,
@@ -2347,6 +2474,14 @@ export class ProvisionService {
     const exitCode = await runLocal(job, command);
     job.exitCode = exitCode;
     job.finishedAt = new Date().toISOString();
+
+    await this.settleIp(
+      job,
+      allocation,
+      exitCode === 0,
+      `DHIS2 ${req.name} (clone of ${req.source.hostname}): LXC ${req.vmid} on ${req.node}`,
+      req.hostname,
+    );
 
     if (exitCode !== 0) {
       job.status = 'failed';

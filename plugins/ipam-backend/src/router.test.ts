@@ -12,11 +12,20 @@ const httpAuth = {
         name: 'AuthenticationError',
       });
     }
+    if (req.headers['x-test-service']) {
+      return { principal: { type: 'service', subject: 'plugin:dhis2' } };
+    }
     return {
       principal: { type: 'user', userEntityRef: 'user:default/tester' },
     };
   }),
   issueUserCookie: jest.fn(),
+};
+const allocations = {
+  allocate: jest.fn(),
+  confirm: jest.fn(),
+  release: jest.fn(),
+  pool: { from: 'a', to: 'b' },
 };
 const logger = {
   info: jest.fn(),
@@ -32,7 +41,13 @@ let server: ReturnType<express.Express['listen']>;
 beforeAll(async () => {
   const app = express();
   app.use(
-    await createRouter({ logger, httpAuth, permissions, phpipam } as any),
+    await createRouter({
+      logger,
+      httpAuth,
+      permissions,
+      phpipam,
+      allocations,
+    } as any),
   );
   // stand-in for the backend's error middleware
   app.use(
@@ -57,11 +72,18 @@ beforeAll(async () => {
 afterAll(() => server.close());
 beforeEach(() => jest.clearAllMocks());
 
-const call = (method: string, path: string, body?: unknown, auth = true) =>
+const call = (
+  method: string,
+  path: string,
+  body?: unknown,
+  auth = true,
+  service = false,
+) =>
   fetch(`${base}${path}`, {
     method,
     headers: {
       ...(auth ? { authorization: 'Bearer x' } : {}),
+      ...(service ? { 'x-test-service': '1' } : {}),
       ...(body ? { 'content-type': 'application/json' } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
@@ -136,6 +158,94 @@ describe('ipam backend router', () => {
       mask: 24,
       sectionId: '3',
       description: 'x',
+    });
+  });
+
+  describe('allocations', () => {
+    const body = {
+      hostname: 'hmis-test',
+      purpose: 'DHIS2 instance hmis-test',
+      requestedBy: 'user:default/someone-else',
+    };
+    const allocated = {
+      id: '9',
+      ip: '10.20.30.150',
+      prefix: 24,
+      gateway: '10.20.30.1',
+    };
+
+    it('refuses users without ipam.address.create', async () => {
+      permissions.authorize.mockResolvedValue([
+        { result: AuthorizeResult.DENY },
+      ]);
+      expect((await call('POST', '/allocations', body)).status).toBe(403);
+      expect(allocations.allocate).not.toHaveBeenCalled();
+    });
+
+    it('lets a user allocate in their own name only', async () => {
+      permissions.authorize.mockResolvedValue([
+        { result: AuthorizeResult.ALLOW },
+      ]);
+      allocations.allocate.mockResolvedValue(allocated);
+      const res = await call('POST', '/allocations', body);
+      expect(res.status).toBe(201);
+      expect(await res.json()).toMatchObject({ ip: '10.20.30.150' });
+      expect(allocations.allocate).toHaveBeenCalledWith(
+        expect.objectContaining({ requestedBy: 'user:default/tester' }),
+      );
+    });
+
+    it('lets a backend plugin allocate on behalf of a user', async () => {
+      permissions.authorize.mockResolvedValue([
+        { result: AuthorizeResult.ALLOW },
+      ]);
+      allocations.allocate.mockResolvedValue(allocated);
+      const res = await call('POST', '/allocations', body, true, true);
+      expect(res.status).toBe(201);
+      expect(allocations.allocate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestedBy: 'user:default/someone-else via plugin:dhis2',
+        }),
+      );
+    });
+
+    it('validates input', async () => {
+      permissions.authorize.mockResolvedValue([
+        { result: AuthorizeResult.ALLOW },
+      ]);
+      const bad = await call('POST', '/allocations', {
+        hostname: 'bad host!',
+        purpose: 'x',
+      });
+      expect(bad.status).not.toBe(201);
+      expect(allocations.allocate).not.toHaveBeenCalled();
+    });
+
+    it('confirms and releases', async () => {
+      permissions.authorize.mockResolvedValue([
+        { result: AuthorizeResult.ALLOW },
+      ]);
+      const confirmed = await call(
+        'POST',
+        '/allocations/9/confirm',
+        { hostname: 'h' },
+        true,
+        true,
+      );
+      expect(confirmed.status).toBe(204);
+      expect(allocations.confirm).toHaveBeenCalledWith('9', {
+        hostname: 'h',
+        description: undefined,
+      });
+      const released = await call(
+        'DELETE',
+        '/allocations/9',
+        undefined,
+        true,
+        true,
+      );
+      expect(released.status).toBe(204);
+      expect(allocations.release).toHaveBeenCalledWith('9');
     });
   });
 });

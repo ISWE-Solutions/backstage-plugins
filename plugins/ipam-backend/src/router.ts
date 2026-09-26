@@ -5,7 +5,7 @@ import {
   LoggerService,
   PermissionsService,
 } from '@backstage/backend-plugin-api';
-import { NotAllowedError } from '@backstage/errors';
+import { InputError, NotAllowedError, NotFoundError } from '@backstage/errors';
 import {
   AuthorizeResult,
   BasicPermission,
@@ -15,6 +15,7 @@ import {
   ipamSubnetCreatePermission,
 } from '@internal/plugin-ipam-common';
 import { PhpIpamClient } from './phpipamClient';
+import { AllocationService } from './allocation';
 
 /** phpIPAM API resources the frontend may read (the app code can reach more) */
 // No dots: a segment like ".." would let a crafted path escape to other
@@ -56,6 +57,8 @@ export interface RouterOptions {
   httpAuth: HttpAuthService;
   permissions: PermissionsService;
   phpipam: PhpIpamClient;
+  /** Absent when ipam.allocation is not configured */
+  allocations?: AllocationService;
 }
 
 /**
@@ -65,22 +68,36 @@ export interface RouterOptions {
 export async function createRouter(
   options: RouterOptions,
 ): Promise<express.Router> {
-  const { logger, httpAuth, permissions, phpipam } = options;
+  const { logger, httpAuth, permissions, phpipam, allocations } = options;
   const router = Router();
   router.use(express.json({ limit: '100kb' }));
 
+  /**
+   * Users need the permission; backend plugins (service principals, e.g. the
+   * DHIS2 provisioner) are trusted by the permission framework.
+   */
   const requirePermission = async (
     req: express.Request,
     permission: BasicPermission,
-  ) => {
-    const credentials = await httpAuth.credentials(req, { allow: ['user'] });
+    allowServices = false,
+  ): Promise<string> => {
+    const credentials = await httpAuth.credentials(req, {
+      allow: allowServices ? ['user', 'service'] : ['user'],
+    });
     const [decision] = await permissions.authorize([{ permission }], {
       credentials,
     });
     if (decision.result !== AuthorizeResult.ALLOW) {
       throw new NotAllowedError(`Missing permission ${permission.name}`);
     }
-    return credentials.principal.userEntityRef;
+    const principal = credentials.principal as {
+      type: string;
+      userEntityRef?: string;
+      subject?: string;
+    };
+    return (
+      principal.userEntityRef ?? `service:${principal.subject ?? 'unknown'}`
+    );
   };
 
   router.get('/phpipam/*', async (req, res) => {
@@ -124,6 +141,64 @@ export async function createRouter(
       `ipam: ${user} created subnet ${req.body?.subnet}/${req.body?.mask} (phpIPAM ${r.status})`,
     );
     res.status(r.status).json(r.body);
+  });
+
+  // ---- allocation of static addresses (see ./allocation.ts) ----
+
+  const HOSTNAME = /^[a-zA-Z0-9][a-zA-Z0-9.-]{0,62}$/;
+  const requireAllocations = () => {
+    if (!allocations) {
+      throw new NotFoundError(
+        'Address allocation is not configured (ipam.allocation)',
+      );
+    }
+    return allocations;
+  };
+
+  router.get('/allocations/pool', async (req, res) => {
+    await httpAuth.credentials(req, { allow: ['user', 'service'] });
+    res.json(requireAllocations().pool);
+  });
+
+  router.post('/allocations', async (req, res) => {
+    const caller = await requirePermission(
+      req,
+      ipamAddressCreatePermission,
+      true,
+    );
+    const service = requireAllocations();
+    const hostname = String(req.body?.hostname ?? '').trim();
+    const purpose = String(req.body?.purpose ?? '').trim();
+    if (!HOSTNAME.test(hostname)) throw new InputError('hostname is invalid');
+    if (!purpose || purpose.length > 200) {
+      throw new InputError('purpose is required (max 200 characters)');
+    }
+    // a backend plugin may say which user it is acting for; a user may not
+    const requestedBy =
+      caller.startsWith('service:') && typeof req.body?.requestedBy === 'string'
+        ? `${req.body.requestedBy} via ${caller.slice('service:'.length)}`
+        : caller;
+    const allocation = await service.allocate({
+      hostname,
+      purpose,
+      requestedBy,
+    });
+    res.status(201).json(allocation);
+  });
+
+  router.post('/allocations/:id/confirm', async (req, res) => {
+    await requirePermission(req, ipamAddressCreatePermission, true);
+    await requireAllocations().confirm(req.params.id, {
+      hostname: req.body?.hostname,
+      description: req.body?.description,
+    });
+    res.status(204).end();
+  });
+
+  router.delete('/allocations/:id', async (req, res) => {
+    await requirePermission(req, ipamAddressCreatePermission, true);
+    await requireAllocations().release(req.params.id);
+    res.status(204).end();
   });
 
   return router;

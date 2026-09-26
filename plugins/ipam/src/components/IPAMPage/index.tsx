@@ -37,9 +37,16 @@ const TabPanel = (props: TabPanelProps) => {
   );
 };
 
+const TABS = ['dashboard', 'addresses', 'subnets', 'attention'];
+
 export const IPAMPage = () => {
   const classes = useStyles();
-  const [activeTab, setActiveTab] = useState(0);
+  // ?tab=attention (used by IPAM notifications) opens a tab directly
+  const [activeTab, setActiveTab] = useState(() => {
+    const tab = new URLSearchParams(window.location.search).get('tab');
+    const index = TABS.indexOf((tab ?? '').toLowerCase());
+    return index >= 0 ? index : 0;
+  });
 
   const handleTabChange = (_event: React.ChangeEvent<{}>, newValue: number) => {
     setActiveTab(newValue);

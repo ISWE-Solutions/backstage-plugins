@@ -25,7 +25,7 @@ import {
   CATEGORY_INFO,
   CATEGORY_ORDER,
   findAttentionItems,
-} from './attention';
+} from '@internal/plugin-ipam-common';
 
 const useStyles = makeStyles(theme => ({
   root: {

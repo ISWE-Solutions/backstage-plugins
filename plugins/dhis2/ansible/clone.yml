@@ -212,6 +212,26 @@
         status_code: [200]
       changed_when: true
 
+    # A Proxmox clone copies the source's net0, including a static IP, which
+    # would put two containers on one address. Give the clone its own
+    # IPAM-allocated address when one was passed in.
+    - name: 'Set allocated static IP {{ pve_static_ip | default("") }} on the clone'
+      ansible.builtin.uri:
+        url: '{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/config'
+        method: PUT
+        headers:
+          Authorization: '{{ _pve_auth }}'
+        body_format: form-urlencoded
+        body:
+          net0: >-
+            name=eth0,bridge={{ pve_bridge | default('vmbr0') }},ip={{ pve_static_ip }}/{{
+            pve_static_prefix | default(24) }},gw={{ pve_static_gateway }}
+          nameserver: "{{ pve_nameserver | default('10.20.30.8') }}"
+        validate_certs: '{{ pve_validate_certs | default(false) }}'
+        status_code: [200]
+      when: pve_static_ip | default('') | length > 0
+      changed_when: true
+
     - name: 'Resize rootfs to {{ dhis2_storage_gb }}G (grow only)'
       ansible.builtin.uri:
         url: '{{ _pve_api_base }}/nodes/{{ pve_node }}/lxc/{{ pve_vmid }}/resize'

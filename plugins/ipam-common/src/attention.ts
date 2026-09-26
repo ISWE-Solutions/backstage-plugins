@@ -1,4 +1,4 @@
-import { IPAddress, IPStatus } from '../../types';
+import { IPAddress, IPStatus } from './types';
 
 export type AttentionCategory =
   | 'conflict'

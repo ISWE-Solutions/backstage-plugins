@@ -22,6 +22,9 @@ Target (new instance):
   --vmid <int>              Target VMID for the clone
   --node <name>             Proxmox node to place the clone on
   --hostname <name>         Container hostname for the clone
+  --ip <addr>               Static IPv4 for the container (from IPAM allocation); DHCP if omitted
+  --ip-prefix <n>           Prefix length for --ip (default 24)
+  --gateway <addr>          Gateway for --ip (required with --ip)
   --instance-name <name>    Backstage display name (registered in inventory)
   --domain <fqdn[/segment]> Public FQDN/segment for the clone
   --cpu <int>               Target vCPU count
@@ -148,10 +151,24 @@ while [[ $# -gt 0 ]]; do
         --skip-certbot) SKIP_CERTBOT=1; shift;;
         --email) EMAIL="$2"; shift 2;;
         --keep-vars-file) KEEP_VARS_FILE=1; shift;;
+        --ip) STATIC_IP="$2"; shift 2;;
+        --ip-prefix) STATIC_PREFIX="$2"; shift 2;;
+        --gateway) STATIC_GATEWAY="$2"; shift 2;;
         -h|--help) usage; exit 0;;
         *) echo "unknown option: $1" >&2; usage >&2; exit 2;;
     esac
 done
+
+# Optional static IPv4 from IPAM allocation (DHCP when --ip is omitted).
+STATIC_IP="${STATIC_IP:-}"
+STATIC_PREFIX="${STATIC_PREFIX:-24}"
+STATIC_GATEWAY="${STATIC_GATEWAY:-}"
+if [[ -n "${STATIC_IP}" ]]; then
+    ipv4='^[0-9]{1,3}(\.[0-9]{1,3}){3}$'
+    [[ "${STATIC_IP}" =~ ${ipv4} ]] || { echo "--ip must be an IPv4 address" >&2; exit 2; }
+    [[ "${STATIC_GATEWAY}" =~ ${ipv4} ]] || { echo "--gateway is required with --ip" >&2; exit 2; }
+    [[ "${STATIC_PREFIX}" =~ ^[0-9]{1,2}$ ]] || { echo "--ip-prefix must be a number" >&2; exit 2; }
+fi
 
 for k in SRC_VMID SRC_NODE VMID NODE HOSTNAME_ INSTANCE_NAME DOMAIN \
          CPU MEMORY STORAGE DB_STRATEGY DB_HOST DB_NAME DB_USER; do
@@ -256,6 +273,7 @@ src_db_name: $(yaml_escape "${SRC_DB_NAME}")
 pve_node: $(yaml_escape "${NODE}")
 pve_vmid: ${VMID}
 pve_hostname: $(yaml_escape "${HOSTNAME_}")
+$( [[ -n "${STATIC_IP}" ]] && printf 'pve_static_ip: %s\npve_static_prefix: %s\npve_static_gateway: %s\n' "$(yaml_escape "${STATIC_IP}")" "${STATIC_PREFIX}" "$(yaml_escape "${STATIC_GATEWAY}")" )
 instance_name: $(yaml_escape "${INSTANCE_NAME}")
 fqdn: $(yaml_escape "${DOMAIN}")
 dhis2_cores: ${CPU}

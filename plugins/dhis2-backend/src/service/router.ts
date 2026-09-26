@@ -869,6 +869,9 @@ export async function createRouter(
 
     let job;
     try {
+      payload.requestedBy = (
+        await httpAuth.credentials(req, { allow: ['user'] })
+      ).principal.userEntityRef;
       job = provisionService.startJob(payload);
     } catch (err) {
       if (err instanceof ConflictError) {
@@ -1589,6 +1592,9 @@ export async function createRouter(
     }
     let job;
     try {
+      payload.requestedBy = (
+        await httpAuth.credentials(req, { allow: ['user'] })
+      ).principal.userEntityRef;
       job = provisionService.startCloneJob(payload);
     } catch (err) {
       if (err instanceof ConflictError) {

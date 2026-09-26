@@ -1,5 +1,5 @@
 import { findAttentionItems } from './attention';
-import { IPAddress, IPStatus } from '../../types';
+import { IPAddress, IPStatus } from './types';
 
 const now = new Date('2026-09-26T12:00:00Z');
 const daysAgo = (d: number) =>

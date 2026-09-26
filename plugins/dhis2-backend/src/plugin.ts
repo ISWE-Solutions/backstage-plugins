@@ -1,3 +1,4 @@
+import { createIpamAllocator } from './service/ipamAllocator';
 import {
   coreServices,
   createBackendPlugin,
@@ -87,6 +88,8 @@ export const dhis2Plugin = createBackendPlugin({
         httpAuth: coreServices.httpAuth,
         database: coreServices.database,
         scheduler: coreServices.scheduler,
+        discovery: coreServices.discovery,
+        auth: coreServices.auth,
       },
       async init({
         logger,
@@ -95,6 +98,8 @@ export const dhis2Plugin = createBackendPlugin({
         httpAuth,
         database,
         scheduler,
+        discovery,
+        auth,
       }) {
         let orchestrator: OrchestratorConfig | null = null;
         try {
@@ -225,10 +230,21 @@ export const dhis2Plugin = createBackendPlugin({
         const db = await database.getClient();
         const instanceStore = new InstanceStore(db, logger);
         await instanceStore.init();
+        // Static IPs for new/cloned containers from the ipam plugin
+        // (ipam.allocation must be configured there). Off by default.
+        const ipAllocator = config.getOptionalBoolean(
+          'dhis2.ipamAllocation.enabled',
+        )
+          ? createIpamAllocator({ discovery, auth })
+          : undefined;
+        if (ipAllocator) {
+          logger.info('DHIS2: new containers get static IPs from IPAM');
+        }
         const provisionService = new ProvisionService(
           logger,
           orchestrator,
           instanceStore,
+          ipAllocator,
         );
         await provisionService.importLegacyStateFile();
 
