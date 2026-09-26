@@ -5,11 +5,9 @@ import {
   Chip,
   LinearProgress,
   MenuItem,
-  Paper,
   Table,
   TableBody,
   TableCell,
-  TableContainer,
   TableHead,
   TableRow,
   TextField,
@@ -21,9 +19,16 @@ import { makeStyles } from '@material-ui/core/styles';
 import { useApi } from '@backstage/core-plugin-api';
 import { ipamApiRef } from '../../services/ipamService';
 import { downloadText, toCsv } from '../IPListView/csv';
+import {
+  ColumnDefinition,
+  ColumnsMenuButton,
+  ManagedTable,
+  useColumnSettings,
+} from '../ManagedTable/ManagedTable';
 import { IPAddress, Subnet } from '../../types';
 import {
   AttentionCategory,
+  AttentionItem,
   CATEGORY_INFO,
   CATEGORY_ORDER,
   findAttentionItems,
@@ -48,10 +53,25 @@ const useStyles = makeStyles(theme => ({
   mono: {
     fontFamily: 'monospace',
   },
-  tableContainer: {
-    maxHeight: 600,
-  },
 }));
+
+const COLUMNS_STORAGE_KEY = 'ipam.attentionView.columns.v1';
+
+const COLUMNS: ColumnDefinition[] = [
+  { id: 'issue', label: 'Issue', defaultWidth: 160 },
+  { id: 'ipAddress', label: 'IP Address', defaultWidth: 140 },
+  { id: 'hostname', label: 'Hostname', defaultWidth: 180 },
+  { id: 'subnet', label: 'Subnet', defaultWidth: 150 },
+  { id: 'source', label: 'Source', defaultWidth: 120 },
+  {
+    id: 'macAddress',
+    label: 'MAC Address',
+    defaultWidth: 160,
+    defaultVisible: false,
+  },
+  { id: 'detail', label: 'Detail', defaultWidth: 320 },
+  { id: 'lastSeen', label: 'Last Seen', defaultWidth: 180 },
+];
 
 const CATEGORY_COLOR: Record<AttentionCategory, 'secondary' | 'default'> = {
   conflict: 'secondary',
@@ -72,6 +92,7 @@ export const AttentionView = () => {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string>();
   const [staleDays, setStaleDays] = useState(7);
+  const columns = useColumnSettings(COLUMNS_STORAGE_KEY, COLUMNS);
   const [category, setCategory] = useState<AttentionCategory>();
   const [dhcpRanges, setDhcpRanges] = useState<{ from: string; to: string }[]>(
     [],
@@ -125,32 +146,70 @@ export const AttentionView = () => {
     return s ? `${s.network}/${s.cidr}` : id;
   };
 
-  const exportCsv = () =>
+  /** Plain-text value of a cell: hover title, CSV value and default render */
+  const cellTitle = (columnId: string, item: AttentionItem): string => {
+    const a = item.address;
+    switch (columnId) {
+      case 'issue':
+        return CATEGORY_INFO[item.category].label;
+      case 'ipAddress':
+        return a.ipAddress;
+      case 'hostname':
+        return a.hostname ?? '';
+      case 'subnet':
+        return subnetOf(a.subnetId);
+      case 'source':
+        return a.source ?? '';
+      case 'macAddress':
+        return a.macAddress ?? '';
+      case 'detail':
+        return item.detail;
+      case 'lastSeen':
+        return a.lastSeen ? new Date(a.lastSeen).toLocaleString() : '';
+      default:
+        return '';
+    }
+  };
+
+  const renderCell = (columnId: string, item: AttentionItem) => {
+    switch (columnId) {
+      case 'issue':
+        return (
+          <Chip
+            size="small"
+            label={CATEGORY_INFO[item.category].label}
+            color={CATEGORY_COLOR[item.category]}
+          />
+        );
+      case 'ipAddress':
+      case 'subnet':
+      case 'macAddress':
+        return (
+          <span className={classes.mono}>
+            {cellTitle(columnId, item) || '-'}
+          </span>
+        );
+      default:
+        return cellTitle(columnId, item) || '-';
+    }
+  };
+
+  const exportCsv = () => {
+    const cols = columns.visibleColumns;
     downloadText(
       `ipam-attention-${category ?? 'all'}-${new Date()
         .toISOString()
         .slice(0, 10)}.csv`,
       toCsv([
-        [
-          'Issue',
-          'IP Address',
-          'Hostname',
-          'Subnet',
-          'Source',
-          'Detail',
-          'Last Seen',
-        ],
-        ...shown.map(i => [
-          CATEGORY_INFO[i.category].label,
-          i.address.ipAddress,
-          i.address.hostname ?? '',
-          subnetOf(i.address.subnetId),
-          i.address.source ?? '',
-          i.detail,
-          i.address.lastSeen ?? '',
-        ]),
+        cols.map(c => c.label),
+        ...shown.map(i =>
+          cols.map(c =>
+            c.id === 'lastSeen' ? i.address.lastSeen ?? '' : cellTitle(c.id, i),
+          ),
+        ),
       ]),
     );
+  };
 
   if (loading) return <LinearProgress />;
   if (loadError) {
@@ -203,6 +262,11 @@ export const AttentionView = () => {
         >
           Export CSV
         </Button>
+        <ColumnsMenuButton
+          id="ipam-attention"
+          columns={COLUMNS}
+          settings={columns}
+        />
       </Box>
 
       {category && (
@@ -217,48 +281,13 @@ export const AttentionView = () => {
           {category ? ` in "${CATEGORY_INFO[category].label}"` : ''}.
         </Alert>
       ) : (
-        <TableContainer component={Paper} className={classes.tableContainer}>
-          <Table stickyHeader size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Issue</TableCell>
-                <TableCell>IP Address</TableCell>
-                <TableCell>Hostname</TableCell>
-                <TableCell>Subnet</TableCell>
-                <TableCell>Source</TableCell>
-                <TableCell>Detail</TableCell>
-                <TableCell>Last Seen</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {shown.map(item => (
-                <TableRow key={`${item.category}-${item.address.id}`} hover>
-                  <TableCell>
-                    <Chip
-                      size="small"
-                      label={CATEGORY_INFO[item.category].label}
-                      color={CATEGORY_COLOR[item.category]}
-                    />
-                  </TableCell>
-                  <TableCell className={classes.mono}>
-                    {item.address.ipAddress}
-                  </TableCell>
-                  <TableCell>{item.address.hostname || '-'}</TableCell>
-                  <TableCell className={classes.mono}>
-                    {subnetOf(item.address.subnetId)}
-                  </TableCell>
-                  <TableCell>{item.address.source || '-'}</TableCell>
-                  <TableCell>{item.detail}</TableCell>
-                  <TableCell>
-                    {item.address.lastSeen
-                      ? new Date(item.address.lastSeen).toLocaleString()
-                      : '-'}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+        <ManagedTable
+          settings={columns}
+          rows={shown}
+          rowKey={item => `${item.category}-${item.address.id}`}
+          renderCell={renderCell}
+          cellTitle={cellTitle}
+        />
       )}
 
       <Box mt={4}>

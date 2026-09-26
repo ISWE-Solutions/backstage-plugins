@@ -1,13 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
   Box,
-  Paper,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   Typography,
   Button,
   Tooltip,
@@ -24,6 +17,12 @@ import { ipamSubnetCreatePermission } from '@internal/plugin-ipam-common';
 import { ipamApiRef } from '../../services/ipamService';
 import { AddSubnetDialog } from '../AddSubnetDialog/AddSubnetDialog';
 import { AddVlanButton, SubnetActions } from './SubnetActions';
+import {
+  ColumnDefinition,
+  ColumnsMenuButton,
+  ManagedTable,
+  useColumnSettings,
+} from '../ManagedTable/ManagedTable';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -35,21 +34,35 @@ const useStyles = makeStyles(theme => ({
     alignItems: 'center',
     marginBottom: theme.spacing(3),
   },
-  tableContainer: {
-    maxHeight: 600,
-  },
-  headerRow: {
-    backgroundColor: theme.palette.grey[100],
+  mono: {
+    fontFamily: 'monospace',
   },
   utilizationBar: {
     height: 8,
     borderRadius: 4,
     marginTop: theme.spacing(0.5),
   },
-  utilizationText: {
-    marginTop: theme.spacing(0.5),
-  },
 }));
+
+const COLUMNS_STORAGE_KEY = 'ipam.subnetListView.columns.v1';
+
+const COLUMNS: ColumnDefinition[] = [
+  { id: 'network', label: 'Network', defaultWidth: 160 },
+  { id: 'description', label: 'Description', defaultWidth: 220 },
+  { id: 'gateway', label: 'Gateway', defaultWidth: 130 },
+  { id: 'vlan', label: 'VLAN', defaultWidth: 140, defaultVisible: false },
+  {
+    id: 'location',
+    label: 'Location',
+    defaultWidth: 140,
+    defaultVisible: false,
+  },
+  { id: 'utilization', label: 'IP Utilization', defaultWidth: 220 },
+  { id: 'total', label: 'Total IPs', defaultWidth: 100 },
+  { id: 'used', label: 'Used', defaultWidth: 90 },
+  { id: 'available', label: 'Available', defaultWidth: 100 },
+  { id: 'actions', label: 'Actions', defaultWidth: 200 },
+];
 
 const getUtilizationColor = (percent: number) => {
   if (percent >= 90) return 'error';
@@ -67,6 +80,7 @@ export const SubnetListView = () => {
   const [vlans, setVLANs] = useState<VLAN[]>([]);
   const [loading, setLoading] = useState(true);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const columns = useColumnSettings(COLUMNS_STORAGE_KEY, COLUMNS);
 
   const fetchData = async () => {
     try {
@@ -100,6 +114,84 @@ export const SubnetListView = () => {
     }
   };
 
+  const vlanLabel = (subnet: Subnet) => {
+    if (!subnet.vlanId) return '';
+    const vlan = vlans.find(v => v.id === subnet.vlanId);
+    return vlan ? `${vlan.vlanId} ${vlan.name}` : subnet.vlanId;
+  };
+
+  const cellTitle = (columnId: string, subnet: Subnet): string => {
+    switch (columnId) {
+      case 'network':
+        return `${subnet.network}/${subnet.cidr}`;
+      case 'description':
+        return subnet.description ?? '';
+      case 'gateway':
+        return subnet.gateway ?? '';
+      case 'vlan':
+        return vlanLabel(subnet);
+      case 'location':
+        return subnet.location ?? '';
+      case 'utilization':
+        return `${subnet.utilizationPercent.toFixed(1)}% (${subnet.usedIPs} / ${
+          subnet.totalIPs
+        })`;
+      default:
+        return '';
+    }
+  };
+
+  const renderCell = (columnId: string, subnet: Subnet) => {
+    const color = getUtilizationColor(subnet.utilizationPercent) as any;
+    switch (columnId) {
+      case 'network':
+        return (
+          <Typography
+            variant="body2"
+            noWrap
+            style={{ fontFamily: 'monospace', fontWeight: 'bold' }}
+          >
+            {subnet.network}/{subnet.cidr}
+          </Typography>
+        );
+      case 'gateway':
+        return <span className={classes.mono}>{subnet.gateway || '-'}</span>;
+      case 'utilization':
+        return (
+          <Box>
+            <Box display="flex" justifyContent="space-between">
+              <Typography variant="caption">
+                {subnet.utilizationPercent.toFixed(1)}%
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                {subnet.usedIPs} / {subnet.totalIPs}
+              </Typography>
+            </Box>
+            <LinearProgress
+              variant="determinate"
+              value={subnet.utilizationPercent}
+              color={color}
+              className={classes.utilizationBar}
+            />
+          </Box>
+        );
+      case 'total':
+        return <Chip label={subnet.totalIPs} size="small" />;
+      case 'used':
+        return <Chip label={subnet.usedIPs} size="small" color={color} />;
+      case 'available':
+        return (
+          <Chip label={subnet.availableIPs} size="small" color="default" />
+        );
+      case 'actions':
+        return (
+          <SubnetActions subnet={subnet} vlans={vlans} onChanged={fetchData} />
+        );
+      default:
+        return cellTitle(columnId, subnet) || '-';
+    }
+  };
+
   if (loading) {
     return <LinearProgress />;
   }
@@ -109,6 +201,12 @@ export const SubnetListView = () => {
       <Box className={classes.header}>
         <Typography variant="h5">Subnets</Typography>
         <Box flexGrow={1} />
+        <ColumnsMenuButton
+          id="ipam-subnets"
+          columns={COLUMNS}
+          settings={columns}
+        />
+        <Box width={8} />
         <AddVlanButton onChanged={fetchData} />
         <Box width={8} />
         <Tooltip
@@ -142,95 +240,14 @@ export const SubnetListView = () => {
             Showing {subnets.length} subnet{subnets.length !== 1 ? 's' : ''}
           </Typography>
 
-          <TableContainer component={Paper} className={classes.tableContainer}>
-            <Table stickyHeader>
-              <TableHead>
-                <TableRow className={classes.headerRow}>
-                  <TableCell>Network</TableCell>
-                  <TableCell>Description</TableCell>
-                  <TableCell>Gateway</TableCell>
-                  <TableCell>Location</TableCell>
-                  <TableCell>IP Utilization</TableCell>
-                  <TableCell align="right">Total IPs</TableCell>
-                  <TableCell align="right">Used</TableCell>
-                  <TableCell align="right">Available</TableCell>
-                  <TableCell>Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {subnets.map(subnet => (
-                  <TableRow key={subnet.id} hover>
-                    <TableCell>
-                      <Typography
-                        variant="body2"
-                        style={{ fontFamily: 'monospace', fontWeight: 'bold' }}
-                      >
-                        {subnet.network}/{subnet.cidr}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>{subnet.description || '-'}</TableCell>
-                    <TableCell>
-                      <Typography
-                        variant="body2"
-                        style={{ fontFamily: 'monospace' }}
-                      >
-                        {subnet.gateway || '-'}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>{subnet.location || '-'}</TableCell>
-                    <TableCell>
-                      <Box width={200}>
-                        <Box display="flex" justifyContent="space-between">
-                          <Typography variant="caption">
-                            {subnet.utilizationPercent.toFixed(1)}%
-                          </Typography>
-                          <Typography variant="caption" color="textSecondary">
-                            {subnet.usedIPs} / {subnet.totalIPs}
-                          </Typography>
-                        </Box>
-                        <LinearProgress
-                          variant="determinate"
-                          value={subnet.utilizationPercent}
-                          color={
-                            getUtilizationColor(
-                              subnet.utilizationPercent,
-                            ) as any
-                          }
-                          className={classes.utilizationBar}
-                        />
-                      </Box>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Chip label={subnet.totalIPs} size="small" />
-                    </TableCell>
-                    <TableCell align="right">
-                      <Chip
-                        label={subnet.usedIPs}
-                        size="small"
-                        color={
-                          getUtilizationColor(subnet.utilizationPercent) as any
-                        }
-                      />
-                    </TableCell>
-                    <TableCell align="right">
-                      <Chip
-                        label={subnet.availableIPs}
-                        size="small"
-                        color="default"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <SubnetActions
-                        subnet={subnet}
-                        vlans={vlans}
-                        onChanged={fetchData}
-                      />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+          <ManagedTable
+            settings={columns}
+            rows={subnets}
+            rowKey={subnet => subnet.id}
+            renderCell={renderCell}
+            cellTitle={cellTitle}
+            align={{ total: 'right', used: 'right', available: 'right' }}
+          />
         </>
       )}
 

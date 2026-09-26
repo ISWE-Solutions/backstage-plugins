@@ -3,7 +3,7 @@ import {
   ColumnDefinition,
   MIN_COLUMN_WIDTH,
   useColumnSettings,
-} from './useColumnSettings';
+} from '../ManagedTable/useColumnSettings';
 
 const KEY = 'test.columns';
 const COLUMNS: ColumnDefinition[] = [

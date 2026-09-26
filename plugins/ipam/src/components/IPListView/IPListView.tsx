@@ -1,13 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Box,
-  Paper,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   TextField,
   MenuItem,
   Chip,
@@ -15,11 +8,6 @@ import {
   Button,
   InputAdornment,
   LinearProgress,
-  Menu,
-  Checkbox,
-  ListItemIcon,
-  ListItemText,
-  Divider,
   Tooltip,
   IconButton,
 } from '@material-ui/core';
@@ -27,7 +15,6 @@ import { Alert } from '@material-ui/lab';
 import { makeStyles } from '@material-ui/core/styles';
 import SearchIcon from '@material-ui/icons/Search';
 import AddIcon from '@material-ui/icons/Add';
-import ViewColumnIcon from '@material-ui/icons/ViewColumn';
 import GetAppIcon from '@material-ui/icons/GetApp';
 import EditIcon from '@material-ui/icons/Edit';
 import DeleteIcon from '@material-ui/icons/Delete';
@@ -50,9 +37,10 @@ import {
 import { downloadText, toCsv } from './csv';
 import {
   ColumnDefinition,
-  MIN_COLUMN_WIDTH,
+  ColumnsMenuButton,
+  ManagedTable,
   useColumnSettings,
-} from './useColumnSettings';
+} from '../ManagedTable/ManagedTable';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -70,48 +58,11 @@ const useStyles = makeStyles(theme => ({
   addButton: {
     marginLeft: 'auto',
   },
-  tableContainer: {
-    maxHeight: 600,
-  },
-  table: {
-    tableLayout: 'fixed',
-  },
-  headerCell: {
-    position: 'relative',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    userSelect: 'none',
-  },
-  bodyCell: {
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-  },
-  resizeHandle: {
-    border: 0,
-    padding: 0,
-    background: 'transparent',
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    width: 8,
-    height: '100%',
-    cursor: 'col-resize',
-    zIndex: 1,
-    '&:hover, &:active, &:focus-visible': {
-      borderRight: `2px solid ${theme.palette.primary.main}`,
-      outline: 'none',
-    },
-  },
   mono: {
     fontFamily: 'monospace',
   },
   statusChip: {
     minWidth: 90,
-  },
-  headerRow: {
-    backgroundColor: theme.palette.grey[100],
   },
 }));
 
@@ -187,46 +138,7 @@ export const IPListView = () => {
       .then(c => setProxmoxUiUrls(c.proxmoxUiUrls ?? {}))
       .catch(() => undefined);
   }, [ipamService]);
-  const [columnsMenuAnchor, setColumnsMenuAnchor] =
-    useState<HTMLElement | null>(null);
   const columns = useColumnSettings(COLUMNS_STORAGE_KEY, COLUMNS);
-  // width shown while a column is being dragged; saved on mouse up
-  const [dragging, setDragging] = useState<{ id: string; width: number }>();
-  const dragStart = useRef<{ x: number; width: number }>();
-
-  const startResize = (id: string) => (event: React.MouseEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const width = columns.widthOf(id);
-    dragStart.current = { x: event.clientX, width };
-    setDragging({ id, width });
-
-    const onMove = (e: MouseEvent) => {
-      if (!dragStart.current) return;
-      const next = Math.max(
-        MIN_COLUMN_WIDTH,
-        dragStart.current.width + e.clientX - dragStart.current.x,
-      );
-      setDragging({ id, width: next });
-    };
-    const onUp = (e: MouseEvent) => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-      if (dragStart.current) {
-        columns.setWidth(
-          id,
-          dragStart.current.width + e.clientX - dragStart.current.x,
-        );
-      }
-      dragStart.current = undefined;
-      setDragging(undefined);
-    };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  };
-
-  const widthOf = (id: string) =>
-    dragging?.id === id ? dragging.width : columns.widthOf(id);
 
   const fetchData = async () => {
     try {
@@ -473,60 +385,11 @@ export const IPListView = () => {
         >
           Export CSV
         </Button>
-        <Button
-          variant="outlined"
-          startIcon={<ViewColumnIcon />}
-          onClick={e => setColumnsMenuAnchor(e.currentTarget)}
-          aria-controls="ipam-columns-menu"
-          aria-haspopup="true"
-        >
-          Columns
-        </Button>
-        <Menu
-          id="ipam-columns-menu"
-          anchorEl={columnsMenuAnchor}
-          keepMounted
-          open={Boolean(columnsMenuAnchor)}
-          onClose={() => setColumnsMenuAnchor(null)}
-        >
-          {COLUMNS.map(column => {
-            const visible = columns.isVisible(column.id);
-            const lastVisible = visible && columns.visibleColumns.length === 1;
-            return (
-              <MenuItem
-                key={column.id}
-                dense
-                disabled={lastVisible}
-                onClick={() => columns.toggleColumn(column.id)}
-              >
-                <ListItemIcon>
-                  <Checkbox
-                    edge="start"
-                    size="small"
-                    checked={visible}
-                    tabIndex={-1}
-                    disableRipple
-                    color="primary"
-                  />
-                </ListItemIcon>
-                <ListItemText primary={column.label} />
-              </MenuItem>
-            );
-          })}
-          <Divider />
-          <MenuItem
-            dense
-            onClick={() => {
-              columns.resetAll();
-              setColumnsMenuAnchor(null);
-            }}
-          >
-            <ListItemText
-              primary="Reset columns"
-              secondary="Default columns and widths"
-            />
-          </MenuItem>
-        </Menu>
+        <ColumnsMenuButton
+          id="ipam-addresses"
+          columns={COLUMNS}
+          settings={columns}
+        />
 
         <Button
           variant="outlined"
@@ -569,79 +432,14 @@ export const IPListView = () => {
             {ipAddresses.length !== 1 ? 'es' : ''}
           </Typography>
 
-          <TableContainer component={Paper} className={classes.tableContainer}>
-            <Table
-              stickyHeader
-              size="small"
-              className={classes.table}
-              style={{
-                width: columns.visibleColumns.reduce(
-                  (sum, c) => sum + widthOf(c.id),
-                  0,
-                ),
-              }}
-            >
-              <colgroup>
-                {columns.visibleColumns.map(c => (
-                  <col key={c.id} style={{ width: widthOf(c.id) }} />
-                ))}
-              </colgroup>
-              <TableHead>
-                <TableRow className={classes.headerRow}>
-                  {columns.visibleColumns.map(c => (
-                    <TableCell key={c.id} className={classes.headerCell}>
-                      {c.label}
-                      <Tooltip title="Drag to resize, double-click to reset (or focus and use ← →)">
-                        <button
-                          type="button"
-                          className={classes.resizeHandle}
-                          aria-label={`Resize ${c.label} column`}
-                          onMouseDown={startResize(c.id)}
-                          onDoubleClick={() => columns.resetWidth(c.id)}
-                          onKeyDown={e => {
-                            if (
-                              e.key === 'ArrowLeft' ||
-                              e.key === 'ArrowRight'
-                            ) {
-                              e.preventDefault();
-                              columns.setWidth(
-                                c.id,
-                                columns.widthOf(c.id) +
-                                  (e.key === 'ArrowRight' ? 10 : -10),
-                              );
-                            } else if (e.key === 'Enter') {
-                              e.preventDefault();
-                              columns.resetWidth(c.id);
-                            }
-                          }}
-                        />
-                      </Tooltip>
-                    </TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {ipAddresses.map(ip => (
-                  <TableRow
-                    key={ip.id}
-                    hover
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => setSelected(ip)}
-                  >
-                    {columns.visibleColumns.map(c => (
-                      <TableCell
-                        key={c.id}
-                        className={classes.bodyCell}
-                        title={cellTitle(c.id, ip)}
-                      >
-                        {renderCell(c.id, ip)}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+          <ManagedTable
+            settings={columns}
+            rows={ipAddresses}
+            rowKey={ip => ip.id}
+            renderCell={renderCell}
+            cellTitle={cellTitle}
+            onRowClick={setSelected}
+          />
         </>
       )}
 
