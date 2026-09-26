@@ -13,7 +13,12 @@ const httpAuth = {
       });
     }
     if (req.headers['x-test-service']) {
-      return { principal: { type: 'service', subject: 'plugin:dhis2' } };
+      return {
+        principal: {
+          type: 'service',
+          subject: String(req.headers['x-test-subject'] ?? 'plugin:dhis2'),
+        },
+      };
     }
     return {
       principal: { type: 'user', userEntityRef: 'user:default/tester' },
@@ -27,6 +32,7 @@ const allocations = {
   release: jest.fn(),
   pool: { from: 'a', to: 'b' },
 };
+const syncStatus = { record: jest.fn(), latest: jest.fn(async () => []) };
 const logger = {
   info: jest.fn(),
   warn: jest.fn(),
@@ -47,6 +53,7 @@ beforeAll(async () => {
       permissions,
       phpipam,
       allocations,
+      syncStatus,
     } as any),
   );
   // stand-in for the backend's error middleware
@@ -316,6 +323,37 @@ describe('ipam backend router', () => {
       expect(await res.json()).toMatchObject({
         allocationPool: { from: 'a', to: 'b' },
       });
+    });
+  });
+
+  describe('sync status', () => {
+    const report = {
+      finishedAt: '2026-09-26T10:00:00Z',
+      sources: { proxmox: 96 },
+    };
+    const post = (subject?: string) =>
+      fetch(`${base}/sync-status`, {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer x',
+          'content-type': 'application/json',
+          'x-test-service': '1',
+          ...(subject ? { 'x-test-subject': subject } : {}),
+        },
+        body: JSON.stringify(report),
+      });
+
+    it('accepts reports only from the sync token', async () => {
+      expect((await post('plugin:dhis2')).status).toBe(403);
+      expect(syncStatus.record).not.toHaveBeenCalled();
+      expect((await post('ipam-sync')).status).toBe(204);
+      expect(syncStatus.record).toHaveBeenCalledWith(
+        expect.objectContaining({ sources: { proxmox: 96 } }),
+      );
+    });
+
+    it('refuses users posting reports', async () => {
+      expect((await call('POST', '/sync-status', report)).status).not.toBe(204);
     });
   });
 });

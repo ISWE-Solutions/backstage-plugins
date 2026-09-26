@@ -4,6 +4,7 @@ export type AttentionCategory =
   | 'conflict'
   | 'unknown'
   | 'sharedMac'
+  | 'drift'
   | 'dhcpPoolStatic'
   | 'stale'
   | 'staleReservation'
@@ -34,6 +35,11 @@ export const CATEGORY_INFO: Record<
     description:
       'The same MAC address holds addresses recorded under different hostnames.',
   },
+  drift: {
+    label: 'Configuration drift',
+    description:
+      'The Proxmox guest departs from the standard setup — e.g. a resolver other than 10.20.30.8, or an address from DHCP instead of IPAM.',
+  },
   dhcpPoolStatic: {
     label: 'Static in DHCP pool',
     description:
@@ -61,6 +67,7 @@ export const CATEGORY_ORDER: AttentionCategory[] = [
   'conflict',
   'unknown',
   'sharedMac',
+  'drift',
   'dhcpPoolStatic',
   'stale',
   'staleReservation',
@@ -75,6 +82,7 @@ export interface DhcpRange {
 const RESERVATION_REVIEW_DAYS = 30;
 
 const CONFLICT_MARKER = 'conflict:';
+const DRIFT_MARKER = 'drift:';
 
 const ipSortKey = (ip: string) =>
   ip.split('.').reduce((acc, part) => acc * 256 + (Number(part) || 0), 0);
@@ -106,6 +114,11 @@ export function findAttentionItems(
     const conflict = noteLine(address.notes, CONFLICT_MARKER);
     if (conflict) {
       items.push({ category: 'conflict', address, detail: conflict });
+    }
+
+    const drift = noteLine(address.notes, DRIFT_MARKER);
+    if (drift) {
+      items.push({ category: 'drift', address, detail: drift });
     }
 
     // Seen only on the wire (ping sweep and/or ARP table) — no Proxmox guest,

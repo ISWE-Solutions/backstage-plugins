@@ -20,6 +20,9 @@ import {
 } from '@internal/plugin-ipam-common';
 import { PhpIpamClient } from './phpipamClient';
 import { AllocationService } from './allocation';
+import { UsageHistory } from './usageHistory';
+import { parseSyncRun, SyncStatusStore } from './syncStatus';
+import { DnsMismatch } from './dnsCheck';
 
 /** phpIPAM API resources the frontend may read (the app code can reach more) */
 // No dots: a segment like ".." would let a crafted path escape to other
@@ -65,6 +68,12 @@ export interface RouterOptions {
   allocations?: AllocationService;
   /** Non-secret settings the frontend needs (DHCP pools, Proxmox UI links) */
   publicConfig?: Record<string, unknown>;
+  usageHistory?: UsageHistory;
+  syncStatus?: SyncStatusStore;
+  /** Subject of the static token the sync reports with (backend.auth.externalAccess) */
+  syncSubject?: string;
+  /** Runs the DNS check over all phpIPAM addresses */
+  dnsCheck?: () => Promise<DnsMismatch[]>;
 }
 
 /**
@@ -74,8 +83,18 @@ export interface RouterOptions {
 export async function createRouter(
   options: RouterOptions,
 ): Promise<express.Router> {
-  const { logger, httpAuth, permissions, phpipam, allocations, publicConfig } =
-    options;
+  const {
+    logger,
+    httpAuth,
+    permissions,
+    phpipam,
+    allocations,
+    publicConfig,
+    usageHistory,
+    syncStatus,
+    syncSubject = 'ipam-sync',
+    dnsCheck,
+  } = options;
   const router = Router();
   router.use(express.json({ limit: '100kb' }));
 
@@ -227,6 +246,54 @@ export async function createRouter(
       `ipam: ${user} set VLAN ${vlanId} on subnet ${id} (phpIPAM ${r.status})`,
     );
     res.status(r.status).json(r.body);
+  });
+
+  // ---- capacity trends, sync status, DNS check ----
+
+  router.get('/usage-history', async (req, res) => {
+    await httpAuth.credentials(req, { allow: ['user'] });
+    if (!usageHistory) throw new NotFoundError('Usage history is not enabled');
+    const days = Math.min(Math.max(Number(req.query.days) || 90, 1), 730);
+    res.json(await usageHistory.list(days));
+  });
+
+  router.get('/sync-status', async (req, res) => {
+    await httpAuth.credentials(req, { allow: ['user'] });
+    if (!syncStatus) throw new NotFoundError('Sync status is not enabled');
+    const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 200);
+    res.json(await syncStatus.latest(limit));
+  });
+
+  router.post('/sync-status', async (req, res) => {
+    const credentials = await httpAuth.credentials(req, { allow: ['service'] });
+    const subject = (credentials.principal as { subject?: string }).subject;
+    if (subject !== syncSubject) {
+      throw new NotAllowedError(
+        'Only the discovery sync may report its status',
+      );
+    }
+    if (!syncStatus) throw new NotFoundError('Sync status is not enabled');
+    let run;
+    try {
+      run = parseSyncRun(req.body);
+    } catch (e) {
+      throw new InputError(e instanceof Error ? e.message : String(e));
+    }
+    await syncStatus.record(run);
+    res.status(204).end();
+  });
+
+  let dnsCache: { at: number; result: DnsMismatch[] } | undefined;
+  router.get('/dns-check', async (req, res) => {
+    await httpAuth.credentials(req, { allow: ['user'] });
+    if (!dnsCheck) throw new NotFoundError('DNS check is not enabled');
+    if (!dnsCache || Date.now() - dnsCache.at > 10 * 60_000) {
+      dnsCache = { at: Date.now(), result: await dnsCheck() };
+    }
+    res.json({
+      checkedAt: new Date(dnsCache.at).toISOString(),
+      mismatches: dnsCache.result,
+    });
   });
 
   // ---- allocation of static addresses (see ./allocation.ts) ----

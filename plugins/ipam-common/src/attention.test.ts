@@ -188,4 +188,21 @@ describe('findAttentionItems', () => {
       'staleReservation:10.20.30.161',
     ]);
   });
+
+  it('reads configuration drift recorded by the sync', () => {
+    const items = findAttentionItems(
+      [
+        addr({
+          ipAddress: '10.20.30.243',
+          source: 'dhcp',
+          notes:
+            'discovery: dhcp; LXC 105 on pve10, DHCP lease; last seen 2026-09-26\ndrift: address from DHCP, not a static IPAM allocation',
+        }),
+      ],
+      { now, staleDays: 7 },
+    );
+    expect(items.map(i => [i.category, i.detail])).toEqual([
+      ['drift', 'address from DHCP, not a static IPAM allocation'],
+    ]);
+  });
 });

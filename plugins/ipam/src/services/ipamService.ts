@@ -40,6 +40,25 @@ export interface IpamConfig {
   } | null;
 }
 
+export interface UsagePoint {
+  date: string;
+  subnetId: string;
+  cidr: string;
+  used: number;
+  max: number;
+}
+
+export interface SyncRun {
+  finishedAt: string;
+  durationSeconds: number;
+  sources: Record<string, number>;
+  created: number;
+  updated: number;
+  skipped: number;
+  errors: string[];
+  dryRun: boolean;
+}
+
 export interface AddressChange {
   date: string;
   user: string;
@@ -239,6 +258,36 @@ export class IPAMService {
           .filter(Boolean)
           .join('\n') || undefined,
     });
+  }
+
+  private async backendGet<T>(path: string): Promise<T> {
+    const base = await this.discoveryApi.getBaseUrl('ipam');
+    const response = await this.fetchApi.fetch(`${base}${path}`);
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(
+        body?.error?.message ?? `${path} failed (${response.status})`,
+      );
+    }
+    return body as T;
+  }
+
+  /** Daily subnet usage snapshots for the last N days */
+  getUsageHistory(days = 90): Promise<UsagePoint[]> {
+    return this.backendGet(`/usage-history?days=${days}`);
+  }
+
+  /** Most recent discovery sync runs, newest first */
+  getSyncStatus(limit = 20): Promise<SyncRun[]> {
+    return this.backendGet(`/sync-status?limit=${limit}`);
+  }
+
+  /** Hostname / DNS disagreements (cached for 10 minutes by the backend) */
+  getDnsCheck(): Promise<{
+    checkedAt: string;
+    mismatches: { ip: string; hostname: string; problem: string }[];
+  }> {
+    return this.backendGet('/dns-check');
   }
 
   /** Non-secret backend settings: DHCP pools, Proxmox UI links, allocation pool */

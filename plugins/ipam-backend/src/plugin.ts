@@ -9,6 +9,9 @@ import { createRouter } from './router';
 import { AllocationService } from './allocation';
 import { runNotifier } from './notifier';
 import { createDatabaseIssueStore } from './issueStore';
+import { createUsageHistory } from './usageHistory';
+import { createSyncStatusStore } from './syncStatus';
+import { checkDns, createResolver } from './dnsCheck';
 
 /**
  * Backend for the IPAM plugin: a permission-checked gateway to phpIPAM
@@ -73,6 +76,32 @@ export const ipamBackend = createBackendPlugin({
             )
           : undefined;
 
+        const usageHistory =
+          url && appCode
+            ? await createUsageHistory(database, phpipam, logger)
+            : undefined;
+        const syncStatus = await createSyncStatusStore(database);
+        const resolver = createResolver(
+          config.getOptionalStringArray('ipam.dns.servers'),
+        );
+        const dnsCheck = async () => {
+          const r = await phpipam.request('GET', 'addresses/');
+          return checkDns(((r.body as any)?.data ?? []) as any[], resolver);
+        };
+
+        if (usageHistory) {
+          // one snapshot a day (and one at startup so the chart is never empty)
+          await scheduler.scheduleTask({
+            id: 'ipam-usage-snapshot',
+            frequency: { hours: 24 },
+            timeout: { minutes: 5 },
+            initialDelay: { minutes: 1 },
+            fn: async () => {
+              await usageHistory.snapshot();
+            },
+          });
+        }
+
         httpRouter.use(
           await createRouter({
             logger,
@@ -80,6 +109,11 @@ export const ipamBackend = createBackendPlugin({
             permissions,
             phpipam,
             allocations,
+            usageHistory,
+            syncStatus,
+            syncSubject:
+              config.getOptionalString('ipam.sync.subject') ?? 'ipam-sync',
+            dnsCheck,
             publicConfig: {
               dhcpRanges: (
                 config.getOptionalConfigArray('ipam.dhcpRanges') ?? []

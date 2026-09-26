@@ -1,5 +1,6 @@
 import {
   createApiFactory,
+  createComponentExtension,
   createPlugin,
   createRoutableExtension,
   discoveryApiRef,
@@ -29,5 +30,18 @@ export const IPAMPage = ipamPlugin.provide(
     name: 'IPAMPage',
     component: () => import('./components/IPAMPage').then(m => m.IPAMPage),
     mountPoint: rootRouteRef,
+  }),
+);
+
+/** IP addresses for the current catalog entity (hidden when none match) */
+export const EntityIpamCard = ipamPlugin.provide(
+  createComponentExtension({
+    name: 'EntityIpamCard',
+    component: {
+      lazy: () =>
+        import('./components/EntityIpamCard/EntityIpamCard').then(
+          m => m.EntityIpamCard,
+        ),
+    },
   }),
 );

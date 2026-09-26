@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Box,
+  Button,
   Chip,
   LinearProgress,
   MenuItem,
@@ -55,6 +56,7 @@ const CATEGORY_COLOR: Record<AttentionCategory, 'secondary' | 'default'> = {
   conflict: 'secondary',
   unknown: 'secondary',
   sharedMac: 'secondary',
+  drift: 'default',
   dhcpPoolStatic: 'secondary',
   stale: 'default',
   staleReservation: 'default',
@@ -73,6 +75,21 @@ export const AttentionView = () => {
   const [dhcpRanges, setDhcpRanges] = useState<{ from: string; to: string }[]>(
     [],
   );
+  const [dns, setDns] = useState<{
+    checkedAt?: string;
+    mismatches?: { ip: string; hostname: string; problem: string }[];
+    error?: string;
+    running?: boolean;
+  }>({});
+  const runDnsCheck = () => {
+    setDns({ running: true });
+    ipamService
+      .getDnsCheck()
+      .then(r => setDns(r))
+      .catch(e =>
+        setDns({ error: e instanceof Error ? e.message : String(e) }),
+      );
+  };
 
   useEffect(() => {
     Promise.all([
@@ -207,6 +224,53 @@ export const AttentionView = () => {
           </Table>
         </TableContainer>
       )}
+
+      <Box mt={4}>
+        <Box display="flex" alignItems="center" style={{ gap: 16 }}>
+          <Typography variant="h6">DNS check</Typography>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={runDnsCheck}
+            disabled={dns.running}
+          >
+            {dns.running ? 'Checking…' : 'Run DNS check'}
+          </Button>
+          {dns.checkedAt && (
+            <Typography variant="caption" color="textSecondary">
+              checked {new Date(dns.checkedAt).toLocaleString()}
+            </Typography>
+          )}
+        </Box>
+        <Typography variant="body2" color="textSecondary">
+          Fully-qualified hostnames must resolve to their address; where an
+          address has reverse DNS, it should name the same host.
+        </Typography>
+        {dns.error && <Alert severity="error">{dns.error}</Alert>}
+        {dns.mismatches?.length === 0 && (
+          <Alert severity="success">No DNS mismatches.</Alert>
+        )}
+        {!!dns.mismatches?.length && (
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>IP Address</TableCell>
+                <TableCell>Hostname</TableCell>
+                <TableCell>Problem</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {dns.mismatches.map(m => (
+                <TableRow key={`${m.ip}-${m.problem}`}>
+                  <TableCell className={classes.mono}>{m.ip}</TableCell>
+                  <TableCell>{m.hostname}</TableCell>
+                  <TableCell>{m.problem}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </Box>
     </Box>
   );
 };

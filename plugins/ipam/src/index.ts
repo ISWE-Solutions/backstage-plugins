@@ -1,1 +1,1 @@
-export { ipamPlugin, IPAMPage } from './plugin';
+export { ipamPlugin, IPAMPage, EntityIpamCard } from './plugin';

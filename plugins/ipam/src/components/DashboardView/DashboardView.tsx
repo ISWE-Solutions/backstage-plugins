@@ -12,7 +12,9 @@ import { Alert } from '@material-ui/lab';
 import { makeStyles } from '@material-ui/core/styles';
 import { IPAMStatistics, Subnet } from '../../types';
 import { useApi } from '@backstage/core-plugin-api';
-import { ipamApiRef } from '../../services/ipamService';
+import { ipamApiRef, SyncRun, UsagePoint } from '../../services/ipamService';
+import { UsageTrend } from './UsageTrend';
+import { SyncStatusCard } from './SyncStatusCard';
 import RouterIcon from '@material-ui/icons/Router';
 import DnsIcon from '@material-ui/icons/Dns';
 import CheckCircleIcon from '@material-ui/icons/CheckCircle';
@@ -60,6 +62,19 @@ export const DashboardView = () => {
   const [statistics, setStatistics] = useState<IPAMStatistics | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string>();
+  const [history, setHistory] = useState<UsagePoint[]>([]);
+  const [syncRuns, setSyncRuns] = useState<SyncRun[]>();
+
+  useEffect(() => {
+    ipamService
+      .getUsageHistory(90)
+      .then(setHistory)
+      .catch(() => setHistory([]));
+    ipamService
+      .getSyncStatus(5)
+      .then(setSyncRuns)
+      .catch(() => setSyncRuns([]));
+  }, [ipamService]);
 
   useEffect(() => {
     const fetchStatistics = async () => {
@@ -248,6 +263,27 @@ export const DashboardView = () => {
                   ),
                 )}
               </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12} md={7}>
+          <Card>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                Subnet usage over time
+              </Typography>
+              <UsageTrend points={history} />
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} md={5}>
+          <Card>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                Discovery sync
+              </Typography>
+              <SyncStatusCard runs={syncRuns} />
             </CardContent>
           </Card>
         </Grid>

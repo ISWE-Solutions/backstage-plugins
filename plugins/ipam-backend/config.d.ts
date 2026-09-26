@@ -25,6 +25,15 @@ export interface Config {
     dhcpRanges?: Array<{ from: string; to: string }>;
     /** Proxmox node name -> web UI base URL, for links from addresses to guests */
     proxmoxUiUrls?: { [node: string]: string };
+    /** Discovery sync reporting (the sync posts its runs to /api/ipam/sync-status) */
+    sync?: {
+      /** Subject of the static external-access token the sync uses; default ipam-sync */
+      subject?: string;
+    };
+    /** DNS servers for the DNS check (default: the host's resolvers) */
+    dns?: {
+      servers?: string[];
+    };
     /** Backstage notifications for new IPAM issues */
     notifications?: {
       enabled?: boolean;
