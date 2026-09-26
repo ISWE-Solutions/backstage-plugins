@@ -216,6 +216,24 @@ describe('ipam backend router', () => {
       );
     });
 
+    it('refuses external static tokens (e.g. the sync) even though they are services', async () => {
+      permissions.authorize.mockResolvedValue([
+        { result: AuthorizeResult.ALLOW },
+      ]);
+      const res = await fetch(`${base}/allocations`, {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer x',
+          'content-type': 'application/json',
+          'x-test-service': '1',
+          'x-test-subject': 'ipam-sync',
+        },
+        body: JSON.stringify(body),
+      });
+      expect(res.status).toBe(403);
+      expect(allocations.allocate).not.toHaveBeenCalled();
+    });
+
     it('validates input', async () => {
       permissions.authorize.mockResolvedValue([
         { result: AuthorizeResult.ALLOW },

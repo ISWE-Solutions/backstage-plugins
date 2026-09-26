@@ -121,6 +121,16 @@ export async function createRouter(
       userEntityRef?: string;
       subject?: string;
     };
+    // Only backend plugins act as trusted services here; external static
+    // tokens (e.g. the discovery sync's) may report status but not allocate.
+    if (
+      principal.type === 'service' &&
+      !principal.subject?.startsWith('plugin:')
+    ) {
+      throw new NotAllowedError(
+        `${principal.subject} may not change IPAM data`,
+      );
+    }
     return (
       principal.userEntityRef ?? `service:${principal.subject ?? 'unknown'}`
     );
