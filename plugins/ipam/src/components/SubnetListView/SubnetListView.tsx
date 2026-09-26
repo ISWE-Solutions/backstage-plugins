@@ -23,6 +23,7 @@ import { usePermission } from '@backstage/plugin-permission-react';
 import { ipamSubnetCreatePermission } from '@internal/plugin-ipam-common';
 import { ipamApiRef } from '../../services/ipamService';
 import { AddSubnetDialog } from '../AddSubnetDialog/AddSubnetDialog';
+import { AddVlanButton, SubnetActions } from './SubnetActions';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -107,6 +108,9 @@ export const SubnetListView = () => {
     <Box className={classes.root}>
       <Box className={classes.header}>
         <Typography variant="h5">Subnets</Typography>
+        <Box flexGrow={1} />
+        <AddVlanButton onChanged={fetchData} />
+        <Box width={8} />
         <Tooltip
           title={
             canCreate
@@ -150,6 +154,7 @@ export const SubnetListView = () => {
                   <TableCell align="right">Total IPs</TableCell>
                   <TableCell align="right">Used</TableCell>
                   <TableCell align="right">Available</TableCell>
+                  <TableCell>Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -212,6 +217,13 @@ export const SubnetListView = () => {
                         label={subnet.availableIPs}
                         size="small"
                         color="default"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <SubnetActions
+                        subnet={subnet}
+                        vlans={vlans}
+                        onChanged={fetchData}
                       />
                     </TableCell>
                   </TableRow>

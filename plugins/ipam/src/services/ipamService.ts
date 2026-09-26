@@ -29,6 +29,25 @@ import {
  * Addresses are populated by phpIPAM's own ping/discovery scans and by the
  * ipam_sync.py job (Proxmox guests, DHCP leases, ARP) — see the IPAM docs.
  */
+export interface IpamConfig {
+  dhcpRanges: { from: string; to: string }[];
+  proxmoxUiUrls: Record<string, string>;
+  allocationPool: {
+    from: string;
+    to: string;
+    gateway: string;
+    prefix: number;
+  } | null;
+}
+
+export interface AddressChange {
+  date: string;
+  user: string;
+  action: string;
+  result: string;
+  diff: string;
+}
+
 export const ipamApiRef = createApiRef<IPAMService>({
   id: 'plugin.ipam.service',
 });
@@ -55,9 +74,10 @@ export class IPAMService {
     );
     // phpIPAM answers 404 for an empty collection
     if (response.status === 404 && method === 'GET') return undefined;
+    // an empty body (e.g. on DELETE) counts as success when the status is OK
     const payload = (await response
       .json()
-      .catch(() => ({}))) as PhpIpamResponse<T>;
+      .catch(() => ({ success: response.ok }))) as PhpIpamResponse<T>;
     if (!response.ok || !payload.success) {
       throw new Error(
         `phpIPAM ${method} ${path} failed: ${
@@ -218,6 +238,89 @@ export class IPAMService {
         ]
           .filter(Boolean)
           .join('\n') || undefined,
+    });
+  }
+
+  /** Non-secret backend settings: DHCP pools, Proxmox UI links, allocation pool */
+  async getConfig(): Promise<IpamConfig> {
+    const base = await this.discoveryApi.getBaseUrl('ipam');
+    const response = await this.fetchApi.fetch(`${base}/config`);
+    if (!response.ok)
+      return { dhcpRanges: [], proxmoxUiUrls: {}, allocationPool: null };
+    return response.json();
+  }
+
+  async updateAddress(
+    id: string,
+    changes: Partial<
+      Pick<
+        IPAddress,
+        | 'hostname'
+        | 'description'
+        | 'assignedTo'
+        | 'macAddress'
+        | 'status'
+        | 'notes'
+      >
+    >,
+  ): Promise<void> {
+    await this.request('PATCH', `addresses/${id}`, {
+      hostname: changes.hostname,
+      description: changes.description,
+      owner: changes.assignedTo,
+      mac: changes.macAddress,
+      tag: changes.status ? STATUS_TO_TAG[changes.status] : undefined,
+      note: changes.notes,
+    });
+  }
+
+  async deleteAddress(id: string): Promise<void> {
+    await this.request('DELETE', `addresses/${id}`);
+  }
+
+  /** phpIPAM changelog for one address, newest first */
+  async getChangelog(id: string): Promise<AddressChange[]> {
+    const raw =
+      (await this.request<Raw[]>('GET', `addresses/${id}/changelog`)) ?? [];
+    return raw
+      .map(c => ({
+        date: toIso(c.cdate) ?? '',
+        user: c.real_name ?? c.username ?? 'unknown',
+        action: c.caction ?? c.action ?? '',
+        result: c.cresult ?? '',
+        diff: c.cdiff ?? '',
+      }))
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }
+
+  async splitSubnet(id: string, number: number): Promise<void> {
+    await this.request('PATCH', `subnets/${id}/split`, { number });
+  }
+
+  /** First free child subnet of the given size inside a subnet, if any */
+  async findFreeSubnet(id: string, mask: number): Promise<string | undefined> {
+    return (
+      (await this.request<string>(
+        'GET',
+        `subnets/${id}/first_subnet/${mask}`,
+      )) ?? undefined
+    );
+  }
+
+  async createVlan(vlan: {
+    number: number;
+    name: string;
+    description?: string;
+  }): Promise<void> {
+    await this.request('POST', 'vlan', vlan);
+  }
+
+  async setSubnetVlan(
+    subnetId: string,
+    vlanId: string | undefined,
+  ): Promise<void> {
+    await this.request('PATCH', `subnets/${subnetId}/vlan`, {
+      vlanId: vlanId ?? '0',
     });
   }
 

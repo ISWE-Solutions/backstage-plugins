@@ -21,6 +21,10 @@ export interface Config {
       to: string;
       gateway: string;
     };
+    /** DHCP pools, shown on the subnet map and checked for static addresses */
+    dhcpRanges?: Array<{ from: string; to: string }>;
+    /** Proxmox node name -> web UI base URL, for links from addresses to guests */
+    proxmoxUiUrls?: { [node: string]: string };
     /** Backstage notifications for new IPAM issues */
     notifications?: {
       enabled?: boolean;

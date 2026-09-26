@@ -27,6 +27,7 @@ import { makeStyles } from '@material-ui/core/styles';
 import SearchIcon from '@material-ui/icons/Search';
 import AddIcon from '@material-ui/icons/Add';
 import ViewColumnIcon from '@material-ui/icons/ViewColumn';
+import GetAppIcon from '@material-ui/icons/GetApp';
 import { IPAddress, IPStatus, IPFilter, Subnet, VLAN } from '../../types';
 import { useApi } from '@backstage/core-plugin-api';
 import { usePermission } from '@backstage/plugin-permission-react';
@@ -34,6 +35,8 @@ import { ipamAddressCreatePermission } from '@internal/plugin-ipam-common';
 import { ipamApiRef } from '../../services/ipamService';
 import { AddIPDialog } from '../AddIPDialog/AddIPDialog';
 import { AllocateDialog } from '../AllocateDialog/AllocateDialog';
+import { AddressDetail } from '../AddressDetail/AddressDetail';
+import { downloadText, toCsv } from './csv';
 import {
   ColumnDefinition,
   MIN_COLUMN_WIDTH,
@@ -146,9 +149,24 @@ export const IPListView = () => {
   const [subnets, setSubnets] = useState<Subnet[]>([]);
   const [vlans, setVLANs] = useState<VLAN[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<IPFilter>({});
+  // ?q=<ip or hostname> (e.g. from Backstage search) pre-fills the search box
+  const [filter, setFilter] = useState<IPFilter>(() => {
+    const q = new URLSearchParams(window.location.search).get('q');
+    return q ? { search: q } : {};
+  });
+  const [selected, setSelected] = useState<IPAddress>();
+  const [proxmoxUiUrls, setProxmoxUiUrls] = useState<Record<string, string>>(
+    {},
+  );
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [allocateOpen, setAllocateOpen] = useState(false);
+
+  useEffect(() => {
+    ipamService
+      .getConfig()
+      .then(c => setProxmoxUiUrls(c.proxmoxUiUrls ?? {}))
+      .catch(() => undefined);
+  }, [ipamService]);
   const [columnsMenuAnchor, setColumnsMenuAnchor] =
     useState<HTMLElement | null>(null);
   const columns = useColumnSettings(COLUMNS_STORAGE_KEY, COLUMNS);
@@ -289,9 +307,23 @@ export const IPListView = () => {
         return getSubnetDisplay(ip.subnetId);
       case 'macAddress':
         return ip.macAddress || '';
+      case 'status':
+        return ip.status;
       default:
         return '';
     }
+  };
+
+  const exportCsv = () => {
+    const cols = columns.visibleColumns;
+    const rows = [
+      cols.map(c => c.label),
+      ...ipAddresses.map(ip => cols.map(c => cellTitle(c.id, ip))),
+    ];
+    downloadText(
+      `ipam-addresses-${new Date().toISOString().slice(0, 10)}.csv`,
+      toCsv(rows),
+    );
   };
 
   if (loading) {
@@ -372,6 +404,14 @@ export const IPListView = () => {
 
         <Button
           className={classes.addButton}
+          variant="outlined"
+          startIcon={<GetAppIcon />}
+          onClick={exportCsv}
+          disabled={ipAddresses.length === 0}
+        >
+          Export CSV
+        </Button>
+        <Button
           variant="outlined"
           startIcon={<ViewColumnIcon />}
           onClick={e => setColumnsMenuAnchor(e.currentTarget)}
@@ -520,7 +560,12 @@ export const IPListView = () => {
               </TableHead>
               <TableBody>
                 {ipAddresses.map(ip => (
-                  <TableRow key={ip.id} hover>
+                  <TableRow
+                    key={ip.id}
+                    hover
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => setSelected(ip)}
+                  >
                     {columns.visibleColumns.map(c => (
                       <TableCell
                         key={c.id}
@@ -537,6 +582,17 @@ export const IPListView = () => {
           </TableContainer>
         </>
       )}
+
+      <AddressDetail
+        address={selected}
+        subnetLabel={selected ? getSubnetDisplay(selected.subnetId) : undefined}
+        proxmoxUiUrls={proxmoxUiUrls}
+        onClose={() => setSelected(undefined)}
+        onChanged={() => {
+          setSelected(undefined);
+          fetchData();
+        }}
+      />
 
       <AllocateDialog
         open={allocateOpen}

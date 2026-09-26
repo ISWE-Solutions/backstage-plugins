@@ -55,7 +55,9 @@ const CATEGORY_COLOR: Record<AttentionCategory, 'secondary' | 'default'> = {
   conflict: 'secondary',
   unknown: 'secondary',
   sharedMac: 'secondary',
+  dhcpPoolStatic: 'secondary',
   stale: 'default',
+  staleReservation: 'default',
   stoppedGuest: 'default',
 };
 
@@ -68,20 +70,28 @@ export const AttentionView = () => {
   const [loadError, setLoadError] = useState<string>();
   const [staleDays, setStaleDays] = useState(7);
   const [category, setCategory] = useState<AttentionCategory>();
+  const [dhcpRanges, setDhcpRanges] = useState<{ from: string; to: string }[]>(
+    [],
+  );
 
   useEffect(() => {
-    Promise.all([ipamService.getIPAddresses(), ipamService.getSubnets()])
-      .then(([a, s]) => {
+    Promise.all([
+      ipamService.getIPAddresses(),
+      ipamService.getSubnets(),
+      ipamService.getConfig(),
+    ])
+      .then(([a, s, c]) => {
         setAddresses(a.addresses);
         setSubnets(s.subnets);
+        setDhcpRanges(c.dhcpRanges ?? []);
       })
       .catch(e => setLoadError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
   }, [ipamService]);
 
   const items = useMemo(
-    () => findAttentionItems(addresses, { staleDays }),
-    [addresses, staleDays],
+    () => findAttentionItems(addresses, { staleDays, dhcpRanges }),
+    [addresses, staleDays, dhcpRanges],
   );
   const counts = useMemo(() => {
     const c = {} as Record<AttentionCategory, number>;

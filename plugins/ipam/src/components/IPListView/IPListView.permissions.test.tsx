@@ -16,6 +16,11 @@ const api = {
   getIPAddresses: jest.fn(async () => ({ addresses: [], total_entries: 0 })),
   getSubnets: jest.fn(async () => ({ subnets: [], total_entries: 0 })),
   getVLANs: jest.fn(async () => ({ vlans: [], total_entries: 0 })),
+  getConfig: jest.fn(async () => ({
+    dhcpRanges: [],
+    proxmoxUiUrls: {},
+    allocationPool: null,
+  })),
 };
 
 describe('IPListView permissions', () => {

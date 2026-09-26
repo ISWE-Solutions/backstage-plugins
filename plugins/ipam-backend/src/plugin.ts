@@ -80,6 +80,18 @@ export const ipamBackend = createBackendPlugin({
             permissions,
             phpipam,
             allocations,
+            publicConfig: {
+              dhcpRanges: (
+                config.getOptionalConfigArray('ipam.dhcpRanges') ?? []
+              ).map(r => ({
+                from: r.getString('from'),
+                to: r.getString('to'),
+              })),
+              proxmoxUiUrls:
+                config.getOptional<Record<string, string>>(
+                  'ipam.proxmoxUiUrls',
+                ) ?? {},
+            },
           }),
         );
 

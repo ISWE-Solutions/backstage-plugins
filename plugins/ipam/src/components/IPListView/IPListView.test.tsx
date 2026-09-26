@@ -44,6 +44,11 @@ const api = {
     total_entries: 1,
   })),
   getVLANs: jest.fn(async () => ({ vlans: [], total_entries: 0 })),
+  getConfig: jest.fn(async () => ({
+    dhcpRanges: [],
+    proxmoxUiUrls: {},
+    allocationPool: null,
+  })),
 };
 
 const renderList = () =>

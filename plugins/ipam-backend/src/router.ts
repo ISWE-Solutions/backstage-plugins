@@ -12,7 +12,11 @@ import {
 } from '@backstage/plugin-permission-common';
 import {
   ipamAddressCreatePermission,
+  ipamAddressDeletePermission,
+  ipamAddressUpdatePermission,
   ipamSubnetCreatePermission,
+  ipamSubnetUpdatePermission,
+  ipamVlanCreatePermission,
 } from '@internal/plugin-ipam-common';
 import { PhpIpamClient } from './phpipamClient';
 import { AllocationService } from './allocation';
@@ -59,6 +63,8 @@ export interface RouterOptions {
   phpipam: PhpIpamClient;
   /** Absent when ipam.allocation is not configured */
   allocations?: AllocationService;
+  /** Non-secret settings the frontend needs (DHCP pools, Proxmox UI links) */
+  publicConfig?: Record<string, unknown>;
 }
 
 /**
@@ -68,7 +74,8 @@ export interface RouterOptions {
 export async function createRouter(
   options: RouterOptions,
 ): Promise<express.Router> {
-  const { logger, httpAuth, permissions, phpipam, allocations } = options;
+  const { logger, httpAuth, permissions, phpipam, allocations, publicConfig } =
+    options;
   const router = Router();
   router.use(express.json({ limit: '100kb' }));
 
@@ -139,6 +146,85 @@ export async function createRouter(
     );
     logger.info(
       `ipam: ${user} created subnet ${req.body?.subnet}/${req.body?.mask} (phpIPAM ${r.status})`,
+    );
+    res.status(r.status).json(r.body);
+  });
+
+  // ---- edit / delete / planning (each behind its own permission) ----
+
+  const UPDATABLE_ADDRESS_FIELDS = ADDRESS_FIELDS.filter(
+    f => f !== 'subnetId' && f !== 'ip',
+  );
+  const numericId = (id: string) => {
+    if (!/^\d+$/.test(id)) throw new InputError('invalid id');
+    return id;
+  };
+
+  router.get('/config', async (req, res) => {
+    await httpAuth.credentials(req, { allow: ['user'] });
+    res.json({
+      ...(publicConfig ?? {}),
+      allocationPool: allocations?.pool ?? null,
+    });
+  });
+
+  router.patch('/phpipam/addresses/:id', async (req, res) => {
+    const user = await requirePermission(req, ipamAddressUpdatePermission);
+    const id = numericId(req.params.id);
+    const r = await phpipam.request(
+      'PATCH',
+      `addresses/${id}/`,
+      pick(req.body, UPDATABLE_ADDRESS_FIELDS),
+    );
+    logger.info(`ipam: ${user} updated address ${id} (phpIPAM ${r.status})`);
+    res.status(r.status).json(r.body);
+  });
+
+  router.delete('/phpipam/addresses/:id', async (req, res) => {
+    const user = await requirePermission(req, ipamAddressDeletePermission);
+    const id = numericId(req.params.id);
+    const r = await phpipam.request('DELETE', `addresses/${id}/`);
+    logger.info(`ipam: ${user} deleted address ${id} (phpIPAM ${r.status})`);
+    res.status(r.status).json(r.body);
+  });
+
+  router.patch('/phpipam/subnets/:id/split', async (req, res) => {
+    const user = await requirePermission(req, ipamSubnetUpdatePermission);
+    const id = numericId(req.params.id);
+    const number = Number(req.body?.number);
+    if (![2, 4, 8, 16, 32].includes(number)) {
+      throw new InputError('number must be 2, 4, 8, 16 or 32');
+    }
+    const r = await phpipam.request('PATCH', `subnets/${id}/split/`, {
+      number,
+    });
+    logger.info(
+      `ipam: ${user} split subnet ${id} into ${number} (phpIPAM ${r.status})`,
+    );
+    res.status(r.status).json(r.body);
+  });
+
+  router.post('/phpipam/vlan', async (req, res) => {
+    const user = await requirePermission(req, ipamVlanCreatePermission);
+    const r = await phpipam.request(
+      'POST',
+      'vlan/',
+      pick(req.body, ['number', 'name', 'description', 'domainId']),
+    );
+    logger.info(
+      `ipam: ${user} created VLAN ${req.body?.number} (phpIPAM ${r.status})`,
+    );
+    res.status(r.status).json(r.body);
+  });
+
+  router.patch('/phpipam/subnets/:id/vlan', async (req, res) => {
+    const user = await requirePermission(req, ipamSubnetUpdatePermission);
+    const id = numericId(req.params.id);
+    const vlanId = String(req.body?.vlanId ?? '0');
+    if (!/^\d+$/.test(vlanId)) throw new InputError('invalid vlanId');
+    const r = await phpipam.request('PATCH', `subnets/${id}/`, { vlanId });
+    logger.info(
+      `ipam: ${user} set VLAN ${vlanId} on subnet ${id} (phpIPAM ${r.status})`,
     );
     res.status(r.status).json(r.body);
   });

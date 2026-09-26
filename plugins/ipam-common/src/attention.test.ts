@@ -132,4 +132,60 @@ describe('findAttentionItems', () => {
       'stale:10.20.30.100',
     ]);
   });
+
+  it('flags non-DHCP addresses inside a DHCP pool', () => {
+    const items = findAttentionItems(
+      [
+        addr({ ipAddress: '10.20.30.210', source: 'proxmox' }),
+        addr({
+          ipAddress: '10.20.30.211',
+          source: 'dhcp',
+          status: IPStatus.DHCP,
+        }),
+        addr({ ipAddress: '10.20.30.150', source: 'proxmox' }),
+      ],
+      {
+        now,
+        staleDays: 7,
+        dhcpRanges: [{ from: '10.20.30.200', to: '10.20.30.254' }],
+      },
+    );
+    expect(items.map(i => `${i.category}:${i.address.ipAddress}`)).toEqual([
+      'dhcpPoolStatic:10.20.30.210',
+    ]);
+  });
+
+  it('flags unowned or old reservations never seen on the network', () => {
+    expect(
+      categories([
+        addr({
+          ipAddress: '10.20.30.160',
+          status: IPStatus.RESERVED,
+          lastSeen: undefined,
+        }),
+        addr({
+          ipAddress: '10.20.30.161',
+          status: IPStatus.RESERVED,
+          lastSeen: undefined,
+          assignedTo: 'user:default/a',
+          notes: `allocated: user:default/a for x on ${daysAgo(45)}`,
+        }),
+        addr({
+          ipAddress: '10.20.30.162',
+          status: IPStatus.RESERVED,
+          lastSeen: undefined,
+          assignedTo: 'user:default/a',
+          notes: `allocated: user:default/a for x on ${daysAgo(3)}`,
+        }),
+        addr({
+          ipAddress: '10.20.30.163',
+          status: IPStatus.RESERVED,
+          assignedTo: 'x',
+        }),
+      ]),
+    ).toEqual([
+      'staleReservation:10.20.30.160',
+      'staleReservation:10.20.30.161',
+    ]);
+  });
 });

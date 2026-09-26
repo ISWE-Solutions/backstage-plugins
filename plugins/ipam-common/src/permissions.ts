@@ -18,7 +18,32 @@ export const ipamSubnetCreatePermission = createPermission({
   attributes: { action: 'create' },
 });
 
+export const ipamAddressUpdatePermission = createPermission({
+  name: 'ipam.address.update',
+  attributes: { action: 'update' },
+});
+
+export const ipamAddressDeletePermission = createPermission({
+  name: 'ipam.address.delete',
+  attributes: { action: 'delete' },
+});
+
+/** Splitting subnets and other subnet planning changes */
+export const ipamSubnetUpdatePermission = createPermission({
+  name: 'ipam.subnet.update',
+  attributes: { action: 'update' },
+});
+
+export const ipamVlanCreatePermission = createPermission({
+  name: 'ipam.vlan.create',
+  attributes: { action: 'create' },
+});
+
 export const ipamPermissions = [
   ipamAddressCreatePermission,
+  ipamAddressUpdatePermission,
+  ipamAddressDeletePermission,
   ipamSubnetCreatePermission,
+  ipamSubnetUpdatePermission,
+  ipamVlanCreatePermission,
 ];

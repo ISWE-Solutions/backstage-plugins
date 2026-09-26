@@ -248,4 +248,74 @@ describe('ipam backend router', () => {
       expect(allocations.release).toHaveBeenCalledWith('9');
     });
   });
+
+  describe('edit, delete and planning', () => {
+    beforeEach(() => {
+      phpipam.request.mockResolvedValue({
+        status: 200,
+        body: { success: true },
+      });
+    });
+
+    it('updates only editable fields, never ip or subnet', async () => {
+      permissions.authorize.mockResolvedValue([
+        { result: AuthorizeResult.ALLOW },
+      ]);
+      const res = await call('PATCH', '/phpipam/addresses/12', {
+        hostname: 'h2',
+        ip: '10.0.0.1',
+        subnetId: '9',
+        note: 'n',
+      });
+      expect(res.status).toBe(200);
+      expect(permissions.authorize.mock.calls[0][0][0].permission.name).toBe(
+        'ipam.address.update',
+      );
+      expect(phpipam.request).toHaveBeenCalledWith('PATCH', 'addresses/12/', {
+        hostname: 'h2',
+        note: 'n',
+      });
+    });
+
+    it('requires ipam.address.delete to delete, and a numeric id', async () => {
+      permissions.authorize.mockResolvedValue([
+        { result: AuthorizeResult.DENY },
+      ]);
+      expect((await call('DELETE', '/phpipam/addresses/12')).status).toBe(403);
+      permissions.authorize.mockResolvedValue([
+        { result: AuthorizeResult.ALLOW },
+      ]);
+      expect((await call('DELETE', '/phpipam/addresses/12')).status).toBe(200);
+      expect(permissions.authorize.mock.calls[1][0][0].permission.name).toBe(
+        'ipam.address.delete',
+      );
+      expect(
+        (await call('DELETE', '/phpipam/addresses/..%2Fuser')).status,
+      ).not.toBe(200);
+    });
+
+    it('splits subnets only into supported counts', async () => {
+      permissions.authorize.mockResolvedValue([
+        { result: AuthorizeResult.ALLOW },
+      ]);
+      expect(
+        (await call('PATCH', '/phpipam/subnets/7/split', { number: 3 })).status,
+      ).not.toBe(200);
+      expect(
+        (await call('PATCH', '/phpipam/subnets/7/split', { number: 4 })).status,
+      ).toBe(200);
+      expect(phpipam.request).toHaveBeenCalledWith(
+        'PATCH',
+        'subnets/7/split/',
+        { number: 4 },
+      );
+    });
+
+    it('serves public config with the allocation pool', async () => {
+      const res = await call('GET', '/config');
+      expect(await res.json()).toMatchObject({
+        allocationPool: { from: 'a', to: 'b' },
+      });
+    });
+  });
 });

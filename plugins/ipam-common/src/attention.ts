@@ -4,7 +4,9 @@ export type AttentionCategory =
   | 'conflict'
   | 'unknown'
   | 'sharedMac'
+  | 'dhcpPoolStatic'
   | 'stale'
+  | 'staleReservation'
   | 'stoppedGuest';
 
 export interface AttentionItem {
@@ -32,6 +34,16 @@ export const CATEGORY_INFO: Record<
     description:
       'The same MAC address holds addresses recorded under different hostnames.',
   },
+  dhcpPoolStatic: {
+    label: 'Static in DHCP pool',
+    description:
+      'A non-DHCP address inside a DHCP pool — the DHCP server may hand the same address to another device.',
+  },
+  staleReservation: {
+    label: 'Stale reservation',
+    description:
+      'Reserved but never seen on the network, and either unowned or reserved more than 30 days ago — release it or confirm it is still needed.',
+  },
   stale: {
     label: 'Stale',
     description:
@@ -49,9 +61,18 @@ export const CATEGORY_ORDER: AttentionCategory[] = [
   'conflict',
   'unknown',
   'sharedMac',
+  'dhcpPoolStatic',
   'stale',
+  'staleReservation',
   'stoppedGuest',
 ];
+
+export interface DhcpRange {
+  from: string;
+  to: string;
+}
+
+const RESERVATION_REVIEW_DAYS = 30;
 
 const CONFLICT_MARKER = 'conflict:';
 
@@ -72,8 +93,12 @@ const noteLine = (note: string | undefined, marker: string) =>
  */
 export function findAttentionItems(
   addresses: IPAddress[],
-  options: { now?: Date; staleDays: number },
+  options: { now?: Date; staleDays: number; dhcpRanges?: DhcpRange[] },
 ): AttentionItem[] {
+  const pools = (options.dhcpRanges ?? []).map(r => [
+    ipSortKey(r.from),
+    ipSortKey(r.to),
+  ]);
   const now = (options.now ?? new Date()).getTime();
   const items: AttentionItem[] = [];
 
@@ -108,6 +133,40 @@ export function findAttentionItems(
         address,
         detail: address.description!,
       });
+    }
+
+    const key = ipSortKey(address.ipAddress);
+    const inPool = pools.some(([lo, hi]) => key >= lo && key <= hi);
+    if (
+      inPool &&
+      address.status !== IPStatus.DHCP &&
+      !(address.source ?? '').split('+').includes('dhcp')
+    ) {
+      items.push({
+        category: 'dhcpPoolStatic',
+        address,
+        detail: `Inside the DHCP pool but recorded as ${address.status} (${
+          address.source ?? 'manual'
+        })`,
+      });
+    }
+
+    if (address.status === IPStatus.RESERVED && !address.lastSeen) {
+      const allocated = /allocated:.* on (\d{4}-\d{2}-\d{2}T[^\s]+)/.exec(
+        address.notes ?? '',
+      )?.[1];
+      const ageDays = allocated
+        ? Math.floor((now - new Date(allocated).getTime()) / DAY_MS)
+        : undefined;
+      if (!address.assignedTo || (ageDays ?? 0) > RESERVATION_REVIEW_DAYS) {
+        items.push({
+          category: 'staleReservation',
+          address,
+          detail: !address.assignedTo
+            ? 'Reserved with no owner'
+            : `Reserved ${ageDays} days ago by ${address.assignedTo}, never seen`,
+        });
+      }
     }
 
     if (address.status === IPStatus.OFFLINE) {
