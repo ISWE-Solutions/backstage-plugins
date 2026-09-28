@@ -20,7 +20,6 @@ import StopIcon from '@material-ui/icons/Stop';
 import ErrorOutlineIcon from '@material-ui/icons/ErrorOutline';
 import DnsIcon from '@material-ui/icons/Dns';
 import OpenInNewIcon from '@material-ui/icons/OpenInNew';
-import SettingsIcon from '@material-ui/icons/Settings';
 import { Link as RouterLink } from 'react-router-dom';
 import { DHIS2Instance } from '../types';
 
@@ -216,14 +215,6 @@ export const DHIS2DashboardPanel = ({ instances }: Props) => {
                 startIcon={<OpenInNewIcon />}
               >
                 Proxmox cluster monitoring
-              </Button>
-              <Button
-                component={RouterLink}
-                to="/dhis2/settings"
-                variant="outlined"
-                startIcon={<SettingsIcon />}
-              >
-                DHIS2 settings (Proxmox connection)
               </Button>
             </Box>
           </Card>

@@ -45,6 +45,7 @@ import {
 } from '@backstage/core-plugin-api';
 import { DHIS2LogsPanel } from './DHIS2LogsPanel';
 import { DHIS2DashboardPanel } from './DHIS2DashboardPanel';
+import { ProxmoxSettingsPanel } from './ProxmoxSettingsPanel';
 import { RestoreInstanceDialog } from './RestoreInstanceDialog';
 import { CloneInstanceDialog } from './CloneInstanceDialog';
 import { UpgradeInstanceDialog } from './UpgradeInstanceDialog';
@@ -2083,6 +2084,7 @@ export const DHIS2Page = () => {
           >
             <Tab label="Dashboard" />
             <Tab label="DHIS2 Instances" />
+            <Tab label="Settings" />
             <Tab label="Logs" />
           </Tabs>
         </Paper>
@@ -2116,8 +2118,13 @@ export const DHIS2Page = () => {
             <DHIS2DashboardPanel instances={instances} />
           </TabPanel>
 
-          {/* Logs Tab */}
+          {/* Settings Tab */}
           <TabPanel value={tabValue} index={2}>
+            <ProxmoxSettingsPanel onNodesChange={setNodes} />
+          </TabPanel>
+
+          {/* Logs Tab */}
+          <TabPanel value={tabValue} index={3}>
             <DHIS2LogsPanel />
           </TabPanel>
         </Paper>

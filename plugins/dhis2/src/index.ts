@@ -1,8 +1,4 @@
-export {
-  dhis2Plugin,
-  dhis2Plugin as plugin,
-  DHIS2SettingsPage,
-} from './plugin';
+export { dhis2Plugin, dhis2Plugin as plugin } from './plugin';
 export { DHIS2Page } from './components/DHIS2Page';
 export { DHIS2LogsPanel } from './components/DHIS2LogsPanel';
 export { DHIS2DashboardPanel } from './components/DHIS2DashboardPanel';
