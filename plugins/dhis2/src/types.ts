@@ -465,10 +465,21 @@ export interface DHIS2DefaultsSettings {
   backupBucket?: string;
 }
 
+/** A named Proxmox cluster profile for provisioning. */
+export interface ProxmoxClusterProfile extends ProxmoxClusterSettings {
+  id: string;
+  name: string;
+}
+
 export interface DHIS2PluginSettings {
+  /** The active cluster's settings; mirrors the selected entry in proxmoxClusters. */
   proxmox: ProxmoxClusterSettings;
   proxy: ProxyServerSettings;
   dhis2: DHIS2DefaultsSettings;
+  /** Named Proxmox cluster profiles (multi-cluster). Migrated from `proxmox`. */
+  proxmoxClusters?: ProxmoxClusterProfile[];
+  /** Id of the active profile within proxmoxClusters. */
+  activeProxmoxClusterId?: string;
 }
 
 // Orchestration logs

@@ -56,6 +56,19 @@ const resources: ProxmoxResources = {
 };
 
 const api = {
+  getClusters: jest.fn(async () => ({
+    clusters: [
+      {
+        id: 'config:dc1',
+        name: 'DC1',
+        url: 'https://x',
+        verifyTls: false,
+        source: 'config',
+        hasToken: true,
+        uiUrls: {},
+      },
+    ],
+  })),
   getResources: jest.fn(async () => resources),
   getAttention: jest.fn(async () => ({
     items: [
@@ -84,7 +97,7 @@ describe('ProxmoxPage', () => {
     expect(await screen.findByText('pve10')).toBeTruthy();
     // nodes online stat
     expect(screen.getByText('1/1')).toBeTruthy();
-    expect(screen.getByText(/DC1/)).toBeTruthy();
+    expect(screen.getAllByText(/DC1/).length).toBeGreaterThan(0);
   });
 
   it('switches to the Guests tab and lists a guest', async () => {

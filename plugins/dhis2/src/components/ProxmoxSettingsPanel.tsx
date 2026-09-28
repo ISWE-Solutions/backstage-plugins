@@ -18,7 +18,7 @@ import {
   makeStyles,
 } from '@material-ui/core';
 import SaveIcon from '@material-ui/icons/Save';
-import { DHIS2PluginSettings, ProxmoxNode } from '../types';
+import { DEFAULT_SETTINGS, DHIS2PluginSettings, ProxmoxNode } from '../types';
 import { dhis2Service } from '../services/dhis2Service';
 import { settingsService } from '../services/settingsService';
 import { fetchApiRef, useApi } from '@backstage/core-plugin-api';
@@ -70,6 +70,70 @@ export const ProxmoxSettingsPanel = ({ onNodesChange }: Props) => {
   const updateProxmox = (patch: Partial<typeof proxmox>) =>
     setSettings(prev => ({ ...prev, proxmox: { ...prev.proxmox, ...patch } }));
 
+  const clusters = settings.proxmoxClusters ?? [];
+  const activeId = settings.activeProxmoxClusterId ?? clusters[0]?.id ?? '';
+  const activeName = clusters.find(c => c.id === activeId)?.name ?? '';
+
+  // Fold the working `proxmox` edits back into the active profile.
+  const syncActive = (s: DHIS2PluginSettings) =>
+    (s.proxmoxClusters ?? []).map(c =>
+      c.id === s.activeProxmoxClusterId ? { ...c, ...s.proxmox } : c,
+    );
+
+  const switchCluster = (id: string) =>
+    setSettings(prev => {
+      const synced = syncActive(prev);
+      const target = synced.find(c => c.id === id);
+      if (!target) return prev;
+      const { id: _i, name: _n, ...s } = target;
+      return {
+        ...prev,
+        proxmoxClusters: synced,
+        activeProxmoxClusterId: id,
+        proxmox: s,
+      };
+    });
+
+  const addCluster = () =>
+    setSettings(prev => {
+      const synced = syncActive(prev);
+      const id = `c-${Date.now()}`;
+      const profile = {
+        id,
+        name: `Cluster ${synced.length + 1}`,
+        ...DEFAULT_SETTINGS.proxmox,
+      };
+      const { id: _i, name: _n, ...s } = profile;
+      return {
+        ...prev,
+        proxmoxClusters: [...synced, profile],
+        activeProxmoxClusterId: id,
+        proxmox: s,
+      };
+    });
+
+  const deleteActive = () =>
+    setSettings(prev => {
+      const list = prev.proxmoxClusters ?? [];
+      if (list.length <= 1) return prev;
+      const remaining = list.filter(c => c.id !== prev.activeProxmoxClusterId);
+      const { id: _i, name: _n, ...s } = remaining[0];
+      return {
+        ...prev,
+        proxmoxClusters: remaining,
+        activeProxmoxClusterId: remaining[0].id,
+        proxmox: s,
+      };
+    });
+
+  const renameActive = (name: string) =>
+    setSettings(prev => ({
+      ...prev,
+      proxmoxClusters: (prev.proxmoxClusters ?? []).map(c =>
+        c.id === prev.activeProxmoxClusterId ? { ...c, name } : c,
+      ),
+    }));
+
   const handleSave = () => {
     settingsService.save(settings);
     setSnackbar('Proxmox connection settings saved');
@@ -103,6 +167,62 @@ export const ProxmoxSettingsPanel = ({ onNodesChange }: Props) => {
 
   return (
     <Box>
+      <Card className={classes.section} variant="outlined">
+        <CardContent>
+          <Typography variant="h6" className={classes.sectionTitle}>
+            Clusters
+          </Typography>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} md={4}>
+              <TextField
+                select
+                fullWidth
+                label="Active cluster"
+                value={activeId}
+                onChange={e => switchCluster(e.target.value)}
+              >
+                {clusters.map(c => (
+                  <MenuItem key={c.id} value={c.id}>
+                    {c.name}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <TextField
+                fullWidth
+                label="Cluster name"
+                value={activeName}
+                onChange={e => renameActive(e.target.value)}
+              />
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <Box display="flex" style={{ gap: 8 }}>
+                <Button variant="outlined" onClick={addCluster}>
+                  Add cluster
+                </Button>
+                <Button
+                  variant="outlined"
+                  onClick={deleteActive}
+                  disabled={clusters.length <= 1}
+                >
+                  Delete
+                </Button>
+              </Box>
+            </Grid>
+          </Grid>
+          <Typography
+            variant="caption"
+            color="textSecondary"
+            component="p"
+            style={{ marginTop: 8 }}
+          >
+            The active cluster's connection is used by provisioning
+            (create/clone/update). Save to persist all clusters.
+          </Typography>
+        </CardContent>
+      </Card>
+
       <Card className={classes.section} variant="outlined">
         <CardContent>
           <Typography variant="h6" className={classes.sectionTitle}>

@@ -14,4 +14,13 @@ export const proxmoxGuestPowerPermission = createPermission({
   attributes: { action: 'update' },
 });
 
-export const proxmoxPermissions = [proxmoxGuestPowerPermission];
+/** Add, edit or remove monitored Proxmox clusters (Settings tab). */
+export const proxmoxClusterManagePermission = createPermission({
+  name: 'proxmox.cluster.manage',
+  attributes: { action: 'update' },
+});
+
+export const proxmoxPermissions = [
+  proxmoxGuestPowerPermission,
+  proxmoxClusterManagePermission,
+];

@@ -5,16 +5,35 @@ import {
 } from '@backstage/core-plugin-api';
 import {
   AttentionItem,
+  ProxmoxCluster,
   ProxmoxResources,
 } from '@internal/plugin-proxmox-common';
 
+/** Fields for adding/editing a cluster (token write-only). */
+export interface ClusterInput {
+  name: string;
+  url: string;
+  token?: string;
+  verifyTls?: boolean;
+  uiUrls?: Record<string, string>;
+}
+
 /**
  * Client for the Proxmox backend plugin (/api/proxmox), which holds the
- * read-only PVE API token and aggregates /cluster/resources. Read-only.
+ * read-only PVE API tokens and aggregates /cluster/resources per cluster.
  */
 export interface ProxmoxApi {
-  getResources(): Promise<ProxmoxResources>;
-  getAttention(): Promise<{ items: AttentionItem[]; generatedAt: string }>;
+  getClusters(): Promise<{ clusters: ProxmoxCluster[] }>;
+  getResources(clusterId?: string): Promise<ProxmoxResources>;
+  getAttention(
+    clusterId?: string,
+  ): Promise<{ items: AttentionItem[]; generatedAt: string }>;
+  addCluster(input: ClusterInput): Promise<ProxmoxCluster>;
+  updateCluster(id: string, input: ClusterInput): Promise<ProxmoxCluster>;
+  deleteCluster(id: string): Promise<void>;
+  testCluster(
+    input: ClusterInput | { id: string },
+  ): Promise<{ ok: boolean; message: string; nodes?: number }>;
 }
 
 export const proxmoxApiRef = createApiRef<ProxmoxApi>({
@@ -27,9 +46,9 @@ export class ProxmoxClientApi implements ProxmoxApi {
     private readonly fetchApi: FetchApi,
   ) {}
 
-  private async request<T>(path: string): Promise<T> {
-    const base = await this.discoveryApi.getBaseUrl('proxmox');
-    const res = await this.fetchApi.fetch(`${base}${path}`);
+  private async request<T>(path: string, init?: RequestInit): Promise<T> {
+    const baseUrl = await this.discoveryApi.getBaseUrl('proxmox');
+    const res = await this.fetchApi.fetch(`${baseUrl}${path}`, init);
     if (!res.ok) {
       let message = `${res.status} ${res.statusText}`;
       try {
@@ -40,14 +59,54 @@ export class ProxmoxClientApi implements ProxmoxApi {
       }
       throw new Error(message);
     }
-    return res.json() as Promise<T>;
+    return (res.status === 204 ? undefined : await res.json()) as T;
   }
 
-  getResources(): Promise<ProxmoxResources> {
-    return this.request<ProxmoxResources>('/resources');
+  private json(body: unknown): RequestInit {
+    return {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    };
   }
 
-  getAttention(): Promise<{ items: AttentionItem[]; generatedAt: string }> {
-    return this.request('/attention');
+  private q(clusterId?: string) {
+    return clusterId ? `?cluster=${encodeURIComponent(clusterId)}` : '';
+  }
+
+  getClusters() {
+    return this.request<{ clusters: ProxmoxCluster[] }>('/clusters');
+  }
+
+  getResources(clusterId?: string) {
+    return this.request<ProxmoxResources>(`/resources${this.q(clusterId)}`);
+  }
+
+  getAttention(clusterId?: string) {
+    return this.request<{ items: AttentionItem[]; generatedAt: string }>(
+      `/attention${this.q(clusterId)}`,
+    );
+  }
+
+  addCluster(input: ClusterInput) {
+    return this.request<ProxmoxCluster>('/clusters', this.json(input));
+  }
+
+  updateCluster(id: string, input: ClusterInput) {
+    return this.request<ProxmoxCluster>(`/clusters/${id}`, {
+      ...this.json(input),
+      method: 'PUT',
+    });
+  }
+
+  async deleteCluster(id: string) {
+    await this.request<void>(`/clusters/${id}`, { method: 'DELETE' });
+  }
+
+  testCluster(input: ClusterInput | { id: string }) {
+    return this.request<{ ok: boolean; message: string; nodes?: number }>(
+      '/clusters/test',
+      this.json(input),
+    );
   }
 }

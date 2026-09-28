@@ -84,6 +84,31 @@ export class SettingsService {
       ) {
         merged.proxmox.verifyTls = DEFAULT_SETTINGS.proxmox.verifyTls;
       }
+
+      // Multi-cluster migration: ensure at least one named cluster profile.
+      // `proxmox` always mirrors the active profile so existing consumers
+      // (create/clone/update dialogs) keep reading a single cluster.
+      const stored = Array.isArray(parsed.proxmoxClusters)
+        ? parsed.proxmoxClusters
+        : [];
+      if (stored.length === 0) {
+        merged.proxmoxClusters = [
+          { id: 'default', name: 'Default', ...merged.proxmox },
+        ];
+        merged.activeProxmoxClusterId = 'default';
+      } else {
+        merged.proxmoxClusters = stored.map(c => ({
+          ...DEFAULT_SETTINGS.proxmox,
+          ...c,
+        }));
+        const active =
+          merged.proxmoxClusters.find(
+            c => c.id === parsed.activeProxmoxClusterId,
+          ) ?? merged.proxmoxClusters[0];
+        merged.activeProxmoxClusterId = active.id;
+        const { id: _id, name: _name, ...activeSettings } = active;
+        merged.proxmox = activeSettings;
+      }
       return merged;
     } catch (e) {
       // eslint-disable-next-line no-console
@@ -94,8 +119,15 @@ export class SettingsService {
 
   save(settings: DHIS2PluginSettings): void {
     if (typeof window === 'undefined') return;
+    // Keep the active cluster profile in sync with `proxmox` before saving.
+    const clusters = (settings.proxmoxClusters ?? []).map(c =>
+      c.id === settings.activeProxmoxClusterId
+        ? { ...c, ...settings.proxmox }
+        : c,
+    );
     const normalized: DHIS2PluginSettings = {
       ...settings,
+      proxmoxClusters: clusters.length ? clusters : undefined,
       proxy: {
         ...settings.proxy,
         sshKeyPath:

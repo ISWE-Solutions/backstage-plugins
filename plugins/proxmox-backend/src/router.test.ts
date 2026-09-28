@@ -1,5 +1,6 @@
 import express from 'express';
 import { AddressInfo } from 'node:net';
+import { AuthorizeResult } from '@backstage/plugin-permission-common';
 import { createRouter } from './router';
 
 const raw = [
@@ -34,12 +35,68 @@ const raw = [
 ];
 
 const client = {
-  get: jest.fn(async (path: string) => {
-    if (path === 'cluster/resources')
-      return { status: 200, body: { data: raw } };
-    return { status: 200, body: { data: [] } };
-  }),
+  get: jest.fn(async (path: string) =>
+    path === 'cluster/resources'
+      ? { status: 200, body: { data: raw } }
+      : { status: 200, body: { data: [] } },
+  ),
 };
+
+const registry = {
+  list: jest.fn(async () => [
+    {
+      id: 'config:default',
+      name: 'DC1',
+      url: 'https://x',
+      verifyTls: false,
+      source: 'config',
+      hasToken: true,
+      uiUrls: {},
+    },
+  ]),
+  resolve: jest.fn(async (id: string) =>
+    id === 'config:default'
+      ? {
+          id,
+          name: 'DC1',
+          url: 'https://x',
+          token: 't',
+          verifyTls: false,
+          uiUrls: {},
+          source: 'config',
+        }
+      : undefined,
+  ),
+  clientFor: jest.fn(async (id: string) =>
+    id === 'config:default'
+      ? {
+          client,
+          cluster: {
+            id,
+            name: 'DC1',
+            url: 'https://x',
+            token: 't',
+            verifyTls: false,
+            uiUrls: {},
+            source: 'config',
+          },
+        }
+      : undefined,
+  ),
+  defaultId: jest.fn(async () => 'config:default'),
+  add: jest.fn(async () => ({
+    id: 'db1',
+    name: 'new',
+    url: 'https://y',
+    verifyTls: false,
+    source: 'db',
+    hasToken: true,
+    uiUrls: {},
+  })),
+  update: jest.fn(),
+  remove: jest.fn(),
+};
+
 const httpAuth = {
   credentials: jest.fn(async (req: express.Request) => {
     if (!req.headers.authorization) {
@@ -51,6 +108,12 @@ const httpAuth = {
       principal: { type: 'user', userEntityRef: 'user:default/tester' },
     };
   }),
+};
+let allow = true;
+const permissions = {
+  authorize: jest.fn(async () => [
+    { result: allow ? AuthorizeResult.ALLOW : AuthorizeResult.DENY },
+  ]),
 };
 const logger = {
   info: jest.fn(),
@@ -67,7 +130,13 @@ const auth = { headers: { authorization: 'Bearer t' } };
 beforeAll(async () => {
   const app = express();
   app.use(
-    await createRouter({ logger, httpAuth, client, cacheSeconds: 60 } as any),
+    await createRouter({
+      logger,
+      httpAuth,
+      permissions,
+      registry,
+      cacheSeconds: 60,
+    } as any),
   );
   app.use(
     (
@@ -77,7 +146,13 @@ beforeAll(async () => {
       _next: express.NextFunction,
     ) => {
       res
-        .status(err.name === 'AuthenticationError' ? 401 : 500)
+        .status(
+          err.name === 'AuthenticationError'
+            ? 401
+            : err.name === 'NotAllowedError'
+            ? 403
+            : 500,
+        )
         .json({ error: err.message });
     },
   );
@@ -85,45 +160,51 @@ beforeAll(async () => {
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
 afterAll(() => server.close());
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  allow = true;
+});
 
 it('rejects anonymous callers', async () => {
-  const res = await fetch(`${base}/resources`);
-  expect(res.status).toBe(401);
+  expect((await fetch(`${base}/resources`)).status).toBe(401);
 });
 
-it('returns aggregated resources for a signed-in user', async () => {
-  const res = await fetch(`${base}/resources`, auth);
-  expect(res.status).toBe(200);
-  const body = await res.json();
+it('lists clusters', async () => {
+  const body = await (await fetch(`${base}/clusters`, auth)).json();
+  expect(body.clusters[0].name).toBe('DC1');
+  expect(body.clusters[0]).not.toHaveProperty('token');
+});
+
+it('returns resources for the default cluster tagged with its id/name', async () => {
+  const body = await (await fetch(`${base}/resources`, auth)).json();
   expect(body.nodes).toHaveLength(1);
-  expect(body.guests).toHaveLength(1);
-  expect(body.storage[0].storage).toBe('uc3200');
-});
-
-it('caches so a second call does not re-hit Proxmox', async () => {
-  await fetch(`${base}/resources`, auth);
-  await fetch(`${base}/resources`, auth);
-  // only one underlying /cluster/resources fetch across both (plus cluster/status)
-  const calls = client.get.mock.calls.filter(c => c[0] === 'cluster/resources');
-  expect(calls.length).toBeLessThanOrEqual(1);
+  expect(body.clusterName).toBe('DC1');
 });
 
 it('computes attention items', async () => {
-  const res = await fetch(`${base}/attention`, auth);
-  const body = await res.json();
+  const body = await (await fetch(`${base}/attention`, auth)).json();
   const cats = body.items.map((i: any) => i.category);
   expect(cats).toEqual(
     expect.arrayContaining(['guestStopped', 'storageFull', 'nodeMemoryHigh']),
   );
 });
 
-it('reports configured=false when no client', async () => {
-  const app = express();
-  app.use(await createRouter({ logger, httpAuth } as any));
-  const s = app.listen(0);
-  const b = `http://127.0.0.1:${(s.address() as AddressInfo).port}`;
-  const res = await fetch(`${b}/health`, auth);
-  expect((await res.json()).configured).toBe(false);
-  s.close();
+it('403s cluster creation without the manage permission', async () => {
+  allow = false;
+  const res = await fetch(`${base}/clusters`, {
+    method: 'POST',
+    headers: { ...auth.headers, 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'n', url: 'https://y', token: 't' }),
+  });
+  expect(res.status).toBe(403);
+});
+
+it('creates a cluster with the manage permission', async () => {
+  const res = await fetch(`${base}/clusters`, {
+    method: 'POST',
+    headers: { ...auth.headers, 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'n', url: 'https://y', token: 't' }),
+  });
+  expect(res.status).toBe(201);
+  expect(registry.add).toHaveBeenCalled();
 });

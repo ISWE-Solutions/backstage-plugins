@@ -74,12 +74,30 @@ export interface ClusterInfo {
   nodesTotal: number;
 }
 
+/** A monitored Proxmox cluster (never carries the API token to the frontend). */
+export interface ProxmoxCluster {
+  id: string;
+  name: string;
+  /** PVE API base URL, e.g. https://10.20.30.10:8006 */
+  url: string;
+  verifyTls: boolean;
+  /** Where it is defined: app-config (read-only) or the backend DB (editable) */
+  source: 'config' | 'db';
+  /** True when a token is stored for it (config clusters always true) */
+  hasToken: boolean;
+  /** Node name -> web UI URL */
+  uiUrls?: Record<string, string>;
+}
+
 export interface ProxmoxResources {
   cluster: ClusterInfo;
   nodes: ProxmoxNode[];
   guests: ProxmoxGuest[];
   storage: ProxmoxStorage[];
   generatedAt: string;
+  /** Which configured cluster these resources came from */
+  clusterId?: string;
+  clusterName?: string;
 }
 
 /** Health-check categories, in the spirit of Pulse "Patrol" */
