@@ -23,6 +23,7 @@ import {
   ManagedTable,
   useColumnSettings,
 } from '../ManagedTable/ManagedTable';
+import { downloadText, toCsv } from '../IPListView/csv';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -136,9 +137,27 @@ export const SubnetListView = () => {
         return `${subnet.utilizationPercent.toFixed(1)}% (${subnet.usedIPs} / ${
           subnet.totalIPs
         })`;
+      case 'total':
+        return String(subnet.totalIPs);
+      case 'used':
+        return String(subnet.usedIPs);
+      case 'available':
+        return String(subnet.availableIPs);
       default:
         return '';
     }
+  };
+
+  const exportCsv = () => {
+    const cols = columns.visibleColumns.filter(c => c.id !== 'actions');
+    const rows = [
+      cols.map(c => c.label),
+      ...subnets.map(s => cols.map(c => cellTitle(c.id, s))),
+    ];
+    downloadText(
+      `ipam-subnets-${new Date().toISOString().slice(0, 10)}.csv`,
+      toCsv(rows),
+    );
   };
 
   const renderCell = (columnId: string, subnet: Subnet) => {
@@ -201,6 +220,15 @@ export const SubnetListView = () => {
       <Box className={classes.header}>
         <Typography variant="h5">Subnets</Typography>
         <Box flexGrow={1} />
+        <Button
+          variant="outlined"
+          size="small"
+          onClick={exportCsv}
+          disabled={subnets.length === 0}
+        >
+          Export CSV
+        </Button>
+        <Box width={8} />
         <ColumnsMenuButton
           id="ipam-subnets"
           columns={COLUMNS}
