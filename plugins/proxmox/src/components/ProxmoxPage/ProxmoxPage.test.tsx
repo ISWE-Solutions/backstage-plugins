@@ -32,6 +32,10 @@ const resources: ProxmoxResources = {
       disk: 0,
       maxdisk: 0,
       uptime: 500,
+      netin: 0,
+      netout: 0,
+      diskread: 0,
+      diskwrite: 0,
       template: false,
       tags: ['prod'],
     },
@@ -106,6 +110,16 @@ describe('ProxmoxPage', () => {
     fireEvent.click(screen.getByText(/Guests \(1\)/));
     expect(await screen.findByText('ento')).toBeTruthy();
     expect(screen.getByText('prod')).toBeTruthy();
+  });
+
+  it('expands a guest row to reveal details', async () => {
+    await render();
+    await screen.findByText('pve10');
+    fireEvent.click(screen.getByText(/Guests \(1\)/));
+    fireEvent.click(await screen.findByText('ento'));
+    // detail fields appear only once expanded
+    expect(await screen.findByText('Net in')).toBeTruthy();
+    expect(screen.getByText('LXC container')).toBeTruthy();
   });
 
   it('shows attention items', async () => {

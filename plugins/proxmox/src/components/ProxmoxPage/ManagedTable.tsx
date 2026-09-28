@@ -1,8 +1,10 @@
-import { ReactNode, useRef, useState } from 'react';
+import { Fragment, ReactNode, useRef, useState } from 'react';
 import {
   Button,
   Checkbox,
+  Collapse,
   Divider,
+  IconButton,
   ListItemIcon,
   ListItemText,
   Menu,
@@ -18,6 +20,8 @@ import {
 } from '@material-ui/core';
 import { makeStyles } from '@material-ui/core/styles';
 import ViewColumnIcon from '@material-ui/icons/ViewColumn';
+import KeyboardArrowDownIcon from '@material-ui/icons/KeyboardArrowDown';
+import KeyboardArrowRightIcon from '@material-ui/icons/KeyboardArrowRight';
 import {
   ColumnDefinition,
   MIN_COLUMN_WIDTH,
@@ -25,6 +29,8 @@ import {
 } from './useColumnSettings';
 
 type ColumnSettings = ReturnType<typeof useColumnSettings>;
+
+const EXPAND_COL_WIDTH = 44;
 
 const useStyles = makeStyles(theme => ({
   tableContainer: {
@@ -155,6 +161,11 @@ interface ManagedTableProps<T> {
   onRowClick?: (row: T) => void;
   /** Column alignment, e.g. numbers to the right */
   align?: Partial<Record<string, 'left' | 'right' | 'center'>>;
+  /**
+   * When provided, each row gets an expand chevron and clicking it reveals this
+   * detail content in a collapsible panel below the row.
+   */
+  renderDetail?: (row: T) => ReactNode;
 }
 
 /**
@@ -171,11 +182,20 @@ export function ManagedTable<T>({
   cellTitle,
   onRowClick,
   align = {},
+  renderDetail,
 }: ManagedTableProps<T>) {
   const classes = useStyles();
   // width shown while a column is being dragged; saved on mouse up
   const [dragging, setDragging] = useState<{ id: string; width: number }>();
   const dragStart = useRef<{ x: number; width: number }>();
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggle = (key: string) =>
+    setExpanded(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   const startResize = (id: string) => (event: React.MouseEvent) => {
     event.preventDefault();
@@ -219,15 +239,21 @@ export function ManagedTable<T>({
         stickyHeader
         size="small"
         className={classes.table}
-        style={{ width: visible.reduce((sum, c) => sum + widthOf(c.id), 0) }}
+        style={{
+          width:
+            visible.reduce((sum, c) => sum + widthOf(c.id), 0) +
+            (renderDetail ? EXPAND_COL_WIDTH : 0),
+        }}
       >
         <colgroup>
+          {renderDetail && <col style={{ width: EXPAND_COL_WIDTH }} />}
           {visible.map(c => (
             <col key={c.id} style={{ width: widthOf(c.id) }} />
           ))}
         </colgroup>
         <TableHead>
           <TableRow className={classes.headerRow}>
+            {renderDetail && <TableCell className={classes.headerCell} />}
             {visible.map(c => (
               <TableCell
                 key={c.id}
@@ -262,25 +288,68 @@ export function ManagedTable<T>({
           </TableRow>
         </TableHead>
         <TableBody>
-          {rows.map(row => (
-            <TableRow
-              key={rowKey(row)}
-              hover
-              className={onRowClick ? classes.clickableRow : undefined}
-              onClick={onRowClick ? () => onRowClick(row) : undefined}
-            >
-              {visible.map(c => (
-                <TableCell
-                  key={c.id}
-                  className={classes.bodyCell}
-                  align={align[c.id]}
-                  title={cellTitle?.(c.id, row) ?? ''}
+          {rows.map(row => {
+            const key = rowKey(row);
+            const isOpen = expanded.has(key);
+            const clickable = Boolean(renderDetail) || Boolean(onRowClick);
+            const handleClick = renderDetail
+              ? () => toggle(key)
+              : onRowClick
+              ? () => onRowClick(row)
+              : undefined;
+            const cells = visible.map(c => (
+              <TableCell
+                key={c.id}
+                className={classes.bodyCell}
+                align={align[c.id]}
+                title={cellTitle?.(c.id, row) ?? ''}
+              >
+                {renderCell(c.id, row)}
+              </TableCell>
+            ));
+            if (!renderDetail) {
+              return (
+                <TableRow
+                  key={key}
+                  hover
+                  className={clickable ? classes.clickableRow : undefined}
+                  onClick={handleClick}
                 >
-                  {renderCell(c.id, row)}
-                </TableCell>
-              ))}
-            </TableRow>
-          ))}
+                  {cells}
+                </TableRow>
+              );
+            }
+            return (
+              <Fragment key={key}>
+                <TableRow
+                  hover
+                  className={classes.clickableRow}
+                  onClick={handleClick}
+                >
+                  <TableCell className={classes.bodyCell} padding="checkbox">
+                    <IconButton size="small" aria-label="Toggle details">
+                      {isOpen ? (
+                        <KeyboardArrowDownIcon fontSize="small" />
+                      ) : (
+                        <KeyboardArrowRightIcon fontSize="small" />
+                      )}
+                    </IconButton>
+                  </TableCell>
+                  {cells}
+                </TableRow>
+                <TableRow>
+                  <TableCell
+                    colSpan={visible.length + 1}
+                    style={{ paddingTop: 0, paddingBottom: 0, border: 0 }}
+                  >
+                    <Collapse in={isOpen} timeout="auto" unmountOnExit>
+                      {renderDetail(row)}
+                    </Collapse>
+                  </TableCell>
+                </TableRow>
+              </Fragment>
+            );
+          })}
         </TableBody>
       </Table>
     </TableContainer>

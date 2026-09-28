@@ -1,11 +1,122 @@
 import { useMemo, useState } from 'react';
-import { Box, Chip, Link, MenuItem, TextField } from '@material-ui/core';
+import {
+  Box,
+  Chip,
+  Grid,
+  Link,
+  MenuItem,
+  TextField,
+  Typography,
+  makeStyles,
+} from '@material-ui/core';
 import {
   ProxmoxGuest,
   ProxmoxResources,
 } from '@internal/plugin-proxmox-common';
-import { percent, uptime } from './format';
+import { bytes, percent, uptime } from './format';
 import { StatusChip, UsageBar } from './parts';
+
+const useDetailStyles = makeStyles(theme => ({
+  detail: {
+    padding: theme.spacing(2),
+    backgroundColor: theme.palette.background.default,
+  },
+  label: {
+    display: 'block',
+    color: theme.palette.text.secondary,
+    fontSize: '0.75rem',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+    marginBottom: 2,
+  },
+  value: {
+    fontFamily: 'monospace',
+  },
+}));
+
+const GuestDetail = ({ g }: { g: ProxmoxGuest }) => {
+  const classes = useDetailStyles();
+  const field = (label: string, value: React.ReactNode) => (
+    <Grid item xs={6} sm={4} md={3}>
+      <span className={classes.label}>{label}</span>
+      <span className={classes.value}>{value}</span>
+    </Grid>
+  );
+  const running = g.status === 'running';
+  return (
+    <Box className={classes.detail}>
+      <Grid container spacing={2}>
+        <Grid item xs={12} sm={4}>
+          <span className={classes.label}>CPU</span>
+          <UsageBar
+            used={running ? g.cpu * g.maxcpu : 0}
+            total={g.maxcpu}
+            frac={running ? g.cpu : 0}
+            width={200}
+          />
+          <Typography variant="caption" color="textSecondary">
+            {running ? `${percent(g.cpu)} of ${g.maxcpu} cores` : 'stopped'}
+          </Typography>
+        </Grid>
+        <Grid item xs={12} sm={4}>
+          <span className={classes.label}>Memory</span>
+          {g.maxmem ? (
+            <UsageBar
+              used={g.mem}
+              total={g.maxmem}
+              frac={g.mem / g.maxmem}
+              width={200}
+            />
+          ) : (
+            <span className={classes.value}>—</span>
+          )}
+        </Grid>
+        <Grid item xs={12} sm={4}>
+          <span className={classes.label}>Disk</span>
+          {g.maxdisk ? (
+            <UsageBar
+              used={g.disk}
+              total={g.maxdisk}
+              frac={g.maxdisk ? g.disk / g.maxdisk : 0}
+              width={200}
+            />
+          ) : (
+            <span className={classes.value}>—</span>
+          )}
+        </Grid>
+        {field('VMID', g.vmid)}
+        {field('Type', g.type === 'lxc' ? 'LXC container' : 'QEMU VM')}
+        {field('Node', g.node)}
+        {field('Uptime', running ? uptime(g.uptime) : '—')}
+        {field('Net in', bytes(g.netin))}
+        {field('Net out', bytes(g.netout))}
+        {field('Disk read', bytes(g.diskread))}
+        {field('Disk write', bytes(g.diskwrite))}
+        {g.pool && field('Pool', g.pool)}
+        {field(
+          'Tags',
+          g.tags.length
+            ? g.tags.map(t => (
+                <Chip
+                  key={t}
+                  size="small"
+                  label={t}
+                  style={{ marginRight: 4, height: 18 }}
+                />
+              ))
+            : '—',
+        )}
+        {g.uiUrl &&
+          field(
+            'Console',
+            <Link href={g.uiUrl} target="_blank" rel="noopener">
+              Open in Proxmox
+            </Link>,
+          )}
+      </Grid>
+    </Box>
+  );
+};
 import {
   ColumnDefinition,
   ColumnsMenuButton,
@@ -172,6 +283,7 @@ export const GuestsTab = ({ data }: { data: ProxmoxResources }) => {
         renderCell={renderCell}
         cellTitle={cellTitle}
         align={{ vmid: 'right' }}
+        renderDetail={g => <GuestDetail g={g} />}
       />
     </Box>
   );

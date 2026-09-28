@@ -45,6 +45,14 @@ export interface ProxmoxGuest {
   disk: number;
   maxdisk: number;
   uptime: number;
+  /** Cumulative network bytes since boot (counters, not rates) */
+  netin: number;
+  netout: number;
+  /** Cumulative disk I/O bytes since boot */
+  diskread: number;
+  diskwrite: number;
+  /** Proxmox resource pool, if any */
+  pool?: string;
   template: boolean;
   tags: string[];
   uiUrl?: string;
