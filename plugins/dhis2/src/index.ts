@@ -1,7 +1,12 @@
-export { dhis2Plugin, dhis2Plugin as plugin } from './plugin';
+export {
+  dhis2Plugin,
+  dhis2Plugin as plugin,
+  DHIS2SettingsPage,
+} from './plugin';
 export { DHIS2Page } from './components/DHIS2Page';
 export { DHIS2LogsPanel } from './components/DHIS2LogsPanel';
-export { ProxmoxClusterPanel } from './components/ProxmoxClusterPanel';
+export { DHIS2DashboardPanel } from './components/DHIS2DashboardPanel';
+export { ProxmoxSettingsPanel } from './components/ProxmoxSettingsPanel';
 export { settingsService, SettingsService } from './services/settingsService';
 export type {
   DHIS2PluginSettings,

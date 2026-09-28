@@ -13,7 +13,7 @@ import {
   Typography,
 } from '@material-ui/core';
 import { ProxmoxResources } from '@internal/plugin-proxmox-common';
-import { percent, uptime } from './format';
+import { bytes, percent, uptime } from './format';
 import { StatusChip, UsageBar } from './parts';
 
 const Stat = ({ label, value }: { label: string; value: React.ReactNode }) => (
@@ -32,6 +32,18 @@ export const OverviewTab = ({ data }: { data: ProxmoxResources }) => {
   const stopped = data.guests.filter(
     g => g.status === 'stopped' && !g.template,
   ).length;
+
+  const online = data.nodes.filter(n => n.status === 'online');
+  const vcpus = online.reduce((s, n) => s + n.maxcpu, 0);
+  const memTotal = online.reduce((s, n) => s + n.maxmem, 0);
+  // Sum storage capacity, de-duplicating shared pools that appear on every node.
+  const seen = new Set<string>();
+  const storageTotal = data.storage.reduce((s, st) => {
+    const key = st.shared ? st.storage : st.id;
+    if (seen.has(key)) return s;
+    seen.add(key);
+    return s + st.total;
+  }, 0);
 
   return (
     <Box>
@@ -61,6 +73,15 @@ export const OverviewTab = ({ data }: { data: ProxmoxResources }) => {
                 : 'LOST'
             }
           />
+        </Grid>
+        <Grid item xs={6} sm={3}>
+          <Stat label="Total vCPUs" value={vcpus} />
+        </Grid>
+        <Grid item xs={6} sm={3}>
+          <Stat label="Total memory" value={bytes(memTotal)} />
+        </Grid>
+        <Grid item xs={6} sm={3}>
+          <Stat label="Storage capacity" value={bytes(storageTotal)} />
         </Grid>
       </Grid>
 

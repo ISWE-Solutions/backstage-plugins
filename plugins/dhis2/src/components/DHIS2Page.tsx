@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
-  Grid,
-  Card,
   Typography,
   Button,
   IconButton,
@@ -15,7 +13,6 @@ import {
   Tab,
   Tooltip,
   CircularProgress,
-  makeStyles,
 } from '@material-ui/core';
 import { Alert } from '@material-ui/lab';
 import {
@@ -28,11 +25,6 @@ import {
 import AddIcon from '@material-ui/icons/Add';
 import PlayArrowIcon from '@material-ui/icons/PlayArrow';
 import RefreshIcon from '@material-ui/icons/Refresh';
-import StorageIcon from '@material-ui/icons/Storage';
-import CloudIcon from '@material-ui/icons/Cloud';
-import DnsIcon from '@material-ui/icons/Dns';
-import SdStorageIcon from '@material-ui/icons/SdStorage';
-import DeviceHubIcon from '@material-ui/icons/DeviceHub';
 import CheckCircleIcon from '@material-ui/icons/CheckCircle';
 import ErrorOutlineIcon from '@material-ui/icons/ErrorOutline';
 import RadioButtonUncheckedIcon from '@material-ui/icons/RadioButtonUnchecked';
@@ -52,7 +44,7 @@ import {
   discoveryApiRef,
 } from '@backstage/core-plugin-api';
 import { DHIS2LogsPanel } from './DHIS2LogsPanel';
-import { ProxmoxClusterPanel } from './ProxmoxClusterPanel';
+import { DHIS2DashboardPanel } from './DHIS2DashboardPanel';
 import { RestoreInstanceDialog } from './RestoreInstanceDialog';
 import { CloneInstanceDialog } from './CloneInstanceDialog';
 import { UpgradeInstanceDialog } from './UpgradeInstanceDialog';
@@ -63,60 +55,6 @@ import {
   CreateInstanceDialog,
   CreateInstanceSubmitPayload,
 } from './CreateInstanceDialog';
-
-const useStyles = makeStyles(theme => ({
-  card: {
-    height: '100%',
-    display: 'flex',
-    flexDirection: 'column',
-  },
-  cardContent: {
-    flexGrow: 1,
-  },
-  statCard: {
-    height: '100%',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    textAlign: 'center',
-    padding: theme.spacing(3),
-    gap: theme.spacing(1),
-  },
-  statIcon: {
-    fontSize: '3rem',
-  },
-  statValue: {
-    fontSize: '2.25rem',
-    fontWeight: 'bold',
-    lineHeight: 1.1,
-    color: theme.palette.primary.main,
-    wordBreak: 'keep-all',
-    whiteSpace: 'nowrap',
-  },
-  statLabel: {
-    fontSize: '0.95rem',
-    minHeight: '2.4em',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  statusChip: {
-    marginLeft: theme.spacing(1),
-  },
-  actionButtons: {
-    display: 'flex',
-    gap: theme.spacing(1),
-    marginTop: theme.spacing(2),
-  },
-  instanceCard: {
-    marginBottom: theme.spacing(2),
-    borderLeft: `4px solid ${theme.palette.primary.main}`,
-  },
-  formField: {
-    marginBottom: theme.spacing(2),
-  },
-}));
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -325,7 +263,6 @@ function buildInstanceLogFilename(d: {
 }
 
 export const DHIS2Page = () => {
-  const classes = useStyles();
   const { fetch: backstageFetch } = useApi(fetchApiRef);
   const discoveryApi = useApi(discoveryApiRef);
   const [instances, setInstances] = useState<DHIS2Instance[]>([]);
@@ -762,7 +699,7 @@ export const DHIS2Page = () => {
       restore: request.restore,
       proxySettings,
       dhis2Settings: request.dhis2Settings,
-      // Forward Proxmox API credentials from the ProxmoxClusterPanel saved
+      // Forward Proxmox API credentials from the saved DHIS2 settings
       // settings so the operator can override the server-side defaults
       // (PROXMOX_API_URL / PROXMOX_USER / PROXMOX_TOKEN_ID /
       // PROXMOX_TOKEN_SECRET) per-job. Only non-empty fields are sent —
@@ -2107,23 +2044,6 @@ export const DHIS2Page = () => {
       source: 'auto',
     });
 
-  const runningInstances = instances.filter(i => i.status === 'running').length;
-
-  // Cluster-wide totals derived from the live Proxmox node list. These
-  // update automatically whenever `nodes` is refreshed (mount, manual
-  // refresh, or after settings changes in the Proxmox Cluster tab).
-  const totalVCPUs = nodes.reduce((sum, n) => sum + (n.maxcpu ?? 0), 0);
-  const totalMemoryBytes = nodes.reduce((sum, n) => sum + (n.maxmem ?? 0), 0);
-  const totalDiskBytes = nodes.reduce((sum, n) => sum + (n.maxdisk ?? 0), 0);
-  const onlineNodes = nodes.filter(n => n.status === 'online').length;
-
-  const bytesToGB = (b: number) => b / 1024 ** 3;
-  const formatCapacity = (bytes: number) => {
-    const gb = bytesToGB(bytes);
-    if (gb >= 1024) return `${(gb / 1024).toFixed(1)} TB`;
-    return `${gb.toFixed(0)} GB`;
-  };
-
   const refreshOverview = () => {
     loadInstances();
     loadNodes();
@@ -2161,7 +2081,7 @@ export const DHIS2Page = () => {
             onChange={(_e, newValue) => setTabValue(newValue)}
             indicatorColor="primary"
           >
-            <Tab label="Proxmox Cluster" />
+            <Tab label="Dashboard" />
             <Tab label="DHIS2 Instances" />
             <Tab label="Logs" />
           </Tabs>
@@ -2191,137 +2111,9 @@ export const DHIS2Page = () => {
             />
           </TabPanel>
 
-          {/* Proxmox Cluster Tab */}
+          {/* Dashboard Tab */}
           <TabPanel value={tabValue} index={0}>
-            <Grid
-              container
-              spacing={3}
-              alignItems="stretch"
-              style={{ marginBottom: 24 }}
-            >
-              <Grid item xs={12} sm={6} md={4} lg={2}>
-                <Card className={classes.statCard}>
-                  <StorageIcon
-                    className={classes.statIcon}
-                    style={{ color: '#1976d2' }}
-                  />
-                  <Typography className={classes.statValue}>
-                    {instances.length}
-                  </Typography>
-                  <Typography
-                    variant="subtitle1"
-                    color="textSecondary"
-                    className={classes.statLabel}
-                  >
-                    Total Instances
-                  </Typography>
-                </Card>
-              </Grid>
-              <Grid item xs={12} sm={6} md={4} lg={2}>
-                <Card className={classes.statCard}>
-                  <PlayArrowIcon
-                    className={classes.statIcon}
-                    style={{ color: '#4caf50' }}
-                  />
-                  <Typography className={classes.statValue}>
-                    {runningInstances}
-                  </Typography>
-                  <Typography
-                    variant="subtitle1"
-                    color="textSecondary"
-                    className={classes.statLabel}
-                  >
-                    Running
-                  </Typography>
-                </Card>
-              </Grid>
-              <Grid item xs={12} sm={6} md={4} lg={2}>
-                <Card className={classes.statCard}>
-                  <CloudIcon
-                    className={classes.statIcon}
-                    style={{ color: '#ff9800' }}
-                  />
-                  <Typography className={classes.statValue}>
-                    {totalVCPUs}
-                  </Typography>
-                  <Typography
-                    variant="subtitle1"
-                    color="textSecondary"
-                    className={classes.statLabel}
-                  >
-                    Total vCPUs
-                  </Typography>
-                </Card>
-              </Grid>
-              <Grid item xs={12} sm={6} md={4} lg={2}>
-                <Card className={classes.statCard}>
-                  <DnsIcon
-                    className={classes.statIcon}
-                    style={{ color: '#9c27b0' }}
-                  />
-                  <Typography className={classes.statValue}>
-                    {formatCapacity(totalMemoryBytes)}
-                  </Typography>
-                  <Typography
-                    variant="subtitle1"
-                    color="textSecondary"
-                    className={classes.statLabel}
-                  >
-                    Total Memory
-                  </Typography>
-                </Card>
-              </Grid>
-              <Grid item xs={12} sm={6} md={4} lg={2}>
-                <Card className={classes.statCard}>
-                  <SdStorageIcon
-                    className={classes.statIcon}
-                    style={{ color: '#00897b' }}
-                  />
-                  <Typography className={classes.statValue}>
-                    {formatCapacity(totalDiskBytes)}
-                  </Typography>
-                  <Typography
-                    variant="subtitle1"
-                    color="textSecondary"
-                    className={classes.statLabel}
-                  >
-                    Storage Capacity
-                  </Typography>
-                </Card>
-              </Grid>
-              <Grid item xs={12} sm={6} md={4} lg={2}>
-                <Card className={classes.statCard}>
-                  <DeviceHubIcon
-                    className={classes.statIcon}
-                    style={{ color: '#3949ab' }}
-                  />
-                  <Typography className={classes.statValue}>
-                    {onlineNodes}
-                    <Typography
-                      component="span"
-                      style={{
-                        fontSize: '1.25rem',
-                        color: 'inherit',
-                        opacity: 0.6,
-                      }}
-                    >
-                      {` / ${nodes.length}`}
-                    </Typography>
-                  </Typography>
-                  <Typography
-                    variant="subtitle1"
-                    color="textSecondary"
-                    className={classes.statLabel}
-                  >
-                    Cluster Nodes
-                  </Typography>
-                </Card>
-              </Grid>
-            </Grid>
-            <ProxmoxClusterPanel
-              instances={instances}
-              onNodesChange={setNodes}
-            />
+            <DHIS2DashboardPanel instances={instances} />
           </TabPanel>
 
           {/* Logs Tab */}
