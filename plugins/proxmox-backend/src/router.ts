@@ -13,6 +13,7 @@ import {
   ProxmoxResources,
 } from '@internal/plugin-proxmox-common';
 import { fetchResources } from './resources';
+import { fetchDisks, fetchSmart } from './disks';
 import { createProxmoxClient } from './proxmoxClient';
 import { ClusterRegistry } from './clusters';
 
@@ -49,6 +50,9 @@ export async function createRouter(
 
   const cache = new Map<string, { at: number; value: ProxmoxResources }>();
   const inflight = new Map<string, Promise<ProxmoxResources>>();
+  // physical disks change rarely; cache longer than resources
+  const diskCache = new Map<string, { at: number; value: unknown }>();
+  const diskCacheMs = Math.max(cacheMs, 60_000);
 
   const getResources = async (clusterId: string): Promise<ProxmoxResources> => {
     const cached = cache.get(clusterId);
@@ -122,6 +126,46 @@ export async function createRouter(
 
   router.get('/resources', async (req, res) => {
     res.json(await getResources(await resolveClusterId(req)));
+  });
+
+  router.get('/disks', async (req, res) => {
+    const clusterId = await resolveClusterId(req);
+    const cached = diskCache.get(clusterId);
+    if (cached && Date.now() - cached.at < diskCacheMs) {
+      res.json({ disks: cached.value });
+      return;
+    }
+    const resolved = await registry.clientFor(clusterId);
+    if (!resolved) {
+      throw Object.assign(new Error(`cluster ${clusterId} not found`), {
+        statusCode: 404,
+      });
+    }
+    const resources = await getResources(clusterId);
+    const nodes = resources.nodes
+      .filter(n => n.status === 'online')
+      .map(n => n.node);
+    const disks = await fetchDisks(resolved.client, nodes);
+    diskCache.set(clusterId, { at: Date.now(), value: disks });
+    res.json({ disks });
+  });
+
+  router.get('/disks/smart', async (req, res) => {
+    const clusterId = await resolveClusterId(req);
+    const node = String(req.query.node ?? '');
+    const disk = String(req.query.disk ?? '');
+    if (!node || !disk) {
+      throw Object.assign(new Error('node and disk are required'), {
+        statusCode: 400,
+      });
+    }
+    const resolved = await registry.clientFor(clusterId);
+    if (!resolved) {
+      throw Object.assign(new Error(`cluster ${clusterId} not found`), {
+        statusCode: 404,
+      });
+    }
+    res.json(await fetchSmart(resolved.client, node, disk));
   });
 
   router.get('/attention', async (req, res) => {

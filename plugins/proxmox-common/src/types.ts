@@ -75,6 +75,53 @@ export interface ProxmoxStorage {
   active: boolean;
 }
 
+/** A physical disk on a node (from /nodes/{node}/disks/list) */
+export interface ProxmoxDisk {
+  /** Stable id: `${node}:${devpath}` */
+  id: string;
+  node: string;
+  devpath: string;
+  model?: string;
+  serial?: string;
+  vendor?: string;
+  /** Size in bytes */
+  size: number;
+  /** ssd | hdd | nvme | unknown */
+  type: string;
+  /** SMART overall health, e.g. PASSED / FAILED / UNKNOWN */
+  health?: string;
+  /** SSD wearout as a percentage used (number), or undefined for HDD/N-A */
+  wearout?: number;
+  /** What the disk is used for: LVM, ZFS, partitions, Ceph OSD.N, … */
+  used?: string;
+  /** Rotational speed for HDDs */
+  rpm?: number;
+}
+
+/** One SMART attribute row */
+export interface SmartAttribute {
+  id?: number;
+  name: string;
+  value?: number;
+  worst?: number;
+  threshold?: number;
+  raw?: string;
+}
+
+/** SMART detail for one disk (from /nodes/{node}/disks/smart) */
+export interface ProxmoxDiskSmart {
+  health?: string;
+  /** 'ata' | 'nvme' | 'text' */
+  type?: string;
+  attributes: SmartAttribute[];
+  /** Current temperature in °C, when reported */
+  temperature?: number;
+  /** Power-on hours, when reported */
+  powerOnHours?: number;
+  /** Raw text output for disks that don't return structured attributes */
+  text?: string;
+}
+
 export interface ClusterInfo {
   name?: string;
   quorate?: boolean;

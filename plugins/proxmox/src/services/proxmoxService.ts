@@ -6,6 +6,8 @@ import {
 import {
   AttentionItem,
   ProxmoxCluster,
+  ProxmoxDisk,
+  ProxmoxDiskSmart,
   ProxmoxResources,
 } from '@internal/plugin-proxmox-common';
 
@@ -28,6 +30,12 @@ export interface ProxmoxApi {
   getAttention(
     clusterId?: string,
   ): Promise<{ items: AttentionItem[]; generatedAt: string }>;
+  getDisks(clusterId?: string): Promise<{ disks: ProxmoxDisk[] }>;
+  getDiskSmart(
+    node: string,
+    disk: string,
+    clusterId?: string,
+  ): Promise<ProxmoxDiskSmart>;
   addCluster(input: ClusterInput): Promise<ProxmoxCluster>;
   updateCluster(id: string, input: ClusterInput): Promise<ProxmoxCluster>;
   deleteCluster(id: string): Promise<void>;
@@ -86,6 +94,16 @@ export class ProxmoxClientApi implements ProxmoxApi {
     return this.request<{ items: AttentionItem[]; generatedAt: string }>(
       `/attention${this.q(clusterId)}`,
     );
+  }
+
+  getDisks(clusterId?: string) {
+    return this.request<{ disks: ProxmoxDisk[] }>(`/disks${this.q(clusterId)}`);
+  }
+
+  getDiskSmart(node: string, disk: string, clusterId?: string) {
+    const params = new URLSearchParams({ node, disk });
+    if (clusterId) params.set('cluster', clusterId);
+    return this.request<ProxmoxDiskSmart>(`/disks/smart?${params.toString()}`);
   }
 
   addCluster(input: ClusterInput) {

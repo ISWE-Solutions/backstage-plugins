@@ -180,7 +180,7 @@ export const ProxmoxPage = () => {
               <>
                 {tab === 0 && <OverviewTab data={data} />}
                 {tab === 1 && <GuestsTab data={data} />}
-                {tab === 2 && <StorageTab data={data} />}
+                {tab === 2 && <StorageTab data={data} clusterId={clusterId} />}
                 {tab === 3 && <AttentionTab items={attention} />}
               </>
             )
