@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Badge,
   Box,
   Button,
+  Chip,
   MenuItem,
   Tab,
   Tabs,
@@ -144,11 +144,25 @@ export const ProxmoxPage = () => {
           <Tab label={data ? `Storage (${data.storage.length})` : 'Storage'} />
           <Tab
             label={
-              <Badge color="error" badgeContent={attention.length} max={99}>
-                <span style={{ paddingRight: attention.length ? 12 : 0 }}>
-                  Attention
-                </span>
-              </Badge>
+              <Box
+                component="span"
+                display="inline-flex"
+                alignItems="center"
+                style={{ gap: 6 }}
+              >
+                Attention
+                {attention.length > 0 && (
+                  <Chip
+                    size="small"
+                    label={attention.length > 99 ? '99+' : attention.length}
+                    style={{
+                      height: 18,
+                      backgroundColor: '#c62828',
+                      color: '#fff',
+                    }}
+                  />
+                )}
+              </Box>
             }
           />
           <Tab label="Settings" />
