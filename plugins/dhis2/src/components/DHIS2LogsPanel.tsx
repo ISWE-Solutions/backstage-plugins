@@ -57,11 +57,13 @@ const useStyles = makeStyles(theme => ({
     fontSize: '0.85rem',
     whiteSpace: 'nowrap',
   },
-  message: {
+  rowMessage: {
     fontFamily: 'monospace',
     fontSize: '0.85rem',
-    whiteSpace: 'pre-wrap',
-    wordBreak: 'break-word',
+    maxWidth: 520,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
   levelChip: {
     minWidth: 64,
@@ -418,31 +420,31 @@ export const DHIS2LogsPanel = () => {
             <TableBody>
               {filteredLogs.map(entry => {
                 const isOpen = expanded.has(entry.id);
-                const hasDetail =
-                  Boolean(entry.taskId) ||
-                  Boolean(entry.instanceId) ||
-                  Boolean(
-                    entry.details && Object.keys(entry.details).length > 0,
-                  );
+                const detailRow = (label: string, value?: string) =>
+                  value ? (
+                    <Typography variant="body2">
+                      <span className={classes.detailKey}>{label}:</span>
+                      {value}
+                    </Typography>
+                  ) : null;
                 return (
                   <Fragment key={entry.id}>
                     <TableRow
                       hover
-                      className={hasDetail ? classes.clickRow : undefined}
-                      onClick={
-                        hasDetail ? () => toggleRow(entry.id) : undefined
-                      }
+                      className={classes.clickRow}
+                      onClick={() => toggleRow(entry.id)}
                     >
                       <TableCell padding="checkbox">
-                        {hasDetail && (
-                          <IconButton size="small" aria-label="Toggle details">
-                            {isOpen ? (
-                              <KeyboardArrowDownIcon fontSize="small" />
-                            ) : (
-                              <KeyboardArrowRightIcon fontSize="small" />
-                            )}
-                          </IconButton>
-                        )}
+                        <IconButton
+                          size="small"
+                          aria-label={isOpen ? 'Hide details' : 'Show details'}
+                        >
+                          {isOpen ? (
+                            <KeyboardArrowDownIcon fontSize="small" />
+                          ) : (
+                            <KeyboardArrowRightIcon fontSize="small" />
+                          )}
+                        </IconButton>
                       </TableCell>
                       <TableCell className={classes.monoCell}>
                         <Tooltip
@@ -467,53 +469,54 @@ export const DHIS2LogsPanel = () => {
                       </TableCell>
                       <TableCell>{entry.instanceName ?? '—'}</TableCell>
                       <TableCell>{entry.user ?? '—'}</TableCell>
-                      <TableCell className={classes.message}>
+                      <TableCell className={classes.rowMessage}>
                         {entry.message}
                       </TableCell>
                     </TableRow>
-                    {hasDetail && (
-                      <TableRow>
-                        <TableCell
-                          colSpan={COLSPAN}
-                          style={{ paddingTop: 0, paddingBottom: 0 }}
-                        >
-                          <Collapse in={isOpen} timeout="auto" unmountOnExit>
-                            <Box className={classes.detail}>
-                              {entry.taskId && (
-                                <Typography variant="body2">
-                                  <span className={classes.detailKey}>
-                                    Proxmox task:
-                                  </span>
-                                  {entry.taskId}
-                                </Typography>
+                    <TableRow>
+                      <TableCell
+                        colSpan={COLSPAN}
+                        style={{ paddingTop: 0, paddingBottom: 0, border: 0 }}
+                      >
+                        <Collapse in={isOpen} timeout="auto" unmountOnExit>
+                          <Box className={classes.detail}>
+                            {detailRow(
+                              'Time',
+                              new Date(entry.timestamp).toLocaleString(),
+                            )}
+                            {detailRow('Level', entry.level)}
+                            {detailRow('Action', entry.action)}
+                            {detailRow('Instance', entry.instanceName)}
+                            {detailRow('User', entry.user)}
+                            {detailRow('Proxmox task', entry.taskId)}
+                            {detailRow('Instance id', entry.instanceId)}
+                            <Typography
+                              variant="caption"
+                              className={classes.detailKey}
+                            >
+                              Message
+                            </Typography>
+                            <pre className={classes.detailPre}>
+                              {entry.message}
+                            </pre>
+                            {entry.details &&
+                              Object.keys(entry.details).length > 0 && (
+                                <>
+                                  <Typography
+                                    variant="caption"
+                                    className={classes.detailKey}
+                                  >
+                                    Details
+                                  </Typography>
+                                  <pre className={classes.detailPre}>
+                                    {JSON.stringify(entry.details, null, 2)}
+                                  </pre>
+                                </>
                               )}
-                              {entry.instanceId && (
-                                <Typography variant="body2">
-                                  <span className={classes.detailKey}>
-                                    Instance id:
-                                  </span>
-                                  {entry.instanceId}
-                                </Typography>
-                              )}
-                              {entry.details &&
-                                Object.keys(entry.details).length > 0 && (
-                                  <>
-                                    <Typography
-                                      variant="caption"
-                                      className={classes.detailKey}
-                                    >
-                                      Details
-                                    </Typography>
-                                    <pre className={classes.detailPre}>
-                                      {JSON.stringify(entry.details, null, 2)}
-                                    </pre>
-                                  </>
-                                )}
-                            </Box>
-                          </Collapse>
-                        </TableCell>
-                      </TableRow>
-                    )}
+                          </Box>
+                        </Collapse>
+                      </TableCell>
+                    </TableRow>
                   </Fragment>
                 );
               })}
