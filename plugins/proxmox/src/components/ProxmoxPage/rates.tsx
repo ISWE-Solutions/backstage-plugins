@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Box, Typography } from '@material-ui/core';
-import { ProxmoxGuest } from '@internal/plugin-proxmox-common';
+import { ProxmoxGuest, ProxmoxStorage } from '@internal/plugin-proxmox-common';
 import { bytes } from './format';
 
 /** One derived sample: instantaneous CPU/mem plus I/O rates (bytes/sec). */
@@ -80,6 +80,56 @@ export function useGuestRates(
   }, [generatedAt]);
 
   return histories.current;
+}
+
+/** One point of storage usage over time. */
+export interface UsagePoint {
+  t: number;
+  used: number;
+}
+
+/**
+ * Rolling history of storage `used` bytes per pool, for growth trends. Same
+ * session-scoped, delta-free approach as the guest rates: history builds while
+ * the page is open and resets on reload.
+ */
+export function useStorageGrowth(
+  storage: ProxmoxStorage[],
+  generatedAt: string,
+): Map<string, UsagePoint[]> {
+  const histories = useRef(new Map<string, UsagePoint[]>());
+  const [, bump] = useState(0);
+
+  useEffect(() => {
+    const t = new Date(generatedAt).getTime() || Date.now();
+    const liveIds = new Set(storage.map(s => s.id));
+    for (const s of storage) {
+      const arr = histories.current.get(s.id) ?? [];
+      const last = arr[arr.length - 1];
+      if (!last || t > last.t) {
+        arr.push({ t, used: s.used });
+        if (arr.length > CAP) arr.shift();
+        histories.current.set(s.id, arr);
+      }
+    }
+    for (const id of [...histories.current.keys()]) {
+      if (!liveIds.has(id)) histories.current.delete(id);
+    }
+    bump(v => v + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [generatedAt]);
+
+  return histories.current;
+}
+
+/** Projected growth in bytes/day from the observed window (0 if <2 points). */
+export function growthPerDay(points: UsagePoint[]): number {
+  if (points.length < 2) return 0;
+  const first = points[0];
+  const last = points[points.length - 1];
+  const dtSec = (last.t - first.t) / 1000;
+  if (dtSec <= 0) return 0;
+  return ((last.used - first.used) / dtSec) * 86_400;
 }
 
 /** Minimal inline-SVG sparkline (no external chart library — CSP-safe). */
