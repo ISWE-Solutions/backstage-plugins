@@ -13,8 +13,9 @@ import {
   ProxmoxGuest,
   ProxmoxResources,
 } from '@internal/plugin-proxmox-common';
-import { bytes, percent, uptime } from './format';
+import { percent, uptime } from './format';
 import { StatusChip, UsageBar } from './parts';
+import { RateGraph, RateSample, bytesPerSec, useGuestRates } from './rates';
 
 const useDetailStyles = makeStyles(theme => ({
   detail: {
@@ -34,7 +35,13 @@ const useDetailStyles = makeStyles(theme => ({
   },
 }));
 
-const GuestDetail = ({ g }: { g: ProxmoxGuest }) => {
+const GuestDetail = ({
+  g,
+  samples,
+}: {
+  g: ProxmoxGuest;
+  samples: RateSample[];
+}) => {
   const classes = useDetailStyles();
   const field = (label: string, value: React.ReactNode) => (
     <Grid item xs={6} sm={4} md={3}>
@@ -43,6 +50,7 @@ const GuestDetail = ({ g }: { g: ProxmoxGuest }) => {
     </Grid>
   );
   const running = g.status === 'running';
+  const last = samples[samples.length - 1];
   return (
     <Box className={classes.detail}>
       <Grid container spacing={2}>
@@ -84,14 +92,65 @@ const GuestDetail = ({ g }: { g: ProxmoxGuest }) => {
             <span className={classes.value}>—</span>
           )}
         </Grid>
+        <Grid item xs={12}>
+          <span className={classes.label}>Rates (live, this session)</span>
+          <Grid container spacing={2}>
+            <Grid item xs={6} sm={4} md={2}>
+              <RateGraph
+                title="CPU"
+                color="#1976d2"
+                values={samples.map(s => s.cpu * 100)}
+                latest={running ? `${(g.cpu * 100).toFixed(0)}%` : '—'}
+              />
+            </Grid>
+            <Grid item xs={6} sm={4} md={2}>
+              <RateGraph
+                title="Memory"
+                color="#6a1b9a"
+                values={samples.map(s => s.mem * 100)}
+                latest={
+                  g.maxmem ? `${((g.mem / g.maxmem) * 100).toFixed(0)}%` : '—'
+                }
+              />
+            </Grid>
+            <Grid item xs={6} sm={4} md={2}>
+              <RateGraph
+                title="Net in"
+                color="#2e7d32"
+                values={samples.map(s => s.netIn)}
+                latest={last ? bytesPerSec(last.netIn) : '—'}
+              />
+            </Grid>
+            <Grid item xs={6} sm={4} md={2}>
+              <RateGraph
+                title="Net out"
+                color="#00838f"
+                values={samples.map(s => s.netOut)}
+                latest={last ? bytesPerSec(last.netOut) : '—'}
+              />
+            </Grid>
+            <Grid item xs={6} sm={4} md={2}>
+              <RateGraph
+                title="Disk read"
+                color="#ef6c00"
+                values={samples.map(s => s.diskRead)}
+                latest={last ? bytesPerSec(last.diskRead) : '—'}
+              />
+            </Grid>
+            <Grid item xs={6} sm={4} md={2}>
+              <RateGraph
+                title="Disk write"
+                color="#c62828"
+                values={samples.map(s => s.diskWrite)}
+                latest={last ? bytesPerSec(last.diskWrite) : '—'}
+              />
+            </Grid>
+          </Grid>
+        </Grid>
         {field('VMID', g.vmid)}
         {field('Type', g.type === 'lxc' ? 'LXC container' : 'QEMU VM')}
         {field('Node', g.node)}
         {field('Uptime', running ? uptime(g.uptime) : '—')}
-        {field('Net in', bytes(g.netin))}
-        {field('Net out', bytes(g.netout))}
-        {field('Disk read', bytes(g.diskread))}
-        {field('Disk write', bytes(g.diskwrite))}
         {g.pool && field('Pool', g.pool)}
         {field(
           'Tags',
@@ -143,6 +202,7 @@ export const GuestsTab = ({ data }: { data: ProxmoxResources }) => {
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const columns = useColumnSettings(COLUMNS_KEY, COLUMNS);
+  const rates = useGuestRates(data.guests, data.generatedAt);
 
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -283,7 +343,9 @@ export const GuestsTab = ({ data }: { data: ProxmoxResources }) => {
         renderCell={renderCell}
         cellTitle={cellTitle}
         align={{ vmid: 'right' }}
-        renderDetail={g => <GuestDetail g={g} />}
+        renderDetail={g => (
+          <GuestDetail g={g} samples={rates.get(g.id) ?? []} />
+        )}
       />
     </Box>
   );
