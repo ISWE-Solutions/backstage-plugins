@@ -20,10 +20,10 @@ import {
   STATUS_TO_TAG,
   toAddress,
   toIso,
-} from '@internal/plugin-ipam-common';
+} from '@iswesolutions/plugin-ipam-common';
 
 /**
- * Client for phpIPAM (LXC 116, 10.20.30.127), reached through the ipam
+ * Client for phpIPAM, reached through the ipam
  * backend plugin at /api/ipam/phpipam, which holds the `backstage` API app
  * code and checks the ipam.*.create permissions on writes.
  * Addresses are populated by phpIPAM's own ping/discovery scans and by the
@@ -75,6 +75,8 @@ export class IPAMService {
   constructor(
     private readonly discoveryApi: DiscoveryApi,
     private readonly fetchApi: FetchApi,
+    /** phpIPAM section that new subnets are added to (default: the first) */
+    private readonly subnetSection?: string,
   ) {}
 
   private async request<T>(
@@ -379,6 +381,7 @@ export class IPAMService {
     ip: string;
     prefix: number;
     gateway: string;
+    nameserver?: string;
   }> {
     const base = await this.discoveryApi.getBaseUrl('ipam');
     const response = await this.fetchApi.fetch(`${base}/allocations`, {
@@ -407,7 +410,8 @@ export class IPAMService {
     subnet: Omit<Subnet, 'id' | 'createdAt' | 'updatedAt'>,
   ): Promise<void> {
     const sections = (await this.request<Raw[]>('GET', 'sections')) ?? [];
-    const section = sections.find(s => s.name === 'DC1') ?? sections[0];
+    const section =
+      sections.find(s => s.name === this.subnetSection) ?? sections[0];
     if (!section)
       throw new Error('phpIPAM has no section to add the subnet to');
     await this.request('POST', 'subnets', {

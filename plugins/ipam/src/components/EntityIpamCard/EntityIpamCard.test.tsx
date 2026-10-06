@@ -50,10 +50,20 @@ describe('EntityIpamCard', () => {
 
   it('uses the hostnames annotation when present', async () => {
     await renderCard(
-      entity('ipam', { 'ipam.example.org/hostnames': 'phpipam, keycloak' }),
+      entity('ipam', {
+        'ipam.iswesolutions.com/hostnames': 'phpipam, keycloak',
+      }),
     );
     expect(await screen.findByText('10.20.30.127')).toBeTruthy();
     expect(screen.getByText('10.20.30.126')).toBeTruthy();
+  });
+
+  it('still honours the legacy hostnames annotation', () => {
+    expect(
+      entityHostnames(
+        entity('X', { 'ipam.example.org/hostnames': 'phpipam, keycloak' }),
+      ),
+    ).toEqual(['phpipam', 'keycloak']);
   });
 
   it('renders nothing when no address matches', async () => {
@@ -64,7 +74,9 @@ describe('EntityIpamCard', () => {
 
   it('reads hostnames case-insensitively', () => {
     expect(
-      entityHostnames(entity('X', { 'ipam.example.org/hostnames': 'A, b ,' })),
+      entityHostnames(
+        entity('X', { 'ipam.iswesolutions.com/hostnames': 'A, b ,' }),
+      ),
     ).toEqual(['a', 'b']);
   });
 });

@@ -11,7 +11,7 @@ import {
   findAttentionItems,
   proxmoxClusterManagePermission,
   ProxmoxResources,
-} from '@internal/plugin-proxmox-common';
+} from '@iswesolutions/plugin-proxmox-common';
 import { fetchResources } from './resources';
 import { fetchDisks, fetchSmart } from './disks';
 import { createProxmoxClient } from './proxmoxClient';

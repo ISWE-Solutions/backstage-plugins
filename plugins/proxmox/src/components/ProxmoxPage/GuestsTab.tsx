@@ -12,7 +12,7 @@ import {
 import {
   ProxmoxGuest,
   ProxmoxResources,
-} from '@internal/plugin-proxmox-common';
+} from '@iswesolutions/plugin-proxmox-common';
 import { percent, uptime } from './format';
 import { StatusChip, UsageBar } from './parts';
 import { RateGraph, RateSample, bytesPerSec, useGuestRates } from './rates';

@@ -1,4 +1,4 @@
-import { dhis2Permissions } from '@internal/plugin-dhis2-common';
+import { dhis2Permissions } from '@iswesolutions/plugin-dhis2-common';
 import { createIpamAllocator } from './service/ipamAllocator';
 import {
   coreServices,

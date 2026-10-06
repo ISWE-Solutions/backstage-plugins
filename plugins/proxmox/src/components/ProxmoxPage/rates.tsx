@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Box, Typography } from '@material-ui/core';
-import { ProxmoxGuest, ProxmoxStorage } from '@internal/plugin-proxmox-common';
+import {
+  ProxmoxGuest,
+  ProxmoxStorage,
+} from '@iswesolutions/plugin-proxmox-common';
 import { bytes } from './format';
 
 /** One derived sample: instantaneous CPU/mem plus I/O rates (bytes/sec). */

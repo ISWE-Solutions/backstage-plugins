@@ -350,7 +350,7 @@ export interface NginxConfig {
 export type ProxmoxAuthMethod = 'token' | 'password';
 
 export interface ProxmoxClusterSettings {
-  /** Proxmox VE API base URL, e.g. https://pve.example.org:8006 */
+  /** Proxmox VE API base URL, e.g. https://pve.example.com:8006 */
   apiUrl: string;
   /**
    * If true (recommended), route Proxmox API calls through the Backstage
@@ -404,8 +404,8 @@ export interface ProxyServerSettings {
   /** Whether instances are exposed at base/<instance> or <instance>.base */
   mode: ProxyMode;
   /**
-   * For path mode: the full base URL (e.g. dhis2.example.org).
-   * For subdomain mode: the parent domain (e.g. example.org) — instances
+   * For path mode: the full base URL (e.g. dhis2.example.com).
+   * For subdomain mode: the parent domain (e.g. example.com) — instances
    * become <name>.<baseDomain>.
    */
   baseDomain: string;
@@ -518,12 +518,11 @@ export interface OrchestrationLogEntry {
 
 export const DEFAULT_SETTINGS: DHIS2PluginSettings = {
   proxmox: {
-    // Internal cluster address, not the public hostname (pve10.example.org
-    // resolves to a public IP that doesn't forward port 8006 - every
-    // direct call against that hostname eventually times out). Only
-    // consulted at all when useBackstageProxy is off; see DHIS2Page.tsx /
+    // Placeholder - set the real address under
+    // dhis2.settingsDefaults.proxmox.apiUrl in app-config. Only consulted
+    // at all when useBackstageProxy is off; see DHIS2Page.tsx /
     // CreateInstanceDialog.tsx for where that toggle is enforced.
-    apiUrl: 'https://10.20.30.10:8006',
+    apiUrl: 'https://pve.example.com:8006',
     useBackstageProxy: true,
     backstageProxyPath: '/api/proxy/proxmox',
     authMethod: 'token',
@@ -537,22 +536,22 @@ export const DEFAULT_SETTINGS: DHIS2PluginSettings = {
     // CERTIFICATE_VERIFY_FAILED at provision time. Operators with a
     // proper PKI can still re-enable it from the Proxmox Cluster panel.
     verifyTls: false,
-    defaultNode: 'pve12',
+    defaultNode: 'pve',
     rootfsStorage: 'local-lvm',
     templateStorage: 'local',
     osTemplate: 'local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst',
     networkBridge: 'vmbr0',
     nameserver: '1.1.1.1 8.8.8.8',
-    searchDomain: 'example.org',
+    searchDomain: '',
     vmidStart: 200,
     unprivileged: true,
     startOnBoot: true,
   },
   proxy: {
     mode: 'path',
-    baseDomain: 'dhis2.example.org',
+    baseDomain: 'dhis2.example.com',
     pathPrefix: '',
-    host: '10.20.30.101',
+    host: 'proxy.example.com',
     sshPort: 22,
     sshUser: 'root',
     authMethod: 'ssh-key',

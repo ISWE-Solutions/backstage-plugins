@@ -754,7 +754,7 @@ export class DHIS2Service {
    * database" is enabled so the user can pick a database instead of typing
    * its name.
    *
-   * Calls the `@internal/plugin-dhis2-backend` endpoint
+   * Calls the `@iswesolutions/plugin-dhis2-backend` endpoint
    * `POST <baseUrl>/databases/list` which opens a short-lived PG connection
    * and runs:
    *   SELECT datname FROM pg_database WHERE NOT datistemplate ORDER BY 1

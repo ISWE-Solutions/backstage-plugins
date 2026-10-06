@@ -4,7 +4,7 @@ import {
   IPAddress,
   Raw,
   toAddress,
-} from '@internal/plugin-ipam-common';
+} from '@iswesolutions/plugin-ipam-common';
 import { PhpIpamClient } from './phpipamClient';
 
 export interface NotableIssue {

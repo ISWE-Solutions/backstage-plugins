@@ -7,7 +7,7 @@ import {
   ProxmoxNode,
   ProxmoxResources,
   ProxmoxStorage,
-} from '@internal/plugin-proxmox-common';
+} from '@iswesolutions/plugin-proxmox-common';
 import { ProxmoxClient } from './proxmoxClient';
 
 type Raw = Record<string, any>;

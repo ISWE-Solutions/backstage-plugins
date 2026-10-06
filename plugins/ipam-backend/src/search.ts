@@ -8,7 +8,7 @@ import {
   DocumentCollatorFactory,
   IndexableDocument,
 } from '@backstage/plugin-search-common';
-import { Raw, sourceFromNote } from '@internal/plugin-ipam-common';
+import { Raw, sourceFromNote } from '@iswesolutions/plugin-ipam-common';
 import { createPhpIpamClient, PhpIpamClient } from './phpipamClient';
 
 export const IPAM_DOCUMENT_TYPE = 'ipam-address';

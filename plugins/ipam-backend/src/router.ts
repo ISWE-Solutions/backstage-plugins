@@ -17,7 +17,7 @@ import {
   ipamSubnetCreatePermission,
   ipamSubnetUpdatePermission,
   ipamVlanCreatePermission,
-} from '@internal/plugin-ipam-common';
+} from '@iswesolutions/plugin-ipam-common';
 import { PhpIpamClient } from './phpipamClient';
 import { AllocationService } from './allocation';
 import { UsageHistory } from './usageHistory';

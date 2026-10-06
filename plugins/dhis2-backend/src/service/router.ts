@@ -16,7 +16,7 @@ import {
   dhis2InstanceRestorePermission,
   dhis2InstanceUpdatePermission,
   dhis2ProxyManagePermission,
-} from '@internal/plugin-dhis2-common';
+} from '@iswesolutions/plugin-dhis2-common';
 import express from 'express';
 import Router from 'express-promise-router';
 import { Client } from 'pg';

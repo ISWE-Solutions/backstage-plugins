@@ -133,7 +133,7 @@ export interface ClusterInfo {
 export interface ProxmoxCluster {
   id: string;
   name: string;
-  /** PVE API base URL, e.g. https://10.20.30.10:8006 */
+  /** PVE API base URL, e.g. https://pve.example.com:8006 */
   url: string;
   verifyTls: boolean;
   /** Where it is defined: app-config (read-only) or the backend DB (editable) */

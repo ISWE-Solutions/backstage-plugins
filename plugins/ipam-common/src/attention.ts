@@ -38,7 +38,7 @@ export const CATEGORY_INFO: Record<
   drift: {
     label: 'Configuration drift',
     description:
-      'The Proxmox guest departs from the standard setup — e.g. a resolver other than 10.20.30.8, or an address from DHCP instead of IPAM.',
+      'The Proxmox guest departs from the standard setup — e.g. a non-standard DNS resolver, or an address from DHCP instead of IPAM.',
   },
   dhcpPoolStatic: {
     label: 'Static in DHCP pool',

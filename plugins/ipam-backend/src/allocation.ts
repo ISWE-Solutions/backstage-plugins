@@ -4,13 +4,15 @@ import { ConflictError, NotFoundError } from '@backstage/errors';
 import { PhpIpamClient } from './phpipamClient';
 
 export interface AllocationConfig {
-  /** Network address of the phpIPAM subnet to allocate from, e.g. 10.20.30.0 */
+  /** Network address of the phpIPAM subnet to allocate from, e.g. 10.0.0.0 */
   subnet: string;
   prefix: number;
   /** First and last address that may be handed out (inclusive) */
   from: string;
   to: string;
   gateway: string;
+  /** DNS server(s) new hosts should use */
+  nameserver?: string;
 }
 
 export interface Allocation {
@@ -18,6 +20,7 @@ export interface Allocation {
   ip: string;
   prefix: number;
   gateway: string;
+  nameserver?: string;
 }
 
 /** Marks records created by allocation; confirm/release only touch these */
@@ -135,7 +138,8 @@ export class AllocationService {
       this.logger.info(
         `ipam: allocated ${ip} (address ${id}) to ${request.hostname} for ${request.requestedBy}`,
       );
-      return { id, ip, prefix: this.cfg.prefix, gateway: this.cfg.gateway };
+      const { prefix, gateway, nameserver } = this.cfg;
+      return { id, ip, prefix, gateway, ...(nameserver && { nameserver }) };
     }
     const busyNote = busy ? ` (${busy} unrecorded addresses answer ping)` : '';
     throw new ConflictError(

@@ -2,7 +2,7 @@ import {
   coreServices,
   createBackendPlugin,
 } from '@backstage/backend-plugin-api';
-import { proxmoxPermissions } from '@internal/plugin-proxmox-common';
+import { proxmoxPermissions } from '@iswesolutions/plugin-proxmox-common';
 import { createRouter } from './router';
 import { createClusterStore } from './clusterStore';
 import { ConfigCluster, createClusterRegistry } from './clusters';

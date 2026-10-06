@@ -1,4 +1,4 @@
-# @internal/plugin-proxmox
+# @iswesolutions/plugin-proxmox
 
 Read-only **Proxmox VE monitoring** inside Backstage, inspired by
 [Pulse](https://github.com/rcourtman/pulse). It surfaces the cluster's nodes,
@@ -7,11 +7,11 @@ same one-shared-model idea as Pulse, adapted to Backstage.
 
 ## Packages
 
-| Package                            | Role            | What it does                                                          |
-| ---------------------------------- | --------------- | --------------------------------------------------------------------- |
-| `@internal/plugin-proxmox`         | frontend-plugin | The `/proxmox` page: Overview, Guests, Storage, Attention             |
-| `@internal/plugin-proxmox-backend` | backend-plugin  | Gateway to the PVE API (`/cluster/resources`), caching, health checks |
-| `@internal/plugin-proxmox-common`  | common-library  | Shared types, permissions, and the attention checks                   |
+| Package                                 | Role            | What it does                                                          |
+| --------------------------------------- | --------------- | --------------------------------------------------------------------- |
+| `@iswesolutions/plugin-proxmox`         | frontend-plugin | The `/proxmox` page: Overview, Guests, Storage, Attention             |
+| `@iswesolutions/plugin-proxmox-backend` | backend-plugin  | Gateway to the PVE API (`/cluster/resources`), caching, health checks |
+| `@iswesolutions/plugin-proxmox-common`  | common-library  | Shared types, permissions, and the attention checks                   |
 
 ## How it works
 
@@ -47,17 +47,17 @@ the page header. Clusters come from two places:
 ```yaml
 proxmox:
   # default cluster
-  url: https://10.20.30.10:8006 # any cluster member
+  url: https://pve.example.com:8006 # any cluster member
   token: ${PROXMOX_TOKEN} # user@realm!tokenid=secret (read-only)
-  name: DC1 # optional display name
+  name: Primary # optional display name
   verifyTls: false # PVE ships a self-signed cert
   cacheSeconds: 15
   uiUrls: # optional deep links from the dashboard
-    pve10: https://10.20.30.10:8006
+    pve10: https://pve.example.com:8006
   # additional clusters (optional)
   clusters:
     - name: DR
-      url: https://10.60.0.10:8006
+      url: https://pve-dr.example.com:8006
       token: ${PROXMOX_DR_TOKEN}
       verifyTls: false
   attention: # optional threshold overrides

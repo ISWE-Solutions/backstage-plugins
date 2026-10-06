@@ -1,4 +1,4 @@
-import { ProxmoxCluster } from '@internal/plugin-proxmox-common';
+import { ProxmoxCluster } from '@iswesolutions/plugin-proxmox-common';
 import { ClusterInput, ClusterStore, DbCluster } from './clusterStore';
 import { createProxmoxClient, ProxmoxClient } from './proxmoxClient';
 

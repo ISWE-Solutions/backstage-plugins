@@ -35,6 +35,7 @@ export const AllocateDialog = ({ open, onClose }: Props) => {
     ip: string;
     prefix: number;
     gateway: string;
+    nameserver?: string;
   }>();
 
   useEffect(() => {
@@ -95,8 +96,13 @@ export const AllocateDialog = ({ open, onClose }: Props) => {
                 <code>
                   {result.ip}/{result.prefix}
                 </code>{' '}
-                — gateway <code>{result.gateway}</code> — DNS{' '}
-                <code>10.20.30.8</code>
+                — gateway <code>{result.gateway}</code>
+                {result.nameserver && (
+                  <>
+                    {' '}
+                    — DNS <code>{result.nameserver}</code>
+                  </>
+                )}
               </Typography>
               <Typography variant="body2" gutterBottom>
                 Proxmox container network:

@@ -37,7 +37,10 @@ import VerticalAlignBottomIcon from '@material-ui/icons/VerticalAlignBottom';
 import SpeedIcon from '@material-ui/icons/Speed';
 import { DHIS2Instance, ProxmoxNode } from '../types';
 import { dhis2Service } from '../services/dhis2Service';
-import { settingsService } from '../services/settingsService';
+import {
+  settingsService,
+  useConfiguredSettingsDefaults,
+} from '../services/settingsService';
 import {
   fetchApiRef,
   useApi,
@@ -264,6 +267,7 @@ function buildInstanceLogFilename(d: {
 }
 
 export const DHIS2Page = () => {
+  useConfiguredSettingsDefaults();
   const { fetch: backstageFetch } = useApi(fetchApiRef);
   const discoveryApi = useApi(discoveryApiRef);
   const [instances, setInstances] = useState<DHIS2Instance[]>([]);

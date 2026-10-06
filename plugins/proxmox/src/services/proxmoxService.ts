@@ -9,7 +9,7 @@ import {
   ProxmoxDisk,
   ProxmoxDiskSmart,
   ProxmoxResources,
-} from '@internal/plugin-proxmox-common';
+} from '@iswesolutions/plugin-proxmox-common';
 
 /** Fields for adding/editing a cluster (token write-only). */
 export interface ClusterInput {

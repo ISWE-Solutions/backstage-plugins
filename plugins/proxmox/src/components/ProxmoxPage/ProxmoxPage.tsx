@@ -23,7 +23,7 @@ import {
   AttentionItem,
   ProxmoxCluster,
   ProxmoxResources,
-} from '@internal/plugin-proxmox-common';
+} from '@iswesolutions/plugin-proxmox-common';
 import { proxmoxApiRef } from '../../services/proxmoxService';
 import { OverviewTab } from './OverviewTab';
 import { GuestsTab } from './GuestsTab';

@@ -1614,7 +1614,7 @@ export const DHIS2InstancesPanel = ({
               value={proxyDraft.host}
               onChange={e => updateProxyDraft('host', e.target.value)}
               helperText="SSH-reachable hostname or IP of the proxy server"
-              placeholder="10.20.30.101"
+              placeholder="proxy.example.com"
             />
           </Grid>
           <Grid item xs={6}>

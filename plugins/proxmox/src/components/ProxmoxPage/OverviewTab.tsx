@@ -7,7 +7,10 @@ import {
   Typography,
   makeStyles,
 } from '@material-ui/core';
-import { ProxmoxNode, ProxmoxResources } from '@internal/plugin-proxmox-common';
+import {
+  ProxmoxNode,
+  ProxmoxResources,
+} from '@iswesolutions/plugin-proxmox-common';
 import { bytes, percent, uptime } from './format';
 import { StatusChip, UsageBar } from './parts';
 import {

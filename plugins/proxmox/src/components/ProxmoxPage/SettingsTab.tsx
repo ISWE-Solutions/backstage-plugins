@@ -25,7 +25,7 @@ import { usePermission } from '@backstage/plugin-permission-react';
 import {
   ProxmoxCluster,
   proxmoxClusterManagePermission,
-} from '@internal/plugin-proxmox-common';
+} from '@iswesolutions/plugin-proxmox-common';
 import { ClusterInput, proxmoxApiRef } from '../../services/proxmoxService';
 
 interface Props {
@@ -244,7 +244,7 @@ export const SettingsTab = ({ clusters, onChanged }: Props) => {
             fullWidth
             margin="normal"
             label="API URL"
-            placeholder="https://10.20.30.10:8006"
+            placeholder="https://pve.example.com:8006"
             value={dialog.form.url}
             onChange={e =>
               setDialog(d => ({

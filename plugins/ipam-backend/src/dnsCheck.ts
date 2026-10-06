@@ -1,5 +1,5 @@
 import { promises as dns } from 'node:dns';
-import { Raw } from '@internal/plugin-ipam-common';
+import { Raw } from '@iswesolutions/plugin-ipam-common';
 
 export interface DnsMismatch {
   ip: string;

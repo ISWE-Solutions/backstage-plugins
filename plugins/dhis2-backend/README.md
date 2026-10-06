@@ -1,4 +1,4 @@
-# @internal/plugin-dhis2-backend
+# @iswesolutions/plugin-dhis2-backend
 
 Backend plugin powering the DHIS2 frontend plugin.
 

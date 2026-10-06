@@ -3,6 +3,7 @@ import {
   createComponentExtension,
   createPlugin,
   createRoutableExtension,
+  configApiRef,
   discoveryApiRef,
   fetchApiRef,
 } from '@backstage/core-plugin-api';
@@ -18,9 +19,17 @@ export const ipamPlugin = createPlugin({
   apis: [
     createApiFactory({
       api: ipamApiRef,
-      deps: { discoveryApi: discoveryApiRef, fetchApi: fetchApiRef },
-      factory: ({ discoveryApi, fetchApi }) =>
-        new IPAMService(discoveryApi, fetchApi),
+      deps: {
+        discoveryApi: discoveryApiRef,
+        fetchApi: fetchApiRef,
+        configApi: configApiRef,
+      },
+      factory: ({ discoveryApi, fetchApi, configApi }) =>
+        new IPAMService(
+          discoveryApi,
+          fetchApi,
+          configApi.getOptionalString('ipam.subnetSection'),
+        ),
     }),
   ],
 });

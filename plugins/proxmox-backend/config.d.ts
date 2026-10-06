@@ -1,7 +1,7 @@
 export interface Config {
   proxmox?: {
     /**
-     * Default cluster API base URL, e.g. https://10.20.30.10:8006
+     * Default cluster API base URL, e.g. https://pve.example.com:8006
      * (the plugin appends /api2/json). Optional when using `clusters` below.
      */
     url?: string;

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Box, Tab, Tabs } from '@material-ui/core';
-import { ProxmoxResources } from '@internal/plugin-proxmox-common';
+import { ProxmoxResources } from '@iswesolutions/plugin-proxmox-common';
 import { StoragePoolsTab } from './StoragePoolsTab';
 import { DisksTab } from './DisksTab';
 

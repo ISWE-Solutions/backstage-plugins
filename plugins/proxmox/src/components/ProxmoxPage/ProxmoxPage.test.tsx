@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { renderInTestApp, TestApiProvider } from '@backstage/test-utils';
 import { ProxmoxPage } from './ProxmoxPage';
 import { proxmoxApiRef } from '../../services/proxmoxService';
-import { ProxmoxResources } from '@internal/plugin-proxmox-common';
+import { ProxmoxResources } from '@iswesolutions/plugin-proxmox-common';
 
 const resources: ProxmoxResources = {
   cluster: { name: 'DC1', quorate: true, nodesOnline: 1, nodesTotal: 1 },

@@ -1,6 +1,9 @@
 import { Box, Chip } from '@material-ui/core';
 import { Alert } from '@material-ui/lab';
-import { AttentionItem, CATEGORY_INFO } from '@internal/plugin-proxmox-common';
+import {
+  AttentionItem,
+  CATEGORY_INFO,
+} from '@iswesolutions/plugin-proxmox-common';
 import {
   ColumnDefinition,
   ColumnsMenuButton,

@@ -1,4 +1,4 @@
-import { IPStatus } from '@internal/plugin-ipam-common';
+import { IPStatus } from '@iswesolutions/plugin-ipam-common';
 import { IssueStore, notableIssues, runNotifier } from './notifier';
 
 const logger = {

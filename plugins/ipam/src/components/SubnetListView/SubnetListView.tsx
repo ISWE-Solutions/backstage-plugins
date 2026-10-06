@@ -13,7 +13,7 @@ import AddIcon from '@material-ui/icons/Add';
 import { Subnet, VLAN } from '../../types';
 import { useApi } from '@backstage/core-plugin-api';
 import { usePermission } from '@backstage/plugin-permission-react';
-import { ipamSubnetCreatePermission } from '@internal/plugin-ipam-common';
+import { ipamSubnetCreatePermission } from '@iswesolutions/plugin-ipam-common';
 import { ipamApiRef } from '../../services/ipamService';
 import { AddSubnetDialog } from '../AddSubnetDialog/AddSubnetDialog';
 import { AddVlanButton, SubnetActions } from './SubnetActions';

@@ -14,7 +14,7 @@ import {
 import {
   ProxmoxResources,
   ProxmoxStorage,
-} from '@internal/plugin-proxmox-common';
+} from '@iswesolutions/plugin-proxmox-common';
 import { bytes, percent } from './format';
 import { StatusChip, UsageBar } from './parts';
 import {

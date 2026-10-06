@@ -1,5 +1,5 @@
 import { DatabaseService, LoggerService } from '@backstage/backend-plugin-api';
-import { Raw } from '@internal/plugin-ipam-common';
+import { Raw } from '@iswesolutions/plugin-ipam-common';
 import { PhpIpamClient } from './phpipamClient';
 
 const TABLE = 'ipam_subnet_usage';

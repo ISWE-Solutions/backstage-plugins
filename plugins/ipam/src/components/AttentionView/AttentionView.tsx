@@ -32,7 +32,7 @@ import {
   CATEGORY_INFO,
   CATEGORY_ORDER,
   findAttentionItems,
-} from '@internal/plugin-ipam-common';
+} from '@iswesolutions/plugin-ipam-common';
 
 const useStyles = makeStyles(theme => ({
   root: {

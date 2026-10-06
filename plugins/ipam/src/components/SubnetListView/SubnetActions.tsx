@@ -16,7 +16,7 @@ import { usePermission } from '@backstage/plugin-permission-react';
 import {
   ipamSubnetUpdatePermission,
   ipamVlanCreatePermission,
-} from '@internal/plugin-ipam-common';
+} from '@iswesolutions/plugin-ipam-common';
 import { ipamApiRef } from '../../services/ipamService';
 import { IPAddress, Subnet, VLAN } from '../../types';
 import { SubnetMap } from '../SubnetMap/SubnetMap';

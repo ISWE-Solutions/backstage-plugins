@@ -25,7 +25,7 @@ import {
   ipamAddressCreatePermission,
   ipamAddressDeletePermission,
   ipamAddressUpdatePermission,
-} from '@internal/plugin-ipam-common';
+} from '@iswesolutions/plugin-ipam-common';
 import { ipamApiRef } from '../../services/ipamService';
 import { AddIPDialog } from '../AddIPDialog/AddIPDialog';
 import { AllocateDialog } from '../AllocateDialog/AllocateDialog';

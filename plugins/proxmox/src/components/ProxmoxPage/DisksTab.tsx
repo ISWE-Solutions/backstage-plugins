@@ -20,7 +20,10 @@ import {
 import { Alert } from '@material-ui/lab';
 import { Progress } from '@backstage/core-components';
 import { useApi } from '@backstage/core-plugin-api';
-import { ProxmoxDisk, ProxmoxDiskSmart } from '@internal/plugin-proxmox-common';
+import {
+  ProxmoxDisk,
+  ProxmoxDiskSmart,
+} from '@iswesolutions/plugin-proxmox-common';
 import { proxmoxApiRef } from '../../services/proxmoxService';
 import { bytes } from './format';
 import {

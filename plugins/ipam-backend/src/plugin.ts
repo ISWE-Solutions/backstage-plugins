@@ -3,7 +3,7 @@ import {
   createBackendPlugin,
 } from '@backstage/backend-plugin-api';
 import { notificationService } from '@backstage/plugin-notifications-node';
-import { ipamPermissions } from '@internal/plugin-ipam-common';
+import { ipamPermissions } from '@iswesolutions/plugin-ipam-common';
 import { createPhpIpamClient } from './phpipamClient';
 import { createRouter } from './router';
 import { AllocationService } from './allocation';
@@ -14,8 +14,8 @@ import { createSyncStatusStore } from './syncStatus';
 import { checkDns, createResolver } from './dnsCheck';
 
 /**
- * Backend for the IPAM plugin: a permission-checked gateway to phpIPAM
- * (LXC 116), static-address allocation for new containers (ipam.allocation),
+ * Backend for the IPAM plugin: a permission-checked gateway to phpIPAM,
+ * static-address allocation for new containers (ipam.allocation),
  * and Backstage notifications for new issues (ipam.notifications).
  * See docs/infrastructure/ipam.
  */
@@ -71,6 +71,7 @@ export const ipamBackend = createBackendPlugin({
                 from: alloc.getString('from'),
                 to: alloc.getString('to'),
                 gateway: alloc.getString('gateway'),
+                nameserver: alloc.getOptionalString('nameserver'),
               },
               logger,
             )

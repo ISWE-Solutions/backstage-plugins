@@ -17,12 +17,17 @@ import { ipamApiRef } from '../../services/ipamService';
 import { IPAddress } from '../../types';
 
 /** Comma-separated hostnames to look up instead of the entity name */
-export const IPAM_HOSTNAMES_ANNOTATION = 'ipam.example.org/hostnames';
+export const IPAM_HOSTNAMES_ANNOTATION = 'ipam.iswesolutions.com/hostnames';
+/** Earlier name of the same annotation, still honoured */
+const LEGACY_IPAM_HOSTNAMES_ANNOTATION = 'ipam.example.org/hostnames';
 
 export function entityHostnames(entity: {
   metadata: { name: string; annotations?: Record<string, string> };
 }): string[] {
-  const annotated = entity.metadata.annotations?.[IPAM_HOSTNAMES_ANNOTATION];
+  const annotations = entity.metadata.annotations ?? {};
+  const annotated =
+    annotations[IPAM_HOSTNAMES_ANNOTATION] ??
+    annotations[LEGACY_IPAM_HOSTNAMES_ANNOTATION];
   const names = annotated ? annotated.split(',') : [entity.metadata.name];
   return names.map(n => n.trim().toLowerCase()).filter(Boolean);
 }

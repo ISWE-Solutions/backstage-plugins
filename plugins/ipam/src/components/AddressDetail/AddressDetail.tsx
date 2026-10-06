@@ -16,7 +16,7 @@ import { usePermission } from '@backstage/plugin-permission-react';
 import {
   ipamAddressDeletePermission,
   ipamAddressUpdatePermission,
-} from '@internal/plugin-ipam-common';
+} from '@iswesolutions/plugin-ipam-common';
 import { AddressChange, ipamApiRef } from '../../services/ipamService';
 import { IPAddress } from '../../types';
 import { backstageSearchLink, proxmoxGuestLink } from './links';

@@ -18,9 +18,12 @@ import {
   makeStyles,
 } from '@material-ui/core';
 import SaveIcon from '@material-ui/icons/Save';
-import { DEFAULT_SETTINGS, DHIS2PluginSettings, ProxmoxNode } from '../types';
+import { DHIS2PluginSettings, ProxmoxNode } from '../types';
 import { dhis2Service } from '../services/dhis2Service';
-import { settingsService } from '../services/settingsService';
+import {
+  settingsService,
+  useConfiguredSettingsDefaults,
+} from '../services/settingsService';
 import { fetchApiRef, useApi } from '@backstage/core-plugin-api';
 
 const useStyles = makeStyles(theme => ({
@@ -57,6 +60,7 @@ interface TestResult {
  * only configures how the DHIS2 orchestrator reaches Proxmox.
  */
 export const ProxmoxSettingsPanel = ({ onNodesChange }: Props) => {
+  useConfiguredSettingsDefaults();
   const classes = useStyles();
   const { fetch: backstageFetch } = useApi(fetchApiRef);
   const [settings, setSettings] = useState<DHIS2PluginSettings>(() =>
@@ -101,7 +105,7 @@ export const ProxmoxSettingsPanel = ({ onNodesChange }: Props) => {
       const profile = {
         id,
         name: `Cluster ${synced.length + 1}`,
-        ...DEFAULT_SETTINGS.proxmox,
+        ...settingsService.getDefaults().proxmox,
       };
       const { id: _i, name: _n, ...s } = profile;
       return {
@@ -289,7 +293,7 @@ export const ProxmoxSettingsPanel = ({ onNodesChange }: Props) => {
                 helperText={
                   proxmox.useBackstageProxy
                     ? 'Informational only — actual target is set in app-config.yaml'
-                    : 'e.g. https://pve.example.org:8006'
+                    : 'e.g. https://pve.example.com:8006'
                 }
                 className={classes.field}
               />

@@ -1739,8 +1739,8 @@ export const CreateInstanceDialog = ({
                       }
                       helperText={
                         proxySettings.mode === 'path'
-                          ? 'e.g. dhis2.example.org — path uses the instance name'
-                          : 'e.g. example.org'
+                          ? 'e.g. dhis2.example.com — path uses the instance name'
+                          : 'e.g. example.com'
                       }
                       className={classes.formField}
                     />

@@ -1,7 +1,7 @@
 export interface Config {
   ipam?: {
     phpipam?: {
-      /** phpIPAM API base for the `backstage` app, e.g. https://10.20.30.127/api/backstage */
+      /** phpIPAM API base for the `backstage` app, e.g. https://phpipam.example.com/api/backstage */
       url: string;
       /**
        * App code of the phpIPAM `backstage` API app (SSL with app code)
@@ -13,13 +13,15 @@ export interface Config {
     };
     /** Pool for automatic static-address allocation (e.g. new DHIS2 containers) */
     allocation?: {
-      /** Network address of the phpIPAM subnet, e.g. 10.20.30.0 */
+      /** Network address of the phpIPAM subnet, e.g. 10.0.0.0 */
       subnet: string;
       prefix: number;
       /** First and last address that may be allocated (inclusive) */
       from: string;
       to: string;
       gateway: string;
+      /** DNS server(s) new hosts should use, shown with each allocation, e.g. "10.0.0.53" */
+      nameserver?: string;
     };
     /** DHCP pools, shown on the subnet map and checked for static addresses */
     dhcpRanges?: Array<{ from: string; to: string }>;

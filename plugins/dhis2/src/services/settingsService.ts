@@ -1,3 +1,8 @@
+import {
+  ConfigApi,
+  configApiRef,
+  useApiHolder,
+} from '@backstage/core-plugin-api';
 import { DHIS2PluginSettings, DEFAULT_SETTINGS } from '../types';
 
 const STORAGE_KEY = 'dhis2-plugin-settings';
@@ -9,25 +14,65 @@ function normalizePrivateKeyPath(pathLike?: string): string | undefined {
 }
 
 /**
+ * Applies app-config defaults to the shared settingsService. Call at the top
+ * of every exported component that reads settings, before anything else.
+ */
+export function useConfiguredSettingsDefaults(): void {
+  const config = useApiHolder().get(configApiRef);
+  if (config) settingsService.configure(config);
+}
+
+/**
  * Frontend persistence for the DHIS2 plugin settings.
  *
  * Settings are kept in localStorage for now; once a backend plugin is
  * available the same shape can be PUT/GET against `/api/dhis2/settings`.
  */
 export class SettingsService {
+  private defaults: DHIS2PluginSettings = DEFAULT_SETTINGS;
+  private staleValues: {
+    proxmox?: Record<string, string[]>;
+    proxy?: Record<string, string[]>;
+  } = {};
+  private configuredFrom?: ConfigApi;
+
+  /**
+   * Layers `dhis2.settingsDefaults` from app-config over DEFAULT_SETTINGS, so
+   * a deployment can ship its own defaults (cluster URL, proxy host, domains)
+   * without every browser having to fill in the settings panels first.
+   */
+  configure(config: ConfigApi): void {
+    if (this.configuredFrom === config) return;
+    this.configuredFrom = config;
+    const c = config.getOptionalConfig('dhis2.settingsDefaults');
+    const section = (key: string) => c?.getOptionalConfig(key)?.get<{}>() ?? {};
+    this.defaults = {
+      proxmox: { ...DEFAULT_SETTINGS.proxmox, ...section('proxmox') },
+      proxy: { ...DEFAULT_SETTINGS.proxy, ...section('proxy') },
+      dhis2: { ...DEFAULT_SETTINGS.dhis2, ...section('dhis2') },
+    };
+    this.staleValues = section('replaceStoredValues');
+  }
+
+  /** DEFAULT_SETTINGS with any app-config overrides applied */
+  getDefaults(): DHIS2PluginSettings {
+    return this.defaults;
+  }
+
   load(): DHIS2PluginSettings {
+    const defaults = this.defaults;
     try {
       const raw =
         typeof window !== 'undefined'
           ? window.localStorage.getItem(STORAGE_KEY)
           : null;
-      if (!raw) return DEFAULT_SETTINGS;
+      if (!raw) return defaults;
       const parsed = JSON.parse(raw) as Partial<DHIS2PluginSettings>;
       // Deep-merge with defaults so new fields don't break stored settings.
       const merged: DHIS2PluginSettings = {
-        proxmox: { ...DEFAULT_SETTINGS.proxmox, ...(parsed.proxmox ?? {}) },
-        proxy: { ...DEFAULT_SETTINGS.proxy, ...(parsed.proxy ?? {}) },
-        dhis2: { ...DEFAULT_SETTINGS.dhis2, ...(parsed.dhis2 ?? {}) },
+        proxmox: { ...defaults.proxmox, ...(parsed.proxmox ?? {}) },
+        proxy: { ...defaults.proxy, ...(parsed.proxy ?? {}) },
+        dhis2: { ...defaults.dhis2, ...(parsed.dhis2 ?? {}) },
       };
       merged.proxy.sshKeyPath =
         normalizePrivateKeyPath(merged.proxy.sshKeyPath) ??
@@ -35,35 +80,42 @@ export class SettingsService {
       // Migrate stale placeholder values from older builds to the current
       // defaults so the UI reflects the new defaults without forcing users
       // to clear localStorage manually.
+      // Deployments can list further values (e.g. a host that shipped as a
+      // default by mistake) under dhis2.settingsDefaults.replaceStoredValues.
       const stalePlaceholders: Record<keyof typeof merged.proxy, string[]> = {
-        baseDomain: ['dhis2.example.com'],
-        // 10.20.30.143 is the REDCap server, not the central nginx
-        // proxy (that's 10.20.30.101). It shipped as the default for a
-        // while and provisioning failed in Phase 5b against it, so
-        // migrate any browser still carrying it.
-        host: ['proxy.example.com', '10.20.30.143'],
+        baseDomain: [DEFAULT_SETTINGS.proxy.baseDomain],
+        host: [DEFAULT_SETTINGS.proxy.host],
         sshKeyPath: ['/var/lib/backstage/.ssh/id_ed25519'],
         // Old Debian/Ubuntu sites-available layout — superseded by the
         // single conf.d directory (which nginx auto-includes).
         nginxConfigPath: ['/etc/nginx/sites-available'],
       } as any;
+      Object.entries(this.staleValues.proxy ?? {}).forEach(([key, values]) => {
+        (stalePlaceholders as any)[key] = [
+          ...((stalePlaceholders as any)[key] ?? []),
+          ...values,
+        ];
+      });
       (
         Object.keys(stalePlaceholders) as Array<keyof typeof merged.proxy>
       ).forEach(key => {
         const current = merged.proxy[key] as unknown as string;
         if (stalePlaceholders[key].includes(current)) {
-          (merged.proxy as any)[key] = DEFAULT_SETTINGS.proxy[key];
+          (merged.proxy as any)[key] = defaults.proxy[key];
         }
       });
-      // pve10.example.org resolves to a public IP that doesn't forward
-      // port 8006 (or does so with 100+ second latency), so any stored
-      // apiUrl still pointing at that hostname must be corrected to the
-      // internal cluster address — otherwise every direct (non-proxied)
-      // Proxmox call from this browser times out. Applies regardless of
-      // useBackstageProxy, since users may flip that toggle off later.
-      const staleApiUrls = ['https://pve10.example.org:8006'];
+      // A stored apiUrl that is still the shipped placeholder, or one the
+      // deployment lists as unreachable (replaceStoredValues.proxmox.apiUrl),
+      // is corrected to the configured default — otherwise every direct
+      // (non-proxied) Proxmox call from this browser times out. Applies
+      // regardless of useBackstageProxy, since users may flip that toggle
+      // off later.
+      const staleApiUrls = [
+        DEFAULT_SETTINGS.proxmox.apiUrl,
+        ...(this.staleValues.proxmox?.apiUrl ?? []),
+      ];
       if (staleApiUrls.includes(merged.proxmox.apiUrl)) {
-        merged.proxmox.apiUrl = DEFAULT_SETTINGS.proxmox.apiUrl;
+        merged.proxmox.apiUrl = defaults.proxmox.apiUrl;
       }
       // Older builds defaulted proxmox.verifyTls to true, which then
       // forwards as validateApiCerts=true into every provision request
@@ -80,9 +132,9 @@ export class SettingsService {
         // by providing a non-default API URL AND a token secret. Once
         // they've configured a real PVE node we trust their toggle.
         (!parsed.proxmox.tokenSecret ||
-          parsed.proxmox.apiUrl === DEFAULT_SETTINGS.proxmox.apiUrl)
+          parsed.proxmox.apiUrl === defaults.proxmox.apiUrl)
       ) {
-        merged.proxmox.verifyTls = DEFAULT_SETTINGS.proxmox.verifyTls;
+        merged.proxmox.verifyTls = defaults.proxmox.verifyTls;
       }
 
       // Multi-cluster migration: ensure at least one named cluster profile.
@@ -98,7 +150,7 @@ export class SettingsService {
         merged.activeProxmoxClusterId = 'default';
       } else {
         merged.proxmoxClusters = stored.map(c => ({
-          ...DEFAULT_SETTINGS.proxmox,
+          ...defaults.proxmox,
           ...c,
         }));
         const active =
@@ -113,7 +165,7 @@ export class SettingsService {
     } catch (e) {
       // eslint-disable-next-line no-console
       console.warn('Failed to load DHIS2 plugin settings, using defaults', e);
-      return DEFAULT_SETTINGS;
+      return defaults;
     }
   }
 
@@ -142,7 +194,7 @@ export class SettingsService {
     if (typeof window !== 'undefined') {
       window.localStorage.removeItem(STORAGE_KEY);
     }
-    return DEFAULT_SETTINGS;
+    return this.defaults;
   }
 
   /**

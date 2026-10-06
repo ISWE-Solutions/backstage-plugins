@@ -7,7 +7,7 @@ import {
   dhis2InstanceRestorePermission,
   dhis2InstanceUpdatePermission,
   dhis2ProxyManagePermission,
-} from '@internal/plugin-dhis2-common';
+} from '@iswesolutions/plugin-dhis2-common';
 
 /**
  * Which DHIS2 actions the signed-in user may take (rbac/policy.csv). The
@@ -32,6 +32,4 @@ export function useDhis2Permissions() {
 
 /** Tooltip text for a control the user lacks permission for */
 export const needsPermission = (title: string, allowed: boolean) =>
-  allowed
-    ? title
-    : `${title} — you don't have permission (DHIS2 role in SSO)`;
+  allowed ? title : `${title} — you don't have permission (DHIS2 role in SSO)`;
