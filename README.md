@@ -25,10 +25,13 @@ yarn lint:all
 
 ## Publishing
 
-Packages are published from this repository, `-common` packages first since the
-others depend on them:
+Packages are published from this repository. Build first: a fresh clone has no
+`dist/`, and publishing without it ships empty packages. Then publish the
+`-common` packages first, since the others depend on them:
 
 ```sh
+yarn install --immutable
+yarn build:release   # tsc (type declarations), then build every package
 for p in proxmox dhis2 ipam; do for s in -common "" -backend; do
   (cd plugins/$p$s && yarn npm publish --access public) || break 2
 done; done
