@@ -41,5 +41,9 @@
     "type": "git",
     "url": "https://github.com/ISWE-Solutions/backstage-plugins",
     "directory": "plugins/proxmox-common"
+  },
+  "homepage": "https://github.com/ISWE-Solutions/backstage-plugins/tree/main/plugins/proxmox-common#readme",
+  "bugs": {
+    "url": "https://github.com/ISWE-Solutions/backstage-plugins/issues"
   }
 }

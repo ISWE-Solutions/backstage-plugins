@@ -41,5 +41,9 @@
     "type": "git",
     "url": "https://github.com/ISWE-Solutions/backstage-plugins",
     "directory": "plugins/dhis2-common"
+  },
+  "homepage": "https://github.com/ISWE-Solutions/backstage-plugins/tree/main/plugins/dhis2-common#readme",
+  "bugs": {
+    "url": "https://github.com/ISWE-Solutions/backstage-plugins/issues"
   }
 }

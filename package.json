@@ -1,0 +1,49 @@
+{
+  "name": "iswesolutions-backstage-plugins",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Backstage plugins for Proxmox VE, DHIS2 instance orchestration and phpIPAM, published as @iswesolutions/*",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ISWE-Solutions/backstage-plugins"
+  },
+  "license": "Apache-2.0",
+  "engines": {
+    "node": "22 || 24"
+  },
+  "workspaces": {
+    "packages": [
+      "plugins/*"
+    ]
+  },
+  "scripts": {
+    "tsc": "tsc",
+    "tsc:full": "tsc --skipLibCheck false --incremental false",
+    "build:all": "backstage-cli repo build --all",
+    "test": "backstage-cli repo test",
+    "test:all": "backstage-cli repo test --coverage",
+    "lint": "backstage-cli repo lint --since origin/main",
+    "lint:all": "backstage-cli repo lint",
+    "prettier:check": "prettier --check .",
+    "clean": "backstage-cli repo clean"
+  },
+  "devDependencies": {
+    "@backstage/cli": "^0.36.2",
+    "@backstage/cli-defaults": "^0.1.2",
+    "@jest/environment-jsdom-abstract": "^30.0.0",
+    "@types/jest": "^30.0.0",
+    "jest": "^30.2.0",
+    "jsdom": "^27.1.0",
+    "prettier": "^2.3.2",
+    "typescript": "~5.8.0"
+  },
+  "resolutions": {
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.30.1"
+  },
+  "prettier": "@backstage/cli/config/prettier",
+  "packageManager": "yarn@4.4.1"
+}

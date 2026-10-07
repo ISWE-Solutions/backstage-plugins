@@ -45,7 +45,8 @@
     "express": "^4.17.1",
     "express-promise-router": "^4.1.0",
     "pg": "^8.11.3",
-    "ssh2": "^1.17.0"
+    "ssh2": "^1.17.0",
+    "undici": "^7.24.5"
   },
   "devDependencies": {
     "@backstage/cli": "^0.36.2",
@@ -59,5 +60,9 @@
     "type": "git",
     "url": "https://github.com/ISWE-Solutions/backstage-plugins",
     "directory": "plugins/dhis2-backend"
+  },
+  "homepage": "https://github.com/ISWE-Solutions/backstage-plugins/tree/main/plugins/dhis2-backend#readme",
+  "bugs": {
+    "url": "https://github.com/ISWE-Solutions/backstage-plugins/issues"
   }
 }

@@ -41,5 +41,9 @@
     "type": "git",
     "url": "https://github.com/ISWE-Solutions/backstage-plugins",
     "directory": "plugins/ipam-common"
+  },
+  "homepage": "https://github.com/ISWE-Solutions/backstage-plugins/tree/main/plugins/ipam-common#readme",
+  "bugs": {
+    "url": "https://github.com/ISWE-Solutions/backstage-plugins/issues"
   }
 }

@@ -1,0 +1,9 @@
+dist
+dist-types
+coverage
+.vscode
+e2e-test-report
+
+# Scaffolder template skeletons contain ${{ }} / {% %} placeholders, not valid source
+catalog/templates
+.yarn
