@@ -31,6 +31,25 @@ The **Attention** tab runs health checks in the spirit of Pulse "Patrol":
 offline nodes, stopped (non-template) guests, near-full or inactive storage, and
 node/guest memory pressure.
 
+## Installation
+
+```sh
+yarn --cwd packages/app add @iswesolutions/plugin-proxmox
+yarn --cwd packages/backend add @iswesolutions/plugin-proxmox-backend
+```
+
+```tsx
+// packages/app/src/App.tsx
+import { ProxmoxPage } from '@iswesolutions/plugin-proxmox';
+
+<Route path="/proxmox" element={<ProxmoxPage />} />;
+```
+
+```ts
+// packages/backend/src/index.ts
+backend.add(import('@iswesolutions/plugin-proxmox-backend'));
+```
+
 ## Multiple clusters
 
 The plugin monitors **one or more clusters**, chosen with the cluster selector in
@@ -83,7 +102,6 @@ error and the backend logs a warning.
 
 Reading the cluster state is open to every signed-in user.
 `proxmox.cluster.manage` gates adding/editing/removing clusters on the Settings
-tab (granted to `group:default/admin` via the `proxmox-admin` role in
-`rbac/policy.csv`). A `proxmox.guest.power` permission is defined for future
+tab; grant it in your permission policy. A `proxmox.guest.power` permission is defined for future
 guest start/stop actions; no control actions are implemented yet (like Pulse,
 control is off by default).
