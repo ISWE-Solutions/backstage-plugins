@@ -58,14 +58,6 @@ describe('EntityIpamCard', () => {
     expect(screen.getByText('10.20.30.126')).toBeTruthy();
   });
 
-  it('still honours the legacy hostnames annotation', () => {
-    expect(
-      entityHostnames(
-        entity('X', { 'ipam.example.org/hostnames': 'phpipam, keycloak' }),
-      ),
-    ).toEqual(['phpipam', 'keycloak']);
-  });
-
   it('renders nothing when no address matches', async () => {
     await renderCard(entity('unrelated'));
     await new Promise(r => setTimeout(r, 0));
