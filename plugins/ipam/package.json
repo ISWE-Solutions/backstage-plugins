@@ -1,6 +1,6 @@
 {
   "name": "@iswesolutions/plugin-ipam",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "license": "Apache-2.0",
@@ -34,7 +34,7 @@
     "@backstage/plugin-catalog-react": "^3.0.0",
     "@backstage/plugin-permission-react": "^0.5.1",
     "@backstage/theme": "^0.7.3",
-    "@iswesolutions/plugin-ipam-common": "^0.1.0",
+    "@iswesolutions/plugin-ipam-common": "^0.1.1",
     "@material-ui/core": "^4.12.4",
     "@material-ui/icons": "^4.11.3",
     "@material-ui/lab": "^4.0.0-alpha.61"

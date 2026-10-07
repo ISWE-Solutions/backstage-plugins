@@ -4060,7 +4060,7 @@ __metadata:
     "@backstage/cli": "npm:^0.36.2"
     "@backstage/errors": "npm:^1.3.1"
     "@backstage/plugin-permission-common": "npm:^0.9.9"
-    "@iswesolutions/plugin-dhis2-common": "npm:^0.1.0"
+    "@iswesolutions/plugin-dhis2-common": "npm:^0.1.1"
     "@types/pg": "npm:^8.10.9"
     "@types/ssh2": "npm:^1.15.5"
     express: "npm:^4.17.1"
@@ -4071,7 +4071,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@iswesolutions/plugin-dhis2-common@npm:^0.1.0, @iswesolutions/plugin-dhis2-common@workspace:plugins/dhis2-common":
+"@iswesolutions/plugin-dhis2-common@npm:^0.1.1, @iswesolutions/plugin-dhis2-common@workspace:plugins/dhis2-common":
   version: 0.0.0-use.local
   resolution: "@iswesolutions/plugin-dhis2-common@workspace:plugins/dhis2-common"
   dependencies:
@@ -4092,7 +4092,7 @@ __metadata:
     "@backstage/plugin-permission-react": "npm:^0.5.1"
     "@backstage/test-utils": "npm:^1.7.18"
     "@backstage/theme": "npm:^0.7.3"
-    "@iswesolutions/plugin-dhis2-common": "npm:^0.1.0"
+    "@iswesolutions/plugin-dhis2-common": "npm:^0.1.1"
     "@material-ui/core": "npm:^4.12.4"
     "@material-ui/icons": "npm:^4.11.3"
     "@material-ui/lab": "npm:^4.0.0-alpha.61"
@@ -4122,14 +4122,14 @@ __metadata:
     "@backstage/plugin-permission-common": "npm:^0.9.9"
     "@backstage/plugin-search-backend-node": "npm:^1.4.4"
     "@backstage/plugin-search-common": "npm:^1.2.24"
-    "@iswesolutions/plugin-ipam-common": "npm:^0.1.0"
+    "@iswesolutions/plugin-ipam-common": "npm:^0.1.1"
     "@types/express": "npm:^4.17.21"
     express: "npm:^4.17.1"
     express-promise-router: "npm:^4.1.0"
   languageName: unknown
   linkType: soft
 
-"@iswesolutions/plugin-ipam-common@npm:^0.1.0, @iswesolutions/plugin-ipam-common@workspace:plugins/ipam-common":
+"@iswesolutions/plugin-ipam-common@npm:^0.1.1, @iswesolutions/plugin-ipam-common@workspace:plugins/ipam-common":
   version: 0.0.0-use.local
   resolution: "@iswesolutions/plugin-ipam-common@workspace:plugins/ipam-common"
   dependencies:
@@ -4151,7 +4151,7 @@ __metadata:
     "@backstage/plugin-permission-react": "npm:^0.5.1"
     "@backstage/test-utils": "npm:^1.7.18"
     "@backstage/theme": "npm:^0.7.3"
-    "@iswesolutions/plugin-ipam-common": "npm:^0.1.0"
+    "@iswesolutions/plugin-ipam-common": "npm:^0.1.1"
     "@material-ui/core": "npm:^4.12.4"
     "@material-ui/icons": "npm:^4.11.3"
     "@material-ui/lab": "npm:^4.0.0-alpha.61"
@@ -4175,14 +4175,14 @@ __metadata:
     "@backstage/cli": "npm:^0.36.2"
     "@backstage/errors": "npm:^1.3.1"
     "@backstage/plugin-permission-common": "npm:^0.9.9"
-    "@iswesolutions/plugin-proxmox-common": "npm:^0.1.0"
+    "@iswesolutions/plugin-proxmox-common": "npm:^0.1.1"
     "@types/express": "npm:^4.17.21"
     express: "npm:^4.17.1"
     express-promise-router: "npm:^4.1.0"
   languageName: unknown
   linkType: soft
 
-"@iswesolutions/plugin-proxmox-common@npm:^0.1.0, @iswesolutions/plugin-proxmox-common@workspace:plugins/proxmox-common":
+"@iswesolutions/plugin-proxmox-common@npm:^0.1.1, @iswesolutions/plugin-proxmox-common@workspace:plugins/proxmox-common":
   version: 0.0.0-use.local
   resolution: "@iswesolutions/plugin-proxmox-common@workspace:plugins/proxmox-common"
   dependencies:
@@ -4202,7 +4202,7 @@ __metadata:
     "@backstage/plugin-permission-react": "npm:^0.5.1"
     "@backstage/test-utils": "npm:^1.7.18"
     "@backstage/theme": "npm:^0.7.3"
-    "@iswesolutions/plugin-proxmox-common": "npm:^0.1.0"
+    "@iswesolutions/plugin-proxmox-common": "npm:^0.1.1"
     "@material-ui/core": "npm:^4.12.4"
     "@material-ui/icons": "npm:^4.11.3"
     "@material-ui/lab": "npm:^4.0.0-alpha.61"
