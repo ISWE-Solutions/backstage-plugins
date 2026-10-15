@@ -25,17 +25,24 @@ yarn lint:all
 
 ## Publishing
 
-Packages are published from this repository. Build first: a fresh clone has no
-`dist/`, and publishing without it ships empty packages. Then publish the
-`-common` packages first, since the others depend on them:
+Publish with the **npm CLI**, not `yarn npm publish`: Yarn 4 leaves the README
+out of the package metadata, so npmjs.com shows "no README".
+
+Build first: a fresh clone has no `dist/`, and publishing without it ships
+empty packages. Then publish the `-common` packages first, since the others
+depend on them:
 
 ```sh
 yarn install --immutable
 yarn build:release   # tsc (type declarations), then build every package
+npm login            # browser sign-in; the token only lasts a few hours
 for p in proxmox dhis2 ipam; do for s in -common "" -backend; do
-  (cd plugins/$p$s && yarn npm publish --access public) || break 2
+  (cd plugins/$p$s && npm publish --access public) || break 2
 done; done
 ```
+
+Bump `version` in every package (and the `^x.y.z` ranges between them) before
+each release; npm never accepts a version twice.
 
 ## License
 
