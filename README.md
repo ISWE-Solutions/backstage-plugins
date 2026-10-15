@@ -12,6 +12,12 @@ infrastructure on Proxmox VE, published to npm as `@iswesolutions/*`.
 
 Each plugin's README covers installation and configuration.
 
+Proxmox, DHIS2 and IPAM each come as a frontend, a backend and a shared
+`-common` package. The Odoo plugin is a single frontend package with no
+backend yet: its page and services are built, but they show sample data
+rather than calling Proxmox, Runbot or Ansible. Its
+[README](plugins/odoo-proxmox-runbot) lists what is built and what is not.
+
 ## Development
 
 Requires Node.js 22 or 24. Yarn is vendored in `.yarn/releases`.
