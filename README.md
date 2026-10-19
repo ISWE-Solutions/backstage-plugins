@@ -9,14 +9,16 @@ infrastructure on Proxmox VE, published to npm as `@iswesolutions/*`.
 | [DHIS2](plugins/dhis2)              | `plugin-dhis2`, `plugin-dhis2-backend`, `plugin-dhis2-common`       | Create, clone, upgrade, back up and restore DHIS2 instances in Proxmox LXC containers              |
 | [IPAM](plugins/ipam)                | `plugin-ipam`, `plugin-ipam-backend`, `plugin-ipam-common`          | phpIPAM front end: subnets, addresses, static-address allocation, DNS checks and search            |
 | [Odoo](plugins/odoo-proxmox-runbot) | `odoo-proxmox-runbot`                                               | Odoo instances, Runbot builds, Ansible playbooks and Proxmox LXC containers (preview, sample data) |
+| [Monitoring](plugins/monitoring)    | `plugin-monitoring`                                                 | Service health, Prometheus metrics, Grafana dashboards, security alerts and costs (preview, sample data) |
 
 Each plugin's README covers installation and configuration.
 
 Proxmox, DHIS2 and IPAM each come as a frontend, a backend and a shared
-`-common` package. The Odoo plugin is a single frontend package with no
-backend yet: its page and services are built, but they show sample data
-rather than calling Proxmox, Runbot or Ansible. Its
-[README](plugins/odoo-proxmox-runbot) lists what is built and what is not.
+`-common` package. The Odoo and Monitoring plugins are single frontend
+packages with no backend yet. Their pages are built, but they show sample data
+rather than calling Proxmox, Runbot, Ansible, Prometheus or Grafana. Their
+READMEs ([Odoo](plugins/odoo-proxmox-runbot), [Monitoring](plugins/monitoring))
+list what is built and what is not.
 
 ## Development
 
@@ -47,6 +49,7 @@ for p in proxmox dhis2 ipam; do for s in -common "" -backend; do
   (cd plugins/$p$s && npm publish --access public) || break 2
 done; done
 (cd plugins/odoo-proxmox-runbot && npm publish --access public)
+(cd plugins/monitoring && npm publish --access public)
 ```
 
 Bump `version` in every package (and the `^x.y.z` ranges between them) before
