@@ -2,12 +2,12 @@
 
 A Backstage frontend plugin with one **Monitoring** page and four tabs:
 
-| Tab | Shows |
-| --- | --- |
+| Tab                     | Shows                                                                                                           |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------- |
 | **Prometheus / Health** | Service health (status, uptime, response time, error rate) and key Prometheus metrics with 24-hour trend charts |
-| **Grafana Dashboards** | A catalogue of Grafana dashboards with links to open them |
-| **Security Insights** | Security alerts by severity, with the affected service and repository |
-| **Cost Insights** | Infrastructure cost by category and service, with the month's trend |
+| **Grafana Dashboards**  | A catalogue of Grafana dashboards with links to open them                                                       |
+| **Security Insights**   | Security alerts by severity, with the affected service and repository                                           |
+| **Cost Insights**       | Infrastructure cost by category and service, with the month's trend                                             |
 
 > **Preview: sample data.** Every tab is built, but the data comes from
 > `src/services/monitoringService.ts`, which returns fixed sample values
@@ -28,7 +28,7 @@ Add a route in `packages/app/src/App.tsx`:
 ```tsx
 import { MonitoringPage } from '@iswesolutions/plugin-monitoring';
 
-<Route path="/monitoring" element={<MonitoringPage />} />
+<Route path="/monitoring" element={<MonitoringPage />} />;
 ```
 
 And, optionally, a sidebar entry in `packages/app/src/components/Root/Root.tsx`:
@@ -36,7 +36,7 @@ And, optionally, a sidebar entry in `packages/app/src/components/Root/Root.tsx`:
 ```tsx
 import MonitorIcon from '@material-ui/icons/Timeline';
 
-<SidebarItem icon={MonitorIcon} to="monitoring" text="Monitoring" />
+<SidebarItem icon={MonitorIcon} to="monitoring" text="Monitoring" />;
 ```
 
 ## Exports

@@ -82,8 +82,8 @@ export const GrafanaView = () => {
 
       <Alert severity="info" style={{ marginBottom: 24 }}>
         Connect to your Grafana instance at{' '}
-        <strong>https://grafana.example.org</strong> to view detailed analytics and
-        metrics
+        <strong>https://grafana.example.org</strong> to view detailed analytics
+        and metrics
       </Alert>
 
       {starredDashboards.length > 0 && (
