@@ -1,6 +1,5 @@
 import {
   PrometheusMetric,
-  ServiceHealth,
   GrafanaDashboard,
   SecurityAlert,
   CostSummary,
@@ -64,81 +63,6 @@ const mockPrometheusMetrics: PrometheusMetric[] = [
     unit: 'connections',
     labels: { database: 'openmrs_prod' },
     history: generateMetricHistory(50, 24),
-  },
-];
-
-const mockServiceHealth: ServiceHealth[] = [
-  {
-    serviceName: 'OpenMRS EHR',
-    status: 'healthy',
-    uptime: 99.8,
-    lastCheck: new Date().toISOString(),
-    responseTime: 234,
-    errorCount: 3,
-    metrics: {
-      cpuUsage: 42.5,
-      memoryUsage: 68.3,
-      diskUsage: 54.2,
-      networkIn: 1.2,
-      networkOut: 2.3,
-      requestsPerSecond: 145,
-      errorRate: 0.02,
-      uptime: 99.8,
-    },
-  },
-  {
-    serviceName: 'DHIS2 HMIS',
-    status: 'healthy',
-    uptime: 99.95,
-    lastCheck: new Date().toISOString(),
-    responseTime: 189,
-    errorCount: 1,
-    metrics: {
-      cpuUsage: 35.2,
-      memoryUsage: 72.1,
-      diskUsage: 61.5,
-      networkIn: 2.1,
-      networkOut: 3.4,
-      requestsPerSecond: 234,
-      errorRate: 0.004,
-      uptime: 99.95,
-    },
-  },
-  {
-    serviceName: 'OpenEverest',
-    status: 'degraded',
-    uptime: 98.2,
-    lastCheck: new Date().toISOString(),
-    responseTime: 567,
-    errorCount: 12,
-    metrics: {
-      cpuUsage: 78.3,
-      memoryUsage: 85.4,
-      diskUsage: 45.3,
-      networkIn: 0.8,
-      networkOut: 1.2,
-      requestsPerSecond: 67,
-      errorRate: 1.8,
-      uptime: 98.2,
-    },
-  },
-  {
-    serviceName: 'Pharmacy Management',
-    status: 'healthy',
-    uptime: 99.5,
-    lastCheck: new Date().toISOString(),
-    responseTime: 312,
-    errorCount: 5,
-    metrics: {
-      cpuUsage: 28.7,
-      memoryUsage: 52.3,
-      diskUsage: 38.9,
-      networkIn: 0.5,
-      networkOut: 0.9,
-      requestsPerSecond: 89,
-      errorRate: 0.06,
-      uptime: 99.5,
-    },
   },
 ];
 
@@ -319,11 +243,6 @@ export class MonitoringService {
   async getPrometheusMetrics(): Promise<PrometheusMetric[]> {
     // In production, this would call actual Prometheus API
     return Promise.resolve(mockPrometheusMetrics);
-  }
-
-  async getServiceHealth(): Promise<ServiceHealth[]> {
-    // In production, this would query health check endpoints
-    return Promise.resolve(mockServiceHealth);
   }
 
   async getGrafanaDashboards(): Promise<GrafanaDashboard[]> {

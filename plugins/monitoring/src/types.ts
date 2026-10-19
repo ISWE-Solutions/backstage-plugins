@@ -13,25 +13,28 @@ export interface PrometheusMetric {
   history?: MetricData[];
 }
 
-export interface SystemMetrics {
-  cpuUsage: number;
-  memoryUsage: number;
-  diskUsage: number;
-  networkIn: number;
-  networkOut: number;
-  requestsPerSecond: number;
-  errorRate: number;
-  uptime: number;
-}
-
+/** Live health of one catalog Component (see services/liveHealth.ts). */
 export interface ServiceHealth {
   serviceName: string;
-  status: 'healthy' | 'degraded' | 'down';
-  uptime: number;
+  /** e.g. component:default/keycloak */
+  entityRef: string;
+  system?: string;
+  /** URL from the iswesolutions.com/health-url annotation */
+  url: string;
+  /** Proxmox guests from the iswesolutions.com/proxmox-guests annotation */
+  guests: string[];
+  status: 'healthy' | 'degraded' | 'down' | 'unknown';
+  /** Why the status isn't "healthy" */
+  reasons: string[];
+  /** % of 5-minute site checks over the last 24 h that got a 2xx/3xx */
+  uptime24h?: number;
+  responseTimeMs?: number;
+  certDaysLeft?: number;
+  /** Busiest guest's CPU, % of its allotted cores */
+  cpuPercent?: number;
+  /** Busiest guest's memory, % of its limit */
+  memoryPercent?: number;
   lastCheck: string;
-  responseTime: number;
-  errorCount: number;
-  metrics: SystemMetrics;
 }
 
 export interface GrafanaDashboard {

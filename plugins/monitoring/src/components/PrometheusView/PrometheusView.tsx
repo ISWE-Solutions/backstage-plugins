@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Grid,
   Card,
@@ -7,14 +7,29 @@ import {
   Box,
   LinearProgress,
   Chip,
+  Link,
 } from '@material-ui/core';
 import { Alert } from '@material-ui/lab';
 import { makeStyles } from '@material-ui/core/styles';
+import {
+  configApiRef,
+  discoveryApiRef,
+  fetchApiRef,
+  useApi,
+} from '@backstage/core-plugin-api';
+import { catalogApiRef, EntityRefLink } from '@backstage/plugin-catalog-react';
 import { ServiceHealth } from '../../types';
-import { monitoringService } from '../../services/monitoringService';
+import {
+  GUESTS_ANNOTATION,
+  HEALTH_URL_ANNOTATION,
+  loadLiveServiceHealth,
+} from '../../services/liveHealth';
 import CheckCircleIcon from '@material-ui/icons/CheckCircle';
 import WarningIcon from '@material-ui/icons/Warning';
 import ErrorIcon from '@material-ui/icons/Error';
+import HelpIcon from '@material-ui/icons/Help';
+
+const REFRESH_MS = 60_000;
 
 const useStyles = makeStyles(theme => ({
   card: {
@@ -37,11 +52,22 @@ const useStyles = makeStyles(theme => ({
   serviceHeader: {
     display: 'flex',
     alignItems: 'center',
-    marginBottom: theme.spacing(2),
+    marginBottom: theme.spacing(1),
   },
 }));
 
-const getStatusColor = (status: string) => {
+const STATUS = {
+  down: { color: '#f44336', Icon: ErrorIcon, label: 'Down Services' },
+  degraded: { color: '#ff9800', Icon: WarningIcon, label: 'Degraded Services' },
+  unknown: { color: '#9e9e9e', Icon: HelpIcon, label: 'No Data' },
+  healthy: {
+    color: '#4caf50',
+    Icon: CheckCircleIcon,
+    label: 'Healthy Services',
+  },
+} as const;
+
+const getStatusColor = (status: ServiceHealth['status']) => {
   switch (status) {
     case 'healthy':
       return 'primary';
@@ -54,133 +80,129 @@ const getStatusColor = (status: string) => {
   }
 };
 
-const getStatusIcon = (status: string) => {
-  switch (status) {
-    case 'healthy':
-      return <CheckCircleIcon style={{ color: '#4caf50' }} />;
-    case 'degraded':
-      return <WarningIcon style={{ color: '#ff9800' }} />;
-    case 'down':
-      return <ErrorIcon style={{ color: '#f44336' }} />;
-    default:
-      return null;
-  }
-};
-
 const getMetricColor = (value: number, threshold: number = 80) => {
   if (value >= threshold) return 'error';
   if (value >= threshold * 0.75) return 'secondary';
   return 'primary';
 };
 
+const fmt = (v: number | undefined, digits: number, unit: string) =>
+  v === undefined ? '—' : `${v.toFixed(digits)}${unit}`;
+
+const UsageBar = ({ label, value }: { label: string; value?: number }) => {
+  const classes = useStyles();
+  return (
+    <Box mt={1}>
+      <Box className={classes.metricRow}>
+        <Typography variant="caption">{label}</Typography>
+        <Typography variant="caption">{fmt(value, 1, '%')}</Typography>
+      </Box>
+      <LinearProgress
+        variant="determinate"
+        value={Math.min(value ?? 0, 100)}
+        color={getMetricColor(value ?? 0) as any}
+        className={classes.progressBar}
+      />
+    </Box>
+  );
+};
+
+/**
+ * Live health of the catalog Components annotated with
+ * `iswesolutions.com/health-url` (and optionally `iswesolutions.com/proxmox-guests`),
+ * from the Prometheus site checks, certificate checks and Proxmox guest metrics.
+ */
 export const PrometheusView = () => {
   const classes = useStyles();
+  const catalogApi = useApi(catalogApiRef);
+  const discoveryApi = useApi(discoveryApiRef);
+  const fetchApi = useApi(fetchApiRef);
+  const configApi = useApi(configApiRef);
   const [services, setServices] = useState<ServiceHealth[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>();
+
+  const fetchData = useCallback(async () => {
+    try {
+      setServices(
+        await loadLiveServiceHealth({
+          catalogApi,
+          discoveryApi,
+          fetchApi,
+          configApi,
+        }),
+      );
+      setError(undefined);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [catalogApi, discoveryApi, fetchApi, configApi]);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const data = await monitoringService.getServiceHealth();
-        setServices(data);
-      } catch (error) {
-        console.error('Failed to fetch service health:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchData();
-    const interval = setInterval(fetchData, 30000); // Refresh every 30 seconds
+    const interval = setInterval(fetchData, REFRESH_MS);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchData]);
 
   if (loading) {
     return <LinearProgress />;
   }
 
-  const healthyCount = services.filter(s => s.status === 'healthy').length;
-  const degradedCount = services.filter(s => s.status === 'degraded').length;
-  const downCount = services.filter(s => s.status === 'down').length;
+  const count = (s: ServiceHealth['status']) =>
+    services.filter(x => x.status === s).length;
+  const degradedCount = count('degraded');
+  const downCount = count('down');
 
   return (
     <Box p={3}>
       <Typography variant="h4" gutterBottom>
         System Health Monitoring
       </Typography>
+      <Typography variant="body2" color="textSecondary" paragraph>
+        Live from Prometheus for the catalog components with the{' '}
+        <code>{HEALTH_URL_ANNOTATION}</code> annotation; refreshes every minute.
+      </Typography>
+
+      {error && (
+        <Alert severity="error" style={{ marginBottom: 16 }}>
+          <strong>Could not load live health:</strong> {error}
+        </Alert>
+      )}
 
       <Grid container spacing={3} style={{ marginBottom: 24 }}>
-        <Grid item xs={12} sm={4}>
-          <Card>
-            <CardContent>
-              <Box
-                display="flex"
-                alignItems="center"
-                justifyContent="space-between"
-              >
-                <Box>
-                  <Typography variant="h3" style={{ color: '#4caf50' }}>
-                    {healthyCount}
-                  </Typography>
-                  <Typography variant="body2" color="textSecondary">
-                    Healthy Services
-                  </Typography>
-                </Box>
-                <CheckCircleIcon style={{ fontSize: 48, color: '#4caf50' }} />
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid item xs={12} sm={4}>
-          <Card>
-            <CardContent>
-              <Box
-                display="flex"
-                alignItems="center"
-                justifyContent="space-between"
-              >
-                <Box>
-                  <Typography variant="h3" style={{ color: '#ff9800' }}>
-                    {degradedCount}
-                  </Typography>
-                  <Typography variant="body2" color="textSecondary">
-                    Degraded Services
-                  </Typography>
-                </Box>
-                <WarningIcon style={{ fontSize: 48, color: '#ff9800' }} />
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid item xs={12} sm={4}>
-          <Card>
-            <CardContent>
-              <Box
-                display="flex"
-                alignItems="center"
-                justifyContent="space-between"
-              >
-                <Box>
-                  <Typography variant="h3" style={{ color: '#f44336' }}>
-                    {downCount}
-                  </Typography>
-                  <Typography variant="body2" color="textSecondary">
-                    Down Services
-                  </Typography>
-                </Box>
-                <ErrorIcon style={{ fontSize: 48, color: '#f44336' }} />
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+        {(Object.keys(STATUS) as ServiceHealth['status'][]).map(s => {
+          const { color, Icon, label } = STATUS[s];
+          return (
+            <Grid item xs={12} sm={6} md={3} key={s}>
+              <Card>
+                <CardContent>
+                  <Box
+                    display="flex"
+                    alignItems="center"
+                    justifyContent="space-between"
+                  >
+                    <Box>
+                      <Typography variant="h3" style={{ color }}>
+                        {count(s)}
+                      </Typography>
+                      <Typography variant="body2" color="textSecondary">
+                        {label}
+                      </Typography>
+                    </Box>
+                    <Icon style={{ fontSize: 48, color }} />
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+          );
+        })}
       </Grid>
 
       {degradedCount > 0 && (
         <Alert severity="warning" style={{ marginBottom: 16 }}>
-          <strong>Warning:</strong> {degradedCount} service(s) experiencing
-          degraded performance
+          <strong>Warning:</strong> {degradedCount} service(s) degraded
         </Alert>
       )}
 
@@ -190,103 +212,107 @@ export const PrometheusView = () => {
         </Alert>
       )}
 
+      {!error && services.length === 0 && (
+        <Alert severity="info" style={{ marginBottom: 16 }}>
+          No catalog components to show. Add the{' '}
+          <code>{HEALTH_URL_ANNOTATION}</code> annotation (the URL the site
+          checks probe) and, for CPU and memory,{' '}
+          <code>{GUESTS_ANNOTATION}</code> (comma-separated Proxmox guest names)
+          to a Component.
+        </Alert>
+      )}
+
       <Grid container spacing={3}>
-        {services.map(service => (
-          <Grid item xs={12} md={6} key={service.serviceName}>
-            <Card className={classes.card}>
-              <CardContent>
-                <Box className={classes.serviceHeader}>
-                  {getStatusIcon(service.status)}
-                  <Typography variant="h6" style={{ marginLeft: 8, flex: 1 }}>
-                    {service.serviceName}
-                  </Typography>
-                  <Chip
-                    label={service.status.toUpperCase()}
-                    size="small"
-                    color={getStatusColor(service.status) as any}
-                    className={classes.statusChip}
-                  />
-                </Box>
-
-                <Box className={classes.metricRow}>
-                  <Typography variant="body2">Uptime</Typography>
-                  <Typography variant="body2" style={{ fontWeight: 'bold' }}>
-                    {service.uptime}%
-                  </Typography>
-                </Box>
-
-                <Box className={classes.metricRow}>
-                  <Typography variant="body2">Response Time</Typography>
-                  <Typography variant="body2" style={{ fontWeight: 'bold' }}>
-                    {service.responseTime}ms
-                  </Typography>
-                </Box>
-
-                <Box className={classes.metricRow}>
-                  <Typography variant="body2">Requests/sec</Typography>
-                  <Typography variant="body2" style={{ fontWeight: 'bold' }}>
-                    {service.metrics.requestsPerSecond}
-                  </Typography>
-                </Box>
-
-                <Box mt={2}>
-                  <Box className={classes.metricRow}>
-                    <Typography variant="caption">CPU Usage</Typography>
-                    <Typography variant="caption">
-                      {service.metrics.cpuUsage.toFixed(1)}%
+        {services.map(service => {
+          const { color, Icon } = STATUS[service.status];
+          return (
+            <Grid item xs={12} md={6} key={service.entityRef}>
+              <Card className={classes.card}>
+                <CardContent>
+                  <Box className={classes.serviceHeader}>
+                    <Icon style={{ color }} />
+                    <Typography variant="h6" style={{ marginLeft: 8, flex: 1 }}>
+                      <EntityRefLink
+                        entityRef={service.entityRef}
+                        title={service.serviceName}
+                      />
                     </Typography>
+                    <Chip
+                      label={service.status.toUpperCase()}
+                      size="small"
+                      color={getStatusColor(service.status) as any}
+                      className={classes.statusChip}
+                    />
                   </Box>
-                  <LinearProgress
-                    variant="determinate"
-                    value={service.metrics.cpuUsage}
-                    color={getMetricColor(service.metrics.cpuUsage) as any}
-                    className={classes.progressBar}
-                  />
-                </Box>
-
-                <Box mt={1}>
-                  <Box className={classes.metricRow}>
-                    <Typography variant="caption">Memory Usage</Typography>
-                    <Typography variant="caption">
-                      {service.metrics.memoryUsage.toFixed(1)}%
-                    </Typography>
-                  </Box>
-                  <LinearProgress
-                    variant="determinate"
-                    value={service.metrics.memoryUsage}
-                    color={getMetricColor(service.metrics.memoryUsage) as any}
-                    className={classes.progressBar}
-                  />
-                </Box>
-
-                <Box mt={1}>
-                  <Box className={classes.metricRow}>
-                    <Typography variant="caption">Disk Usage</Typography>
-                    <Typography variant="caption">
-                      {service.metrics.diskUsage.toFixed(1)}%
-                    </Typography>
-                  </Box>
-                  <LinearProgress
-                    variant="determinate"
-                    value={service.metrics.diskUsage}
-                    color={getMetricColor(service.metrics.diskUsage) as any}
-                    className={classes.progressBar}
-                  />
-                </Box>
-
-                <Box mt={2} display="flex" justifyContent="space-between">
                   <Typography variant="caption" color="textSecondary">
-                    Errors: {service.errorCount}
+                    <Link href={service.url} target="_blank" rel="noopener">
+                      {service.url}
+                    </Link>
+                    {service.system && ` · system ${service.system}`}
                   </Typography>
-                  <Typography variant="caption" color="textSecondary">
-                    Last check:{' '}
-                    {new Date(service.lastCheck).toLocaleTimeString()}
-                  </Typography>
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-        ))}
+                  {service.reasons.length > 0 && (
+                    <Box mt={1}>
+                      {service.reasons.map(r => (
+                        <Typography variant="body2" key={r} style={{ color }}>
+                          {r}
+                        </Typography>
+                      ))}
+                    </Box>
+                  )}
+
+                  <Box className={classes.metricRow}>
+                    <Typography variant="body2">Uptime (24 h)</Typography>
+                    <Typography variant="body2" style={{ fontWeight: 'bold' }}>
+                      {fmt(service.uptime24h, 2, '%')}
+                    </Typography>
+                  </Box>
+
+                  <Box className={classes.metricRow}>
+                    <Typography variant="body2">Response Time</Typography>
+                    <Typography variant="body2" style={{ fontWeight: 'bold' }}>
+                      {fmt(service.responseTimeMs, 0, ' ms')}
+                    </Typography>
+                  </Box>
+
+                  <Box className={classes.metricRow}>
+                    <Typography variant="body2">Certificate</Typography>
+                    <Typography variant="body2" style={{ fontWeight: 'bold' }}>
+                      {service.certDaysLeft === undefined
+                        ? '—'
+                        : `${Math.floor(service.certDaysLeft)} days left`}
+                    </Typography>
+                  </Box>
+
+                  {service.guests.length > 0 ? (
+                    <>
+                      <UsageBar label="CPU Usage" value={service.cpuPercent} />
+                      <UsageBar
+                        label="Memory Usage"
+                        value={service.memoryPercent}
+                      />
+                    </>
+                  ) : (
+                    <Typography variant="caption" color="textSecondary">
+                      No Proxmox guests annotated, so no CPU or memory.
+                    </Typography>
+                  )}
+
+                  <Box mt={2} display="flex" justifyContent="space-between">
+                    <Typography variant="caption" color="textSecondary">
+                      {service.guests.length > 1
+                        ? `Busiest of: ${service.guests.join(', ')}`
+                        : service.guests.join('')}
+                    </Typography>
+                    <Typography variant="caption" color="textSecondary">
+                      Last check:{' '}
+                      {new Date(service.lastCheck).toLocaleTimeString()}
+                    </Typography>
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+          );
+        })}
       </Grid>
     </Box>
   );
