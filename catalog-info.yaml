@@ -6,18 +6,19 @@ kind: Component
 metadata:
   name: backstage-plugins
   title: ISWE Backstage plugins
-  description: Backstage plugins for Proxmox VE, DHIS2 orchestration, phpIPAM and monitoring, published
+  description:
+    Backstage plugins for Proxmox VE, DHIS2 orchestration, phpIPAM and monitoring, published
     to npm as @iswesolutions/*.
   annotations:
     github.com/project-slug: ISWE-Solutions/backstage-plugins
   tags:
-  - backstage
-  - typescript
+    - backstage
+    - typescript
   links:
-  - url: https://github.com/ISWE-Solutions/backstage-plugins
-    title: Repository
-  - url: https://www.npmjs.com/org/iswesolutions
-    title: 'npm: @iswesolutions'
+    - url: https://github.com/ISWE-Solutions/backstage-plugins
+      title: Repository
+    - url: https://www.npmjs.com/org/iswesolutions
+      title: 'npm: @iswesolutions'
 spec:
   type: library
   lifecycle: production
