@@ -7,6 +7,7 @@ import {
   DialogContent,
   DialogTitle,
   FormControlLabel,
+  MenuItem,
   TextField,
   Typography,
 } from '@material-ui/core';
@@ -15,6 +16,7 @@ import { useApi } from '@backstage/core-plugin-api';
 import { catalogApiRef } from '@backstage/plugin-catalog-react';
 import { stringifyEntityRef } from '@backstage/catalog-model';
 import {
+  BuildExecutor,
   RunbotProject,
   RunbotRepo,
 } from '@iswesolutions/plugin-odoo-runbot-common';
@@ -164,6 +166,7 @@ export const AddRepositoryDialog = ({
   const [isServer, setIsServer] = useState(false);
   const [subdir, setSubdir] = useState('');
   const [createTrigger, setCreateTrigger] = useState(true);
+  const [executor, setExecutor] = useState<BuildExecutor>('docker');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -175,6 +178,7 @@ export const AddRepositoryDialog = ({
       setSubdir('');
       setEntityRef(undefined);
       setCreateTrigger(true);
+      setExecutor('docker');
       setError(undefined);
     }
   }, [open, hasServer]);
@@ -192,6 +196,7 @@ export const AddRepositoryDialog = ({
         addonsSubdir: subdir.trim(),
         entityRef,
         createTrigger: !isServer && createTrigger,
+        executor,
       });
       onAdded();
       onClose();
@@ -279,6 +284,26 @@ export const AddRepositoryDialog = ({
             }
             label="Install and test its modules on every push (a trigger, with odoo as dependency)"
           />
+        )}
+        {!isServer && createTrigger && (
+          <TextField
+            select
+            fullWidth
+            margin="dense"
+            label="Run builds in"
+            value={executor}
+            onChange={e => setExecutor(e.target.value as BuildExecutor)}
+            helperText={
+              executor === 'docker'
+                ? 'A Docker container on the builder VM: build code stays inside the VM'
+                : "A short-lived LXC container on a Proxmox node, cloned from the version's template: its own IP and database, but build code runs on the node's kernel"
+            }
+          >
+            <MenuItem value="docker">
+              Docker on the builder VM (recommended)
+            </MenuItem>
+            <MenuItem value="proxmox">Proxmox LXC container</MenuItem>
+          </TextField>
         )}
         {error && <Alert severity="error">{error}</Alert>}
       </DialogContent>

@@ -18,3 +18,21 @@ runbot_builder_pg_version: '' # empty: the distribution's
 runbot_builder_image_max_age_hours: 336
 # Where generated passwords are kept on the controller (as the odoo role: $ODOO_SECRETS_DIR, else ansible/.secrets)
 runbot_builder_secrets_dir: "{{ lookup('ansible.builtin.env', 'ODOO_SECRETS_DIR') | default(playbook_dir ~ '/../.secrets', true) }}"
+
+# Executors this builder runs: docker, and proxmox (an LXC container per build,
+# cloned from a template made by runbot-template.yml)
+runbot_builder_executors: [docker]
+runbot_builder_proxmox:
+  url: '' # https://pve02.example.com:8006
+  token_id: '' # runbot@pve!builder, limited to the runbot pool
+  token_secret: ''
+  ca_file: '' # CA of the API certificate, or verify_tls: false
+  verify_tls: true
+  node: '' # node with the templates
+  templates: {} # { '19.0': 9019 }
+  first_vmid: '' # one VMID per worker from here, e.g. 860
+  ips: [] # one address per worker, reserved in IPAM
+  prefix: 24
+  gateway: ''
+  bridge: vmbr1
+  pool: runbot

@@ -5,15 +5,17 @@ The variable names match what the create form sends
 (`installPlaybookVars()` in `src/odooConfig.ts`), so a request from Backstage
 and a hand-written inventory entry use the same settings.
 
-| Playbook             | What it does                                                                                                                                                                                                                      |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `odoo-install.yml`   | Creates the guest on the chosen platform, then installs Odoo in it: system packages, wkhtmltopdf, the code (Odoo, Enterprise, addons), Python, the database, `odoo.conf`, the systemd service, and first-time module installation |
-| `odoo-configure.yml` | Rewrites `odoo.conf` and the service unit, and restarts Odoo if they changed                                                                                                                                                      |
-| `nginx-proxy.yml`    | nginx in front of Odoo, with WebSocket. TLS from Let's Encrypt, your own certificate, or none when another proxy terminates it                                                                                                    |
-| `odoo-backup.yml`    | Backs up the database (`pg_dump -Fc`), filestore, `odoo.conf` and the code revisions, and keeps the newest 7                                                                                                                      |
-| `odoo-restore.yml`   | Restores a backup over the live database and filestore, after taking a safety backup                                                                                                                                              |
-| `odoo-upgrade.yml`   | Backs up, moves the code to its configured revisions, updates modules (`-u all`) and restarts                                                                                                                                     |
-| `odoo-remove.yml`    | Deletes the guest and everything in it                                                                                                                                                                                            |
+| Playbook              | What it does                                                                                                                                                                                                                      |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `odoo-install.yml`    | Creates the guest on the chosen platform, then installs Odoo in it: system packages, wkhtmltopdf, the code (Odoo, Enterprise, addons), Python, the database, `odoo.conf`, the systemd service, and first-time module installation |
+| `odoo-configure.yml`  | Rewrites `odoo.conf` and the service unit, and restarts Odoo if they changed                                                                                                                                                      |
+| `nginx-proxy.yml`     | nginx in front of Odoo, with WebSocket. TLS from Let's Encrypt, your own certificate, or none when another proxy terminates it                                                                                                    |
+| `odoo-backup.yml`     | Backs up the database (`pg_dump -Fc`), filestore, `odoo.conf` and the code revisions, and keeps the newest 7                                                                                                                      |
+| `odoo-restore.yml`    | Restores a backup over the live database and filestore, after taking a safety backup                                                                                                                                              |
+| `odoo-upgrade.yml`    | Backs up, moves the code to its configured revisions, updates modules (`-u all`) and restarts                                                                                                                                     |
+| `odoo-remove.yml`     | Deletes the guest and everything in it                                                                                                                                                                                            |
+| `runbot-builder.yml`  | A builder for the ISWE Runbot: Docker, a local PostgreSQL for build databases, and the builder agent. With `runbot_builder_executors: [docker, proxmox]` it also sets up the Proxmox executor and prints the builder's SSH key    |
+| `runbot-template.yml` | An LXC template per Odoo version for the runbot's Proxmox executor: the Odoo instance packages, wkhtmltopdf, Chrome, a local PostgreSQL and a venv with that version's requirements; root trusts only the builder                 |
 
 All of them are idempotent: running one again only changes what differs.
 

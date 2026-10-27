@@ -144,7 +144,10 @@ export const BuildDialog = ({
                 <TableRow>
                   <TableCell>Trigger</TableCell>
                   <TableCell>
-                    {build.triggerName} · Odoo {build.params.version}
+                    {build.triggerName} · Odoo {build.params.version} ·{' '}
+                    {build.params.executor === 'proxmox'
+                      ? 'Proxmox LXC container'
+                      : 'Docker'}
                   </TableCell>
                 </TableRow>
                 <TableRow>

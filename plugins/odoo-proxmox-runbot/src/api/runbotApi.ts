@@ -6,6 +6,7 @@ import {
 import { ResponseError } from '@backstage/errors';
 import {
   AddRepoRequest,
+  BuildExecutor,
   CreateProjectRequest,
   CreateTriggerRequest,
   LogLevel,
@@ -66,7 +67,12 @@ export interface RunbotApi {
   createTrigger(req: CreateTriggerRequest): Promise<RunbotTrigger>;
   updateTrigger(
     id: number,
-    patch: { steps?: TriggerStep[]; active?: boolean; baseOnly?: boolean },
+    patch: {
+      steps?: TriggerStep[];
+      active?: boolean;
+      baseOnly?: boolean;
+      executor?: BuildExecutor;
+    },
   ): Promise<RunbotTrigger>;
   forceBundle(id: number): Promise<{ batchId: number }>;
   rebuild(id: number): Promise<{ buildId: number }>;
@@ -149,7 +155,12 @@ export class RunbotClient implements RunbotApi {
     this.call<RunbotTrigger>('POST', '/triggers', req);
   updateTrigger = (
     id: number,
-    patch: { steps?: TriggerStep[]; active?: boolean; baseOnly?: boolean },
+    patch: {
+      steps?: TriggerStep[];
+      active?: boolean;
+      baseOnly?: boolean;
+      executor?: BuildExecutor;
+    },
   ) => this.call<RunbotTrigger>('PATCH', `/triggers/${id}`, patch);
   forceBundle = (id: number) =>
     this.call<{ batchId: number }>('POST', `/bundles/${id}/force`);

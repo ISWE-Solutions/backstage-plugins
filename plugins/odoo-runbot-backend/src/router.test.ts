@@ -200,6 +200,36 @@ describe('router', () => {
     expect((await ctx.call('GET', '/projects')).status).toBe(200);
   });
 
+  it('validates executors before creating anything', async () => {
+    const p = await project();
+    await ctx.call('POST', '/repos', {
+      projectId: p.body.id,
+      slug: 'odoo/odoo',
+      isServer: true,
+    });
+    const bad = await ctx.call('POST', '/repos', {
+      projectId: p.body.id,
+      slug: 'ISWE-Solutions/iswe_sdp_addons',
+      createTrigger: true,
+      executor: 'kubernetes',
+    });
+    expect(bad.status).toBe(400);
+    expect(
+      (await ctx.call('GET', `/projects/${p.body.id}`)).body.repos,
+    ).toHaveLength(1);
+    const ok = await ctx.call('POST', '/repos', {
+      projectId: p.body.id,
+      slug: 'ISWE-Solutions/iswe_sdp_addons',
+      createTrigger: true,
+      executor: 'proxmox',
+    });
+    expect(ok.body.trigger.executor).toBe('proxmox');
+    const patched = await ctx.call('PATCH', `/triggers/${ok.body.trigger.id}`, {
+      executor: 'docker',
+    });
+    expect(patched.body.executor).toBe('docker');
+  });
+
   it('lets only the builder token use builder endpoints', async () => {
     expect(
       (await ctx.call('POST', '/builder/claim', { host: 'b1' })).status,

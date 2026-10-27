@@ -14,6 +14,24 @@ from the environment (see builder.env.example):
   PGHOST/PGPORT/PGUSER/PGPASSWORD  the PostgreSQL role builds use (CREATEDB, no superuser)
   RUNBOT_MEMORY    memory limit per build container (default 3g)
   RUNBOT_CPUS      CPUs per build container (default 1.5)
+  RUNBOT_EXECUTORS executors this builder runs: docker, proxmox (default docker)
+
+For the proxmox executor (a short-lived LXC container per build, cloned from a
+per-version template; one VMID and one IP per worker):
+
+  PROXMOX_URL            https://pve02.example.com:8006
+  PROXMOX_TOKEN_ID       user@realm!name (an API token limited to the runbot pool)
+  PROXMOX_TOKEN_SECRET
+  PROXMOX_CA_FILE        CA certificate of the API (or PROXMOX_VERIFY_TLS=0)
+  PROXMOX_NODE           node that holds the templates and the build containers
+  PROXMOX_TEMPLATES      JSON {"19.0": 9019, "18.0": 9018}: template VMID per Odoo version
+  PROXMOX_VMIDS          first VMID of the build containers, one per worker (e.g. 860)
+  PROXMOX_IPS            comma-separated addresses, one per worker (e.g. 192.168.12.200,192.168.12.201)
+  PROXMOX_PREFIX         prefix length of those addresses (default 24)
+  PROXMOX_GATEWAY        gateway for the build containers
+  PROXMOX_BRIDGE         bridge (default vmbr1)
+  PROXMOX_POOL           resource pool for the build containers (default runbot)
+  PROXMOX_SSH_KEY        private key the templates trust for root (default <workdir>/.ssh/id_ed25519)
 """
 from __future__ import annotations
 
@@ -25,9 +43,11 @@ import json
 import logging
 import os
 import re
+import shlex
 import shutil
 import signal
 import socket
+import ssl
 import subprocess
 import threading
 import time
@@ -35,6 +55,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import quote, urlencode
 
 VERSION = "0.1.0"
 _log = logging.getLogger("runbot-builder")
@@ -120,6 +141,8 @@ def validate(assignment: dict) -> dict:
         names.add(c["repoName"])
     if sum(1 for c in params["commits"] if c["isServer"]) != 1:
         raise ValueError("exactly one repository must provide odoo-bin")
+    if params.get("executor", "docker") not in ("docker", "proxmox"):
+        raise ValueError(f"unknown executor {params.get('executor')!r}")
     for s in params["steps"]:
         if s.get("type") != "install_test":
             raise ValueError(f"unknown step {s.get('type')}")
@@ -164,6 +187,8 @@ class Settings:
     memory: str
     cpus: str
     pg: dict = field(default_factory=dict)
+    executors: tuple = ("docker",)
+    proxmox: dict = field(default_factory=dict)
 
     @classmethod
     def from_env(cls):
@@ -176,6 +201,11 @@ class Settings:
             cpus=os.environ.get("RUNBOT_CPUS", "1.5"),
             pg={k: os.environ.get(k, d) for k, d in
                 (("PGHOST", "127.0.0.1"), ("PGPORT", "5432"), ("PGUSER", "runbot"), ("PGPASSWORD", ""))},
+            executors=tuple(e.strip() for e in os.environ.get("RUNBOT_EXECUTORS", "docker").split(",") if e.strip()),
+            proxmox={k: os.environ.get(k, "") for k in (
+                "PROXMOX_URL", "PROXMOX_TOKEN_ID", "PROXMOX_TOKEN_SECRET", "PROXMOX_CA_FILE", "PROXMOX_VERIFY_TLS",
+                "PROXMOX_NODE", "PROXMOX_TEMPLATES", "PROXMOX_VMIDS", "PROXMOX_IPS", "PROXMOX_PREFIX",
+                "PROXMOX_GATEWAY", "PROXMOX_BRIDGE", "PROXMOX_POOL", "PROXMOX_SSH_KEY")},
         )
 
 
@@ -218,6 +248,7 @@ class Builder:
         self.lock = threading.Lock()
         self.image_locks: dict[str, threading.Lock] = {}
         self.stop = threading.Event()
+        self.slots: set[int] = set()
         for d in ("repos", "builds", "images"):
             (self.s.workdir / d).mkdir(parents=True, exist_ok=True)
 
@@ -242,7 +273,8 @@ class Builder:
                     _log.info("kill requested for build %s", build_id)
                     self.running[build_id].set()
         while len(self.running) < self.s.workers and not self.stop.is_set():
-            status, assignment = self.backend.call("POST", "/builder/claim", {"host": self.s.host})
+            status, assignment = self.backend.call("POST", "/builder/claim",
+                                                    {"host": self.s.host, "executors": list(self.s.executors)})
             if status == 204 or not assignment:
                 break
             kill = threading.Event()
@@ -271,13 +303,23 @@ class Builder:
             self.running.pop(build_id, None)
 
     # ------------------------------------------------------------- one build
+    def executor_for(self, params: dict, slot: int) -> "Executor":
+        kind = params.get("executor", "docker")
+        if kind not in self.s.executors:
+            raise RuntimeError(f"this builder doesn't run the {kind} executor")
+        if kind == "proxmox":
+            return ProxmoxExecutor(self, slot)
+        return DockerExecutor(self)
+
     def run(self, a: dict, kill: threading.Event, logs: "LogSender"):
         build_id, params, db = a["buildId"], a["params"], a["dbName"]
         root = self.s.workdir / "builds" / str(build_id)
-        src, data = root / "src", root / "data"
+        src = root / "src"
         shutil.rmtree(root, ignore_errors=True)
         src.mkdir(parents=True)
-        data.mkdir()
+        (root / "data").mkdir()
+        slot = self.take_slot()
+        executor = None
         try:
             for c in params["commits"]:
                 logs.runbot(f"Checking out {c['slug']}@{c['sha'][:12]}")
@@ -295,23 +337,43 @@ class Builder:
                 addons_path.append("/data/src/" + str(folder.relative_to(src)))
                 if c["tested"]:
                     tested_modules += find_modules(folder)
-            image = self.ensure_image(params["version"], src, params["commits"], logs)
+            executor = self.executor_for(params, slot)
+            executor.prepare(build_id, params, root, logs)
             result, summary = "ok", None
-            for i, step in enumerate(params["steps"]):
+            steps = params["steps"]
+            for i, step in enumerate(steps):
                 modules = select_modules(tested_modules, step["modules"], step["excludeModules"])
                 if not modules:
                     logs.runbot("No module to install: check the trigger's module patterns", level="ERROR")
                     return "ko", "No module to install"
-                step_db = db if len(params["steps"]) == 1 else f"{db}_{i + 1}"[:63]
+                step_db = db if len(steps) == 1 else f"{db}_{i + 1}"[:63]
                 logs.runbot(f"Installing and testing {len(modules)} modules: {', '.join(modules)}")
-                r, summary = self.run_step(build_id, step, step_db, modules, addons_path, server, image,
-                                           data, src, kill, logs)
+                cmd = odoo_command(server["repoName"], step, step_db, modules)
+                r, summary = self.run_step(executor, step, step_db, addons_path, cmd, kill, logs)
                 result = worst(result, r)
                 if r in ("ko", "killed"):
                     break
             return result, summary
         finally:
-            self.cleanup(db, len(params["steps"]), root)
+            if executor:
+                try:
+                    executor.cleanup(db, len(params["steps"]))
+                except Exception as e:  # noqa: BLE001 -- cleanup must not hide the result
+                    logs.runbot(f"Cleanup failed: {e}", level="WARNING")
+            self.release_slot(slot)
+            shutil.rmtree(root, ignore_errors=True)
+
+    def take_slot(self) -> int:
+        with self.lock:
+            for i in range(self.s.workers):
+                if i not in self.slots:
+                    self.slots.add(i)
+                    return i
+        raise RuntimeError("no free worker slot")
+
+    def release_slot(self, slot: int):
+        with self.lock:
+            self.slots.discard(slot)
 
     def export(self, commit: dict, dest: Path):
         """git archive of one commit from a bare mirror (fetched by hash when missing)"""
@@ -333,64 +395,11 @@ class Builder:
         if archive.wait() != 0:
             raise RuntimeError(f"git archive failed for {commit['slug']}@{commit['sha']}")
 
-    def ensure_image(self, version: str, src: Path, commits: list, logs: "LogSender") -> str:
-        """One image per Odoo version and set of requirements files"""
-        reqs = []
-        for c in commits:
-            f = src / c["repoName"] / "requirements.txt"
-            if c["addonsSubdir"] and not f.exists():
-                f = src / c["repoName"] / c["addonsSubdir"] / "requirements.txt"
-            if f.exists():
-                reqs.append((c["repoName"], f.read_bytes()))
-        ubuntu = "22.04" if version.split(".")[0].isdigit() and int(version.split(".")[0]) <= 16 else "24.04"
-        digest = hashlib.sha256(DOCKERFILE.encode() + ubuntu.encode()
-                                + b"".join(n.encode() + b"\0" + r for n, r in reqs)).hexdigest()[:12]
-        tag = f"runbot-odoo:{version}-{digest}"
-        lock = self.image_locks.setdefault(tag, threading.Lock())
-        with lock:
-            if subprocess.run(["docker", "image", "inspect", tag], capture_output=True).returncode == 0:
-                return tag
-            logs.runbot(f"Building image {tag} (first build of this version and requirements)")
-            ctx = self.s.workdir / "images" / digest
-            shutil.rmtree(ctx, ignore_errors=True)
-            (ctx / "requirements").mkdir(parents=True)
-            for i, (name, content) in enumerate(reqs):
-                (ctx / "requirements" / f"{i:02d}-{name}.txt").write_bytes(content)
-            (ctx / "Dockerfile").write_text(DOCKERFILE.format(ubuntu=ubuntu, uid=os.getuid()))
-            out = subprocess.run(["docker", "build", "-q", "-t", tag, str(ctx)], capture_output=True, text=True, timeout=3600)
-            if out.returncode != 0:
-                logs.runbot("Image build failed:\n" + out.stderr[-4000:], level="ERROR")
-                raise RuntimeError("docker build failed")
-            return tag
-
-    def run_step(self, build_id, step, db, modules, addons_path, server, image, data: Path, src: Path,
+    def run_step(self, executor: "Executor", step: dict, db: str, addons_path: list, cmd: list,
                  kill: threading.Event, logs: "LogSender"):
-        pg = self.s.pg
-        conf = data / f"{db}.conf"
-        conf.write_text(
-            "[options]\n"
-            f"addons_path = {','.join(addons_path)}\n"
-            f"data_dir = /data/data/filestore\n"
-            f"db_host = {pg['PGHOST']}\ndb_port = {pg['PGPORT']}\ndb_user = {pg['PGUSER']}\n"
-            f"db_password = {pg['PGPASSWORD']}\nlist_db = False\nadmin_passwd = {os.urandom(12).hex()}\n"
-        )
-        conf.chmod(0o600)
-        name = f"runbot-build-{build_id}"
-        cmd = [
-            "docker", "run", "--rm", "--name", name, "--network", "host",
-            "--user", f"{os.getuid()}:{os.getgid()}", "--memory", self.s.memory, "--cpus", self.s.cpus,
-            "--pids-limit", "1024", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-            "-v", f"{src}:/data/src:ro", "-v", f"{data}:/data/data:rw", image,
-            "/opt/venv/bin/python", f"/data/src/{server['repoName']}/odoo-bin", "-c", f"/data/data/{db}.conf",
-            "-d", db, "-i", ",".join(modules), "--test-enable", "--stop-after-init", "--max-cron-threads=0",
-            "--log-level=info", f"--http-port={free_port()}", f"--gevent-port={free_port()}",
-        ]
-        if step.get("testTags"):
-            cmd += ["--test-tags", step["testTags"]]
-        if not step.get("demo", True):
-            cmd += ["--without-demo=all"]
+        """Run one odoo-bin command through the executor; same log handling and result for both"""
         started = time.monotonic()
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
+        proc = executor.start(db, addons_path, cmd)
         counts = {"error": 0, "warning": 0}
         timed_out = killed = False
 
@@ -402,7 +411,7 @@ class Builder:
                 elif time.monotonic() - started > step["timeout"]:
                     timed_out = True
                 if killed or timed_out:
-                    subprocess.run(["docker", "kill", name], capture_output=True)
+                    executor.stop(proc)
                     return
                 time.sleep(2)
 
@@ -430,15 +439,293 @@ class Builder:
         result = build_result(code, timed_out, killed, counts["error"], counts["warning"])
         logs.runbot(f"Step finished in {int(time.monotonic() - started)} s: {result} "
                     f"({counts['error']} errors, {counts['warning']} warnings, exit {code})")
-        summary = "Timed out" if timed_out else None
-        return result, summary
+        return result, ("Timed out" if timed_out else None)
 
-    def cleanup(self, db: str, steps: int, root: Path):
+
+def odoo_command(server_repo: str, step: dict, db: str, modules: list) -> list:
+    """odoo-bin arguments after the interpreter; the executor adds the config file and ports"""
+    cmd = [f"/data/src/{server_repo}/odoo-bin", "-d", db, "-i", ",".join(modules), "--test-enable",
+           "--stop-after-init", "--max-cron-threads=0", "--log-level=info"]
+    if step.get("testTags"):
+        cmd += ["--test-tags", step["testTags"]]
+    if not step.get("demo", True):
+        cmd += ["--without-demo=all"]
+    return cmd
+
+
+def odoo_conf(addons_path: list, db_lines: str) -> str:
+    return ("[options]\n"
+            f"addons_path = {','.join(addons_path)}\n"
+            "data_dir = /data/data/filestore\n"
+            f"{db_lines}"
+            f"list_db = False\nadmin_passwd = {os.urandom(12).hex()}\n")
+
+
+class Executor:
+    """Where odoo-bin runs: prepare once per build, start per step, stop on kill, clean up"""
+
+    def prepare(self, build_id: int, params: dict, root: Path, logs: "LogSender"):
+        raise NotImplementedError
+
+    def start(self, db: str, addons_path: list, cmd: list) -> subprocess.Popen:
+        raise NotImplementedError
+
+    def stop(self, proc: subprocess.Popen):
+        raise NotImplementedError
+
+    def cleanup(self, db: str, steps: int):
+        raise NotImplementedError
+
+
+class DockerExecutor(Executor):
+    """A locked-down container on this host, against this host's PostgreSQL"""
+
+    def __init__(self, builder: "Builder"):
+        self.b = builder
+        self.s = builder.s
+
+    def prepare(self, build_id, params, root, logs):
+        self.build_id, self.root = build_id, root
+        self.image = self.ensure_image(params["version"], root / "src", params["commits"], logs)
+
+    def ensure_image(self, version: str, src: Path, commits: list, logs: "LogSender") -> str:
+        """One image per Odoo version and set of requirements files"""
+        reqs = []
+        for c in commits:
+            f = src / c["repoName"] / "requirements.txt"
+            if c["addonsSubdir"] and not f.exists():
+                f = src / c["repoName"] / c["addonsSubdir"] / "requirements.txt"
+            if f.exists():
+                reqs.append((c["repoName"], f.read_bytes()))
+        ubuntu = "22.04" if version.split(".")[0].isdigit() and int(version.split(".")[0]) <= 16 else "24.04"
+        digest = hashlib.sha256(DOCKERFILE.encode() + ubuntu.encode()
+                                + b"".join(n.encode() + b"\0" + r for n, r in reqs)).hexdigest()[:12]
+        tag = f"runbot-odoo:{version}-{digest}"
+        lock = self.b.image_locks.setdefault(tag, threading.Lock())
+        with lock:
+            if subprocess.run(["docker", "image", "inspect", tag], capture_output=True).returncode == 0:
+                return tag
+            logs.runbot(f"Building image {tag} (first build of this version and requirements)")
+            ctx = self.s.workdir / "images" / digest
+            shutil.rmtree(ctx, ignore_errors=True)
+            (ctx / "requirements").mkdir(parents=True)
+            for i, (name, content) in enumerate(reqs):
+                (ctx / "requirements" / f"{i:02d}-{name}.txt").write_bytes(content)
+            (ctx / "Dockerfile").write_text(DOCKERFILE.format(ubuntu=ubuntu, uid=os.getuid()))
+            out = subprocess.run(["docker", "build", "-q", "-t", tag, str(ctx)], capture_output=True, text=True,
+                                 timeout=3600)
+            if out.returncode != 0:
+                logs.runbot("Image build failed:\n" + out.stderr[-4000:], level="ERROR")
+                raise RuntimeError("docker build failed")
+            return tag
+
+    def start(self, db, addons_path, cmd):
+        pg = self.s.pg
+        conf = self.root / "data" / f"{db}.conf"
+        conf.write_text(odoo_conf(addons_path, f"db_host = {pg['PGHOST']}\ndb_port = {pg['PGPORT']}\n"
+                                               f"db_user = {pg['PGUSER']}\ndb_password = {pg['PGPASSWORD']}\n"))
+        conf.chmod(0o600)
+        self.name = f"runbot-build-{self.build_id}"
+        args = [
+            "docker", "run", "--rm", "--name", self.name, "--network", "host",
+            "--user", f"{os.getuid()}:{os.getgid()}", "--memory", self.s.memory, "--cpus", self.s.cpus,
+            "--pids-limit", "1024", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+            "-v", f"{self.root / 'src'}:/data/src:ro", "-v", f"{self.root / 'data'}:/data/data:rw", self.image,
+            "/opt/venv/bin/python", *cmd, "-c", f"/data/data/{db}.conf",
+            f"--http-port={free_port()}", f"--gevent-port={free_port()}",
+        ]
+        return subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
+
+    def stop(self, proc):
+        subprocess.run(["docker", "kill", self.name], capture_output=True)
+
+    def cleanup(self, db, steps):
         names = [db] if steps == 1 else [f"{db}_{i + 1}"[:63] for i in range(steps)]
         env = {**os.environ, **self.s.pg}
         for n in names:
             subprocess.run(["dropdb", "--if-exists", "--force", n], env=env, capture_output=True)
-        shutil.rmtree(root, ignore_errors=True)
+
+
+class ProxmoxApi:
+    """The few Proxmox VE API calls the proxmox executor needs (API token auth)"""
+
+    def __init__(self, cfg: dict, opener=None):
+        self.base = cfg["PROXMOX_URL"].rstrip("/") + "/api2/json"
+        self.auth = f"PVEAPIToken={cfg['PROXMOX_TOKEN_ID']}={cfg['PROXMOX_TOKEN_SECRET']}"
+        if cfg.get("PROXMOX_CA_FILE"):
+            self.ctx = ssl.create_default_context(cafile=cfg["PROXMOX_CA_FILE"])
+        elif cfg.get("PROXMOX_VERIFY_TLS", "1") in ("0", "false", "no"):
+            self.ctx = ssl._create_unverified_context()  # noqa: S323 -- explicitly configured
+        else:
+            self.ctx = ssl.create_default_context()
+        self.opener = opener
+
+    def call(self, method: str, path: str, data: dict | None = None):
+        body = urlencode(data).encode() if data and method in ("POST", "PUT") else None
+        url = self.base + path + (f"?{urlencode(data)}" if data and method in ("GET", "DELETE") else "")
+        req = urllib.request.Request(url, data=body, method=method, headers={"Authorization": self.auth})
+        if self.opener:
+            return self.opener(req)
+        try:
+            with urllib.request.urlopen(req, timeout=60, context=self.ctx) as res:
+                return json.loads(res.read() or b"{}").get("data")
+        except urllib.error.HTTPError as e:
+            raise ProxmoxError(e.code, e.read().decode(errors="replace")[:300]) from None
+
+    def wait(self, node: str, upid, timeout=600):
+        if not isinstance(upid, str) or not upid.startswith("UPID:"):
+            return
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            st = self.call("GET", f"/nodes/{node}/tasks/{quote(upid, safe='')}/status")
+            if st and st.get("status") == "stopped":
+                if st.get("exitstatus") != "OK":
+                    raise RuntimeError(f"Proxmox task failed: {st.get('exitstatus')}")
+                return
+            time.sleep(2)
+        raise RuntimeError(f"Proxmox task {upid} did not finish in {timeout} s")
+
+
+class ProxmoxError(RuntimeError):
+    def __init__(self, status: int, text: str):
+        super().__init__(f"Proxmox API HTTP {status}: {text}")
+        self.status = status
+
+
+BUILD_TAG = "runbot-build"
+
+
+class ProxmoxExecutor(Executor):
+    """A linked clone of the Odoo version's template per build, in this worker's slot (VMID and IP)"""
+
+    def __init__(self, builder: "Builder", slot: int, api: ProxmoxApi | None = None, ssh=None):
+        self.b = builder
+        p = builder.s.proxmox
+        for k in ("PROXMOX_URL", "PROXMOX_TOKEN_ID", "PROXMOX_TOKEN_SECRET", "PROXMOX_NODE", "PROXMOX_TEMPLATES",
+                  "PROXMOX_VMIDS", "PROXMOX_IPS", "PROXMOX_GATEWAY"):
+            if not p.get(k):
+                raise RuntimeError(f"the proxmox executor needs {k}")
+        ips = [i.strip() for i in p["PROXMOX_IPS"].split(",") if i.strip()]
+        if slot >= len(ips):
+            raise RuntimeError(f"PROXMOX_IPS has {len(ips)} addresses for {builder.s.workers} workers")
+        self.api = api or ProxmoxApi(p)
+        self.node = p["PROXMOX_NODE"]
+        self.templates = {str(k): int(v) for k, v in json.loads(p["PROXMOX_TEMPLATES"]).items()}
+        self.vmid = int(p["PROXMOX_VMIDS"]) + slot
+        self.ip = ips[slot]
+        self.cfg = p
+        self.key = p.get("PROXMOX_SSH_KEY") or str(builder.s.workdir / ".ssh" / "id_ed25519")
+        self.ssh_runner = ssh or subprocess
+
+    # --- the container
+    def ct(self, suffix=""):
+        return f"/nodes/{self.node}/lxc/{self.vmid}{suffix}"
+
+    def destroy_slot(self):
+        """Remove a leftover build container in this slot; refuses anything not tagged as one"""
+        try:
+            config = self.api.call("GET", self.ct("/config"))
+        except ProxmoxError as e:
+            if e.status in (404, 500):  # Proxmox answers 500 "does not exist"
+                return
+            raise
+        if BUILD_TAG not in str((config or {}).get("tags", "")).split(";"):
+            raise RuntimeError(f"VMID {self.vmid} exists and isn't a runbot build container; refusing to touch it")
+        status = (self.api.call("GET", self.ct("/status/current")) or {}).get("status")
+        if status == "running":
+            self.api.wait(self.node, self.api.call("POST", self.ct("/status/stop")))
+        self.api.wait(self.node, self.api.call("DELETE", self.ct(), {"purge": 1, "destroy-unreferenced-disks": 1}))
+
+    def prepare(self, build_id, params, root, logs):
+        self.build_id, self.root, self.logs = build_id, root, logs
+        version = params["version"]
+        template = self.templates.get(version)
+        if not template:
+            raise RuntimeError(f"no Proxmox template for Odoo {version} (PROXMOX_TEMPLATES)")
+        self.destroy_slot()
+        logs.runbot(f"Cloning template {template} to container {self.vmid} ({self.ip})")
+        self.api.wait(self.node, self.api.call("POST", f"/nodes/{self.node}/lxc/{template}/clone", {
+            "newid": self.vmid, "hostname": f"runbot-build-{build_id}", "full": 0,
+            "pool": self.cfg.get("PROXMOX_POOL") or "runbot",
+            "description": f"Runbot build {build_id} (temporary; deleted when the build ends)",
+        }))
+        mem_mb = parse_memory_mb(self.b.s.memory)
+        self.api.call("PUT", self.ct("/config"), {
+            "net0": f"name=eth0,bridge={self.cfg.get('PROXMOX_BRIDGE') or 'vmbr1'},"
+                    f"ip={self.ip}/{self.cfg.get('PROXMOX_PREFIX') or 24},gw={self.cfg['PROXMOX_GATEWAY']}",
+            "memory": mem_mb, "swap": 512, "cores": max(1, int(float(self.b.s.cpus) + 0.5)),
+            "tags": BUILD_TAG, "onboot": 0,
+        })
+        self.api.wait(self.node, self.api.call("POST", self.ct("/status/start")))
+        self.wait_ssh()
+        logs.runbot("Copying the sources into the container")
+        tar = subprocess.Popen(["tar", "-C", str(root / "src"), "-cf", "-", "."], stdout=subprocess.PIPE)
+        self.ssh("mkdir -p /data/src /data/data && tar -xf - -C /data/src && chown -R runbot:runbot /data",
+                 stdin=tar.stdout, check=True)
+        tar.wait()
+        for c in params["commits"]:
+            if c["isServer"]:
+                continue
+            for rel in (f"{c['repoName']}/requirements.txt",
+                        f"{c['repoName']}/{c['addonsSubdir']}/requirements.txt" if c["addonsSubdir"] else None):
+                if rel and (root / "src" / rel).exists():
+                    logs.runbot(f"Installing {rel}")
+                    out = self.ssh(f"/opt/venv/bin/pip install --quiet -r /data/src/{rel}", capture=True)
+                    if out.returncode != 0:
+                        logs.runbot(f"pip install -r {rel} failed:\n{out.stdout[-3000:]}", level="ERROR")
+                        raise RuntimeError(f"requirements of {c['repoName']} failed to install")
+                    break
+
+    def ssh_args(self, command: str) -> list:
+        return ["ssh", "-i", self.key, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no",
+                "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", "-o", "ConnectTimeout=10",
+                f"root@{self.ip}", command]
+
+    def ssh(self, command: str, stdin=None, check=False, capture=False):
+        out = self.ssh_runner.run(self.ssh_args(command), stdin=stdin, text=True,
+                                  stdout=subprocess.PIPE if capture or check else None,
+                                  stderr=subprocess.STDOUT if capture or check else None, timeout=1800)
+        if check and out.returncode != 0:
+            raise RuntimeError(f"in container {self.vmid}: {command.split()[0]} failed: {(out.stdout or '')[-500:]}")
+        return out
+
+    def wait_ssh(self, timeout=120):
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if self.ssh_runner.run(self.ssh_args("true"), capture_output=True, timeout=30).returncode == 0:
+                return
+            time.sleep(3)
+        raise RuntimeError(f"container {self.vmid} ({self.ip}) did not answer SSH within {timeout} s")
+
+    def start(self, db, addons_path, cmd):
+        conf = odoo_conf(addons_path, "db_host = False\ndb_user = runbot\n")
+        write = subprocess.Popen(self.ssh_args(f"install -o runbot -g runbot -m 600 /dev/stdin /data/data/{db}.conf"),
+                                 stdin=subprocess.PIPE, text=True)
+        write.communicate(conf)
+        if write.returncode != 0:
+            raise RuntimeError("could not write the build's odoo.conf in the container")
+        remote = " ".join(shlex.quote(a) for a in
+                          ["runuser", "-u", "runbot", "--", "/opt/venv/bin/python", *cmd, "-c", f"/data/data/{db}.conf"])
+        return subprocess.Popen(self.ssh_args(remote), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                errors="replace")
+
+    def stop(self, proc):
+        # stopping the container ends everything in it; ssh then ends too
+        try:
+            self.api.call("POST", self.ct("/status/stop"))
+        finally:
+            proc.kill()
+
+    def cleanup(self, db, steps):
+        self.destroy_slot()
+
+
+def parse_memory_mb(value: str) -> int:
+    m = re.match(r"^(\d+(?:\.\d+)?)([gGmM]?)$", value.strip())
+    if not m:
+        raise ValueError(f"bad memory {value!r}")
+    n, unit = float(m.group(1)), m.group(2).lower()
+    return int(n * 1024) if unit in ("g", "") else int(n)
 
 
 def free_port() -> int:

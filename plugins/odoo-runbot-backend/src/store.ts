@@ -3,6 +3,7 @@ import {
   BatchCommit,
   BatchSlot,
   BatchState,
+  BuildExecutor,
   BuildLocalState,
   BuildParams,
   BuildResult,
@@ -173,6 +174,21 @@ async function migrate(knex: Knex) {
     t.text('running').notNullable();
     t.string('version').notNullable();
   });
+  // Columns added after the first release: add them to existing tables
+  const addColumn = async (
+    table: string,
+    column: string,
+    add: TableBuilder,
+  ) => {
+    if (!(await knex.schema.hasColumn(table, column)))
+      await knex.schema.alterTable(table, add);
+  };
+  await addColumn(T.triggers, 'executor', t => {
+    t.string('executor').notNullable().defaultTo('docker');
+  });
+  await addColumn(T.builds, 'executor', t => {
+    t.string('executor').notNullable().defaultTo('docker').index();
+  });
 }
 
 const toProject = (r: any): RunbotProject => ({
@@ -205,6 +221,7 @@ const toTrigger = (r: any): RunbotTrigger => ({
   dependencyRepoIds: parse(r.dependency_repo_ids, []),
   steps: parse<TriggerStep[]>(r.steps, []),
   ciContext: r.ci_context,
+  executor: r.executor === 'proxmox' ? 'proxmox' : 'docker',
   baseOnly: bool(r.base_only),
   active: bool(r.active),
   sequence: r.sequence,
@@ -378,6 +395,7 @@ export async function createRunbotStore(
           dependency_repo_ids: json(t.dependencyRepoIds),
           steps: json(t.steps),
           ci_context: t.ciContext,
+          executor: t.executor,
           base_only: t.baseOnly,
           active: t.active,
           sequence: t.sequence,
@@ -400,6 +418,7 @@ export async function createRunbotStore(
             : {}),
           ...(t.steps ? { steps: json(t.steps) } : {}),
           ...(t.ciContext !== undefined ? { ci_context: t.ciContext } : {}),
+          ...(t.executor !== undefined ? { executor: t.executor } : {}),
           ...(t.baseOnly !== undefined ? { base_only: t.baseOnly } : {}),
           ...(t.active !== undefined ? { active: t.active } : {}),
           ...(t.sequence !== undefined ? { sequence: t.sequence } : {}),
@@ -748,6 +767,7 @@ export async function createRunbotStore(
           trigger_id: b.triggerId,
           params_hash: b.paramsHash,
           params: json(b.params),
+          executor: b.params.executor ?? 'docker',
           local_state: 'pending',
           requested: now(),
           kill_requested: false,
@@ -766,11 +786,11 @@ export async function createRunbotStore(
       return {
         ...toSummary(r, names.get(r.trigger_id) ?? ''),
         projectId: r.project_id,
-        params: parse<BuildParams>(r.params, {
-          version: '',
-          commits: [],
-          steps: [],
-        }),
+        // builds from before executors were configurable ran in Docker
+        params: {
+          executor: 'docker',
+          ...parse<Partial<BuildParams>>(r.params, {}),
+        } as BuildParams,
         paramsHash: r.params_hash,
         killRequested: bool(r.kill_requested),
         batchIds,
@@ -796,11 +816,15 @@ export async function createRunbotStore(
     async replaceInSlots(from: number, to: number) {
       await knex(T.slots).where({ build_id: from }).update({ build_id: to });
     },
-    /** Atomically take the oldest pending build for a host */
-    async claimBuild(host: string): Promise<RunbotBuild | undefined> {
+    /** Atomically take the oldest pending build a host can run */
+    async claimBuild(
+      host: string,
+      executors: BuildExecutor[] = ['docker'],
+    ): Promise<RunbotBuild | undefined> {
       for (let attempt = 0; attempt < 5; attempt++) {
         const next = await knex(T.builds)
           .where({ local_state: 'pending', kill_requested: false })
+          .whereIn('executor', executors)
           .orderBy('id')
           .first('id');
         if (!next) return undefined;

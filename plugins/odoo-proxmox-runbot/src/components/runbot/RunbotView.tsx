@@ -25,6 +25,7 @@ import RefreshIcon from '@material-ui/icons/Refresh';
 import PlayArrowIcon from '@material-ui/icons/PlayArrow';
 import { useApi } from '@backstage/core-plugin-api';
 import {
+  BuildExecutor,
   RunbotBatch,
   RunbotBuildSummary,
   RunbotBundle,
@@ -304,6 +305,20 @@ export const RunbotView = () => {
     }
   };
 
+  const setExecutor = async (triggerId: number, executor: BuildExecutor) => {
+    try {
+      await api.updateTrigger(triggerId, { executor });
+      setNotice(
+        `New builds of this trigger run in ${
+          executor === 'docker' ? 'Docker' : 'Proxmox containers'
+        }.`,
+      );
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const project = projects?.find(p => p.id === projectId);
   const stats = details?.stats;
 
@@ -516,6 +531,21 @@ export const RunbotView = () => {
                               />
                             )}
                           </Typography>
+                          <TextField
+                            select
+                            size="small"
+                            value={t.executor}
+                            onChange={e =>
+                              setExecutor(t.id, e.target.value as BuildExecutor)
+                            }
+                            style={{ marginRight: 8, minWidth: 150 }}
+                            inputProps={{
+                              'aria-label': `Executor of ${t.name}`,
+                            }}
+                          >
+                            <MenuItem value="docker">Docker (VM)</MenuItem>
+                            <MenuItem value="proxmox">Proxmox LXC</MenuItem>
+                          </TextField>
                           <Typography variant="caption" color="textSecondary">
                             Tests {names(t.repoIds)}
                             {t.dependencyRepoIds.length

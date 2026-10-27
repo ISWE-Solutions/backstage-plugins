@@ -1,0 +1,7 @@
+---
+# The Odoo version this template builds for: its requirements go in /opt/venv
+runbot_template_odoo_version: '19.0'
+# Public key of the builder (printed by runbot-builder.yml); root in build containers trusts only it
+runbot_template_ssh_key: ''
+# Convert the container to a template at the end (through the Proxmox API)
+runbot_template_convert: true

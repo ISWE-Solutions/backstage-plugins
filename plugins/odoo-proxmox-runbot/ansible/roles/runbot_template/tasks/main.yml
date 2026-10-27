@@ -1,0 +1,74 @@
+---
+- name: Settings
+  ansible.builtin.assert:
+    that:
+      - runbot_template_ssh_key is match('^ssh-(ed25519|rsa) ')
+      - runbot_template_odoo_version is match('^\d+\.\d+$')
+    fail_msg: Set runbot_template_ssh_key (the builder's public key) and runbot_template_odoo_version
+    quiet: true
+
+# The same packages and wkhtmltopdf as an Odoo instance, with a local PostgreSQL
+- name: System packages
+  ansible.builtin.include_role:
+    name: odoo
+    tasks_from: packages
+  vars:
+    odoo_install_postgresql: true
+
+- name: Wkhtmltopdf
+  ansible.builtin.include_role:
+    name: odoo
+    tasks_from: wkhtmltopdf
+
+- name: Google Chrome (Odoo's tour tests)
+  ansible.builtin.apt:
+    deb: https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+
+- name: Build user
+  ansible.builtin.user:
+    name: runbot
+    system: true
+    home: /data
+    shell: /bin/bash
+
+- name: Data folder
+  ansible.builtin.file:
+    path: /data
+    state: directory
+    owner: runbot
+    group: runbot
+    mode: '0755'
+
+- name: PostgreSQL role for builds (peer authentication; creates its own databases)
+  community.postgresql.postgresql_user:
+    name: runbot
+    role_attr_flags: LOGIN,CREATEDB,NOSUPERUSER,NOCREATEROLE
+  become: true
+  become_user: postgres
+
+- name: Requirements of Odoo {{ runbot_template_odoo_version }}
+  ansible.builtin.get_url:
+    url: https://raw.githubusercontent.com/odoo/odoo/{{ runbot_template_odoo_version }}/requirements.txt
+    dest: /opt/odoo-requirements.txt
+    mode: '0644'
+
+- name: Python environment with Odoo's requirements
+  ansible.builtin.pip:
+    requirements: /opt/odoo-requirements.txt
+    virtualenv: /opt/venv
+    virtualenv_command: python3 -m venv
+
+- name: Root trusts only the builder
+  ansible.posix.authorized_key:
+    user: root
+    key: '{{ runbot_template_ssh_key }}'
+    exclusive: true
+
+- name: Clear the apt cache before templating
+  ansible.builtin.apt:
+    clean: true
+
+- name: Clear temporary files and logs before templating
+  ansible.builtin.shell:
+    cmd: rm -rf /var/lib/apt/lists/* /tmp/* && (journalctl --vacuum-time=1s >/dev/null 2>&1 || true)
+  changed_when: true

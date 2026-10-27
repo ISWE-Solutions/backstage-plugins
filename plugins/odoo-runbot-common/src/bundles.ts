@@ -140,6 +140,7 @@ export function decideTrigger(
     run: true,
     params: {
       version: bundle.version,
+      executor: trigger.executor ?? 'docker',
       commits: sortCommits(buildCommits),
       steps: trigger.steps,
     },

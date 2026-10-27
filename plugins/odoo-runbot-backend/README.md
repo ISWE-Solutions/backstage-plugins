@@ -10,14 +10,14 @@ the `runbot-builder` playbook in that package's `ansible/` folder.
 
 The concepts are runbot's:
 
-|                |                                                                                                                                                                                                                                                             |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Project**    | Repositories built together, e.g. _ISWE Odoo 19_: odoo/odoo, iswe_meal_addons, iswe_sdp_addons, ZRA-Smart-Invoice-Odoo19. It has **base branches** (`19.0`) and a **master base** for other branch names                                                    |
-| **Repository** | A GitHub repository. One per project provides `odoo-bin` (odoo/odoo). Only its base branches are read, never its pull requests. A repository's default branch, when it isn't a version name (`main`), joins the master base bundle                          |
-| **Bundle**     | All branches with the same name across a project's repositories, plus pull requests (by head branch name). Base bundles are the version branches                                                                                                            |
-| **Trigger**    | What to build when a tested repository gets a commit: install its modules (patterns, exclusions) with the dependency repositories, run their tests (`--test-tags`), with or without demo data, with a timeout. Reports the GitHub status `ci/runbot-<name>` |
-| **Batch**      | The commits of a bundle at one moment. Repositories without a branch in the bundle take the base bundle's commit. It waits `batchDelay` seconds (default 60) for related pushes, then creates one build per trigger                                         |
-| **Build**      | One trigger on one set of commits. Identical requests reuse the existing build. A newer batch on a feature branch skips the older batch's builds that haven't started; base bundles keep them                                                               |
+|                |                                                                                                                                                                                                                                                                                                                             |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Project**    | Repositories built together, e.g. _ISWE Odoo 19_: odoo/odoo, iswe_meal_addons, iswe_sdp_addons, ZRA-Smart-Invoice-Odoo19. It has **base branches** (`19.0`) and a **master base** for other branch names                                                                                                                    |
+| **Repository** | A GitHub repository. One per project provides `odoo-bin` (odoo/odoo). Only its base branches are read, never its pull requests. A repository's default branch, when it isn't a version name (`main`), joins the master base bundle                                                                                          |
+| **Bundle**     | All branches with the same name across a project's repositories, plus pull requests (by head branch name). Base bundles are the version branches                                                                                                                                                                            |
+| **Trigger**    | What to build when a tested repository gets a commit: install its modules (patterns, exclusions) with the dependency repositories, run their tests (`--test-tags`), with or without demo data, with a timeout, in Docker or a Proxmox container (see [Executors](#executors)). Reports the GitHub status `ci/runbot-<name>` |
+| **Batch**      | The commits of a bundle at one moment. Repositories without a branch in the bundle take the base bundle's commit. It waits `batchDelay` seconds (default 60) for related pushes, then creates one build per trigger                                                                                                         |
+| **Build**      | One trigger on one set of commits. Identical requests reuse the existing build. A newer batch on a feature branch skips the older batch's builds that haven't started; base bundles keep them                                                                                                                               |
 
 **What creates builds:** as in runbot, only commits to a trigger's tested
 repositories. A new commit to a dependency (odoo 19.0) is used by the next
@@ -104,6 +104,54 @@ minutes go back in the queue.
 whose authors you trust, and keep builders on a network where a build can't
 reach anything sensitive. The `runbot` database role can create databases
 but is not a superuser.
+
+## Executors
+
+Each trigger chooses where its builds run (`executor`, in **Repositories and
+triggers**). The executor is part of the build's parameters, so a Docker build
+and a container build are never reused for each other. A builder only claims
+builds of the executors it lists (`RUNBOT_EXECUTORS`).
+
+|                                | `docker` (default)                          | `proxmox`                                                                                     |
+| ------------------------------ | ------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| **The build runs in**          | A container on the builder VM               | A short-lived LXC container, linked-cloned from the Odoo version's template on a Proxmox node |
+| **Isolation**                  | Build code stays inside the VM              | Build code runs on the node's kernel (unprivileged container)                                 |
+| **Database**                   | The builder VM's PostgreSQL                 | Its own PostgreSQL, inside the container                                                      |
+| **Addons' `requirements.txt`** | Baked into an image per set of requirements | Installed in the container at the start of each build                                         |
+| **The builder needs**          | Docker                                      | A Proxmox API token limited to a pool, one VMID and one reserved IP per worker, and templates |
+
+**How a proxmox build runs:**
+
+1. Each worker has a fixed slot: VMID `first_vmid + n` and the n-th
+   address of `ips`.
+2. It removes any leftover container in its slot. It only ever stops or
+   deletes containers tagged `runbot-build`; anything else in the slot is an
+   error.
+3. It linked-clones the version's template, sets the address, memory and
+   cores, and starts it.
+4. It copies the sources in over SSH. Root in the templates trusts only the
+   builder's key.
+5. It runs `odoo-bin`, the same as with Docker.
+6. It destroys the container.
+
+**Setting it up:**
+
+1. Create a resource pool `runbot` and an API token (for example
+   `runbot@pve!builder`), with privileges only on that pool and the
+   templates: `VM.Clone`, `VM.Allocate`, `VM.Config.*`, `VM.PowerMgmt`,
+   `VM.Audit`, and `Datastore.AllocateSpace` on the storage.
+2. Reserve one IP per worker in IPAM, and pick VMIDs in the 700–899 range
+   with no backup history. Exclude the pool from backups.
+3. Install or update the builder with `runbot_builder_executors: [docker, proxmox]`
+   and `runbot_builder_proxmox` set. It prints the builder's public key.
+4. Make a template per Odoo version with `runbot-template.yml`, passing that
+   key as `runbot_template_ssh_key`. Use VMIDs in the 9000–9999 range, e.g.
+   9019 for 19.0.
+5. On the Runbot tab, set the trigger's executor to **Proxmox LXC**.
+
+**Refreshing templates:** re-run `runbot-template.yml` when Odoo's
+requirements change. Docker images follow the requirements file by
+themselves.
 
 ## API
 

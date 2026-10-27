@@ -43,6 +43,7 @@ const trigger = (patch: Partial<RunbotTrigger> = {}): RunbotTrigger => ({
   dependencyRepoIds: [1],
   steps: [defaultInstallTestStep()],
   ciContext: 'ci/runbot-meal',
+  executor: 'docker',
   baseOnly: false,
   active: true,
   sequence: 1,

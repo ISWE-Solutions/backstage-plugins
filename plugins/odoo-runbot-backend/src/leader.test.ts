@@ -88,6 +88,7 @@ async function setup() {
         },
       ],
       ciContext: `ci/runbot-${name}`,
+      executor: 'docker',
       baseOnly: false,
       active: true,
       sequence: 10,
@@ -303,5 +304,63 @@ describe('leader', () => {
     expect(paramsHash({ a: 1, b: [1, 2] })).toBe(
       paramsHash({ b: [1, 2], a: 1 }),
     );
+  });
+
+  it('gives builders only the builds they can run, and keeps executors apart', async () => {
+    await store.updateTrigger(ctx.tSdp.id, { executor: 'proxmox' });
+    await cycle(ctx.leader);
+    const builds = await Promise.all(
+      (await store.listBuilds()).map(b => store.getBuild(b.id)),
+    );
+    expect(
+      builds.map(b => [b!.triggerName, b!.params.executor]).sort(),
+    ).toEqual([
+      ['meal', 'docker'],
+      ['sdp', 'proxmox'],
+    ]);
+    // a Docker-only builder never gets the proxmox build
+    const first = await store.claimBuild('docker-only', ['docker']);
+    expect(first?.params.executor).toBe('docker');
+    expect(await store.claimBuild('docker-only', ['docker'])).toBeUndefined();
+    const ct = await store.claimBuild('both', ['docker', 'proxmox']);
+    expect(ct?.params.executor).toBe('proxmox');
+    // same commits, different executor: a different build
+    expect(paramsHash({ ...builds[0]!.params, executor: 'docker' })).not.toBe(
+      paramsHash({ ...builds[0]!.params, executor: 'proxmox' }),
+    );
+  });
+
+  it('adds the executor columns to a database from the first release', async () => {
+    const knex = knexFactory({
+      client: 'better-sqlite3',
+      connection: { filename: ':memory:' },
+      useNullAsDefault: true,
+    });
+    await knex.schema.createTable('runbot_triggers', t => {
+      t.increments('id');
+      t.integer('project_id');
+      t.string('name');
+      t.text('repo_ids');
+      t.text('dependency_repo_ids');
+      t.text('steps');
+      t.string('ci_context');
+      t.boolean('base_only');
+      t.boolean('active');
+      t.integer('sequence');
+    });
+    await knex('runbot_triggers').insert({
+      project_id: 1,
+      name: 'old',
+      repo_ids: '[1]',
+      dependency_repo_ids: '[]',
+      steps: '[]',
+      ci_context: 'ci/runbot-old',
+      base_only: false,
+      active: true,
+      sequence: 10,
+    });
+    const old = await createRunbotStore({ getClient: async () => knex as any });
+    expect((await old.listTriggers())[0].executor).toBe('docker');
+    await knex.destroy();
   });
 });

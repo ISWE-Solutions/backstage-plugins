@@ -12,6 +12,8 @@ import {
 } from '@backstage/plugin-permission-common';
 import {
   AddRepoRequest,
+  BUILD_EXECUTORS,
+  BuildExecutor,
   CreateProjectRequest,
   CreateTriggerRequest,
   LogLevel,
@@ -30,6 +32,16 @@ import { StatusReporter } from './statuses';
 // GitHub owners: letters, digits, hyphens; repo names may have dots but aren't "." or ".."
 const SLUG = /^[A-Za-z0-9-]{1,39}\/(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/;
 const BRANCH = /^[A-Za-z0-9._/-]{1,100}$/;
+const executorOf = (v: unknown): BuildExecutor => {
+  if (v === undefined || v === null || v === '') return 'docker';
+  if (!BUILD_EXECUTORS.includes(v as BuildExecutor)) {
+    throw new InputError(
+      `executor must be one of ${BUILD_EXECUTORS.join(', ')}`,
+    );
+  }
+  return v as BuildExecutor;
+};
+
 const LEVELS: LogLevel[] = [
   'DEBUG',
   'INFO',
@@ -284,6 +296,7 @@ export async function createRouter(
       );
     }
     const isServer = Boolean(body.isServer);
+    const executor = executorOf(body.executor);
     const servers = (await store.listRepos(projectId)).filter(r => r.isServer);
     if (body.createTrigger && !isServer && !servers.length) {
       throw new InputError(
@@ -312,6 +325,7 @@ export async function createRouter(
         dependencyRepoIds: servers.map(s => s.id),
         steps: [defaultInstallTestStep()],
         ciContext: ciContextFor(repo.name),
+        executor,
         baseOnly: false,
         active: true,
         sequence: 10,
@@ -364,6 +378,7 @@ export async function createRouter(
         dependencyRepoIds: ids(body.dependencyRepoIds, 'dependencyRepoIds'),
         steps: parseSteps(body.steps),
         ciContext: body.ciContext?.trim() || ciContextFor(name),
+        executor: executorOf(body.executor),
         baseOnly: Boolean(body.baseOnly),
         active: true,
         sequence: 10,
@@ -378,6 +393,7 @@ export async function createRouter(
       ...(b.steps !== undefined ? { steps: parseSteps(b.steps) } : {}),
       ...(typeof b.active === 'boolean' ? { active: b.active } : {}),
       ...(typeof b.baseOnly === 'boolean' ? { baseOnly: b.baseOnly } : {}),
+      ...(b.executor !== undefined ? { executor: executorOf(b.executor) } : {}),
     });
     if (!updated) throw new NotFoundError('No such trigger');
     res.json(updated);
@@ -442,7 +458,13 @@ export async function createRouter(
   router.post('/builder/claim', async (req, res) => {
     await builder(req);
     const host = str(req.body?.host, 'host', /^[\w.-]{1,100}$/);
-    const build = await store.claimBuild(host);
+    // Builders list what they can run; older builders only run Docker
+    const executors = Array.isArray(req.body?.executors)
+      ? (req.body.executors as unknown[]).filter((e): e is BuildExecutor =>
+          BUILD_EXECUTORS.includes(e as BuildExecutor),
+        )
+      : (['docker'] as BuildExecutor[]);
+    const build = await store.claimBuild(host, executors);
     if (!build) {
       res.status(204).end();
       return;

@@ -18,6 +18,15 @@ export type BuildResult = 'ok' | 'warn' | 'ko' | 'killed' | 'skipped';
 export type BatchState = 'preparing' | 'ready' | 'done' | 'skipped';
 /** head: the bundle's own branch; base: the base bundle's branch filled it in */
 export type CommitMatch = 'head' | 'base';
+/**
+ * Where a build runs:
+ * - docker: a container on a builder VM (the default; build code stays inside the VM)
+ * - proxmox: a short-lived LXC container cloned from a per-version template
+ *   on a Proxmox node (its own IP and PostgreSQL; build code runs on the node's kernel)
+ */
+export type BuildExecutor = 'docker' | 'proxmox';
+export const BUILD_EXECUTORS: BuildExecutor[] = ['docker', 'proxmox'];
+
 export type LogLevel =
   | 'DEBUG'
   | 'INFO'
@@ -91,6 +100,8 @@ export interface RunbotTrigger {
   steps: TriggerStep[];
   /** GitHub status context, e.g. ci/runbot-meal */
   ciContext: string;
+  /** Where its builds run */
+  executor: BuildExecutor;
   /** Only base bundles (nightly-style triggers) */
   baseOnly: boolean;
   active: boolean;
@@ -182,6 +193,7 @@ export interface BuildCommit {
 /** Everything that decides a build's outcome; equal params reuse a build */
 export interface BuildParams {
   version: string;
+  executor: BuildExecutor;
   commits: BuildCommit[];
   steps: TriggerStep[];
 }
@@ -249,6 +261,8 @@ export interface AddRepoRequest {
   entityRef?: string;
   /** Create a trigger that installs and tests this repo's modules, with the project's server repo */
   createTrigger?: boolean;
+  /** Executor of that trigger; default docker */
+  executor?: BuildExecutor;
 }
 
 export interface CreateTriggerRequest {
@@ -259,4 +273,5 @@ export interface CreateTriggerRequest {
   steps?: TriggerStep[];
   ciContext?: string;
   baseOnly?: boolean;
+  executor?: BuildExecutor;
 }

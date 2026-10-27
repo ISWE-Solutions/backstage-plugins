@@ -54,6 +54,56 @@
   become_user: postgres
   no_log: true
 
+- name: Proxmox executor
+  when: "'proxmox' in runbot_builder_executors"
+  block:
+    - name: Proxmox settings
+      ansible.builtin.assert:
+        that:
+          - runbot_builder_proxmox.url is match('^https://')
+          - runbot_builder_proxmox.token_id is match('^[^@]+@[^!]+![\\w.-]+$')
+          - runbot_builder_proxmox.token_secret | length > 0
+          - runbot_builder_proxmox.node | length > 0
+          - runbot_builder_proxmox.templates | length > 0
+          - runbot_builder_proxmox.first_vmid | string | length > 0
+          - runbot_builder_proxmox.ips | length >= runbot_builder_workers | int
+          - runbot_builder_proxmox.gateway | length > 0
+        fail_msg: >-
+          The proxmox executor needs runbot_builder_proxmox.url, token_id (user@realm!name),
+          token_secret, node, templates, first_vmid, gateway, and one address per worker in ips
+        quiet: true
+
+    - name: CA of the Proxmox API
+      ansible.builtin.copy:
+        content: '{{ lookup("ansible.builtin.file", runbot_builder_proxmox.ca_file) }}'
+        dest: /etc/odoo-runbot-builder-proxmox-ca.pem
+        mode: '0644'
+      when: runbot_builder_proxmox.ca_file | length > 0
+
+    - name: SSH directory of the builder
+      ansible.builtin.file:
+        path: '{{ runbot_builder_workdir }}/.ssh'
+        state: directory
+        owner: '{{ runbot_builder_user }}'
+        group: '{{ runbot_builder_user }}'
+        mode: '0700'
+
+    - name: Builder's SSH key (the templates trust it for root)
+      ansible.builtin.command:
+        cmd: ssh-keygen -t ed25519 -N "" -C "runbot-builder@{{ runbot_builder_name }}" -f {{ runbot_builder_workdir }}/.ssh/id_ed25519
+        creates: '{{ runbot_builder_workdir }}/.ssh/id_ed25519'
+      become: true
+      become_user: '{{ runbot_builder_user }}'
+
+    - name: Read the public key
+      ansible.builtin.command: ssh-keygen -y -f {{ runbot_builder_workdir }}/.ssh/id_ed25519
+      register: _runbot_builder_pubkey
+      changed_when: false
+
+    - name: Public key for runbot-template.yml (runbot_template_ssh_key)
+      ansible.builtin.debug:
+        msg: '{{ _runbot_builder_pubkey.stdout }}'
+
 - name: Builder agent
   ansible.builtin.copy:
     src: runbot_builder.py
