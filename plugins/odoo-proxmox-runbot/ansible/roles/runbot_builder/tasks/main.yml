@@ -38,11 +38,11 @@
     group: '{{ runbot_builder_user }}'
     mode: '0750'
 
-- name: Database password for the builds
+- name: Database password for the builds (generated once, kept on the controller)
   ansible.builtin.set_fact:
     _runbot_pg_password: >-
-      {{ lookup('ansible.builtin.password', odoo_secrets_dir | default(playbook_dir ~ '/../.secrets')
-         ~ '/' ~ inventory_hostname ~ '/runbot_pg_password', length=32, chars=['ascii_letters', 'digits']) }}
+      {{ lookup('ansible.builtin.password', runbot_builder_secrets_dir ~ '/' ~ inventory_hostname
+         ~ '/runbot_pg_password', length=32, chars=['ascii_letters', 'digits']) }}
   no_log: true
 
 - name: PostgreSQL role for the builds (creates and drops its own databases, nothing else)

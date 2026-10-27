@@ -16,3 +16,5 @@ runbot_builder_workdir: /srv/runbot
 runbot_builder_pg_version: '' # empty: the distribution's
 # Docker images not used for this many hours are removed by the weekly cleanup
 runbot_builder_image_max_age_hours: 336
+# Where generated passwords are kept on the controller (as the odoo role: $ODOO_SECRETS_DIR, else ansible/.secrets)
+runbot_builder_secrets_dir: "{{ lookup('ansible.builtin.env', 'ODOO_SECRETS_DIR') | default(playbook_dir ~ '/../.secrets', true) }}"
