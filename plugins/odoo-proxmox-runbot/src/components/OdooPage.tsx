@@ -51,8 +51,6 @@ import ScheduleIcon from '@material-ui/icons/Schedule';
 import {
   OdooInstance,
   CreateOdooInstanceRequest,
-  RunbotBuild,
-  RunbotBranch,
   AnsiblePlaybook,
   AnsiblePlaybookExecution,
   ProxmoxNode,
@@ -60,11 +58,13 @@ import {
   PostgresCluster,
 } from '../types';
 import { odooService } from '../services/odooService';
-import { runbotService } from '../services/runbotService';
+import { useApi } from '@backstage/core-plugin-api';
+import { RunbotBuildSummary } from '@iswesolutions/plugin-odoo-runbot-common';
+import { runbotApiRef, RunbotStats } from '../api/runbotApi';
 import { ansibleService } from '../services/ansibleService';
 import { proxmoxService } from '../services/proxmoxService';
 import { OdooInstancesPanel } from './OdooInstancesPanel';
-import { OdooRunbotPanel } from './OdooRunbotPanel';
+import { RunbotView } from './runbot/RunbotView';
 import { OdooAnsiblePanel } from './OdooAnsiblePanel';
 import { OdooProxmoxClusterPanel } from './OdooProxmoxClusterPanel';
 import { CreateInstanceDialog } from './CreateInstanceDialog';
@@ -174,8 +174,9 @@ export const OdooPage = () => {
 
   // Data state
   const [instances, setInstances] = useState<OdooInstance[]>([]);
-  const [builds, setBuilds] = useState<RunbotBuild[]>([]);
-  const [branches, setBranches] = useState<RunbotBranch[]>([]);
+  const runbotApi = useApi(runbotApiRef);
+  const [builds, setBuilds] = useState<RunbotBuildSummary[]>([]);
+  const [runbotStats, setRunbotStats] = useState<RunbotStats>();
   const [playbooks, setPlaybooks] = useState<AnsiblePlaybook[]>([]);
   const [executions, setExecutions] = useState<AnsiblePlaybookExecution[]>([]);
   const [nodes, setNodes] = useState<ProxmoxNode[]>([]);
@@ -210,8 +211,6 @@ export const OdooPage = () => {
     try {
       const [
         instancesData,
-        buildsData,
-        branchesData,
         playbooksData,
         executionsData,
         nodesData,
@@ -220,8 +219,6 @@ export const OdooPage = () => {
         clustersData,
       ] = await Promise.all([
         odooService.getInstances(),
-        runbotService.getBuilds(),
-        runbotService.getBranches(),
         ansibleService.getPlaybooks(),
         ansibleService.getExecutions(),
         proxmoxService.getNodes(),
@@ -235,8 +232,16 @@ export const OdooPage = () => {
       }
 
       setInstances(instancesData);
-      setBuilds(buildsData);
-      setBranches(branchesData);
+      // The runbot backend may not be installed: the dashboard then shows no builds
+      Promise.all([runbotApi.listBuilds({ limit: 5 }), runbotApi.stats()]).then(
+        ([b, s]) => {
+          if (!isCancelled()) {
+            setBuilds(b);
+            setRunbotStats(s);
+          }
+        },
+        () => {},
+      );
       setPlaybooks(playbooksData);
       setExecutions(executionsData);
       setNodes(nodesData);
@@ -285,24 +290,6 @@ export const OdooPage = () => {
       } catch (error) {
         console.error('Failed to delete instance:', error);
       }
-    }
-  };
-
-  const handleTriggerBuild = async (branchId: number) => {
-    try {
-      await runbotService.triggerBuild(branchId);
-      loadAllData();
-    } catch (error) {
-      console.error('Failed to trigger build:', error);
-    }
-  };
-
-  const handleKillBuild = async (buildId: number) => {
-    try {
-      await runbotService.killBuild(buildId);
-      loadAllData();
-    } catch (error) {
-      console.error('Failed to kill build:', error);
     }
   };
 
@@ -407,7 +394,9 @@ export const OdooPage = () => {
           <CardContent>
             <BuildIcon color="primary" style={{ fontSize: 40 }} />
             <Typography className={classes.statValue}>
-              {stats?.totalBuilds || 0}
+              {runbotStats
+                ? Object.values(runbotStats).reduce((a, b) => a + b, 0)
+                : 0}
             </Typography>
             <Typography className={classes.statLabel}>Total Builds</Typography>
           </CardContent>
@@ -486,14 +475,22 @@ export const OdooPage = () => {
               {builds.slice(0, 5).map(build => (
                 <ListItem key={build.id}>
                   <ListItemIcon>
-                    {getBuildResultIcon(build.result, build.state)}
+                    {getBuildResultIcon(build.result ?? '', build.localState)}
                   </ListItemIcon>
                   <ListItemText
-                    primary={`${build.repo_name}/${build.branch_name}`}
-                    secondary={build.commit_message.substring(0, 50)}
+                    primary={`#${build.id} ${build.triggerName}`}
+                    secondary={
+                      build.errorSummary?.substring(0, 60) ??
+                      new Date(build.requested).toLocaleString()
+                    }
                   />
                 </ListItem>
               ))}
+              {builds.length === 0 && (
+                <ListItem>
+                  <ListItemText secondary="No builds yet: add repositories on the Runbot tab." />
+                </ListItem>
+              )}
             </List>
           </CardContent>
         </Card>
@@ -570,15 +567,7 @@ export const OdooPage = () => {
   );
 
   // Runbot Tab
-  const renderRunbot = () => (
-    <OdooRunbotPanel
-      branches={branches}
-      builds={builds}
-      onTriggerBuild={handleTriggerBuild}
-      onKillBuild={handleKillBuild}
-      onRebuildBuild={id => runbotService.rebuildBuild(id)}
-    />
-  );
+  const renderRunbot = () => <RunbotView />;
 
   // Ansible Tab
   const renderAnsible = () => (

@@ -1,11 +1,13 @@
 export { odooPlugin, odooPlugin as plugin } from './plugin';
 export { OdooPage } from './components/OdooPage';
 export { OdooInstancesPanel } from './components/OdooInstancesPanel';
-export { OdooRunbotPanel } from './components/OdooRunbotPanel';
+export { RunbotView } from './components/runbot/RunbotView';
+export { BuildDialog } from './components/runbot/BuildDialog';
 export { OdooAnsiblePanel } from './components/OdooAnsiblePanel';
 export { OdooProxmoxClusterPanel } from './components/OdooProxmoxClusterPanel';
 export { odooService, OdooService } from './services/odooService';
-export { runbotService, RunbotService } from './services/runbotService';
+export { runbotApiRef, RunbotClient } from './api/runbotApi';
+export type { RunbotApi, RunbotStats, ProjectDetails } from './api/runbotApi';
 export { ansibleService, AnsibleService } from './services/ansibleService';
 export { proxmoxService, ProxmoxService } from './services/proxmoxService';
 export * from './types';

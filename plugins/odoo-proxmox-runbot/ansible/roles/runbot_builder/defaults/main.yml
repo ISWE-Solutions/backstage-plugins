@@ -1,0 +1,18 @@
+---
+# The Backstage runbot backend, e.g. https://backstage.example.com/api/odoo-runbot
+runbot_builder_url: ''
+# Static token of backend.auth.externalAccess with subject odoo-runbot-builder
+runbot_builder_token: ''
+# Read access to the repositories (private ones need it)
+runbot_builder_github_token: ''
+runbot_builder_name: '{{ inventory_hostname }}'
+# Builds at the same time; each takes up to runbot_builder_memory
+runbot_builder_workers: 2
+runbot_builder_memory: 3g
+runbot_builder_cpus: '1.5'
+runbot_builder_user: runbot
+runbot_builder_workdir: /srv/runbot
+# Local PostgreSQL for the build databases (never a shared cluster: builds create and drop databases)
+runbot_builder_pg_version: '' # empty: the distribution's
+# Docker images not used for this many hours are removed by the weekly cleanup
+runbot_builder_image_max_age_hours: 336

@@ -51,94 +51,6 @@ export interface ProxmoxTask {
 }
 
 // ============================================
-// Odoo Runbot Types
-// ============================================
-
-export type RunbotBuildState =
-  | 'pending'
-  | 'testing'
-  | 'running'
-  | 'done'
-  | 'failed'
-  | 'killed';
-
-export type RunbotBuildResult = 'ok' | 'warn' | 'ko' | 'skipped' | 'killed';
-
-export interface RunbotRepo {
-  id: number;
-  name: string;
-  url: string;
-  branch_ids: number[];
-  active: boolean;
-  modules: string;
-  server_files: string;
-  addons_paths: string;
-  created: string;
-  updated: string;
-}
-
-export interface RunbotBranch {
-  id: number;
-  name: string;
-  repo_id: number;
-  repo_name: string;
-  sticky: boolean;
-  coverage: boolean;
-  state: 'pending' | 'running' | 'done' | 'error';
-  last_build_id?: number;
-  build_count: number;
-  job_type: string;
-  created: string;
-  updated: string;
-}
-
-export interface RunbotBuild {
-  id: number;
-  branch_id: number;
-  branch_name: string;
-  repo_name: string;
-  commit: string;
-  commit_message: string;
-  author: string;
-  state: RunbotBuildState;
-  result: RunbotBuildResult;
-  host: string;
-  port: number;
-  dest: string;
-  sequence: number;
-  job: string;
-  job_start: string;
-  job_end?: string;
-  duration: number;
-  coverage_result?: number;
-  build_start: string;
-  build_end?: string;
-  error_summary?: string;
-  log_ids: number[];
-  created: string;
-}
-
-export interface RunbotBuildLog {
-  id: number;
-  build_id: number;
-  level: 'info' | 'warning' | 'error' | 'critical';
-  type: string;
-  name: string;
-  path: string;
-  message: string;
-  timestamp: string;
-}
-
-export interface RunbotConfig {
-  workers: number;
-  running_max: number;
-  job_timeout: number;
-  build_timeout: number;
-  default_host: string;
-  nginx_enabled: boolean;
-}
-
-// ============================================
 // Ansible Types
 // ============================================
 
@@ -411,10 +323,6 @@ export interface OdooDashboardStats {
   runningInstances: number;
   stoppedInstances: number;
   provisioningInstances: number;
-  totalBuilds: number;
-  pendingBuilds: number;
-  runningBuilds: number;
-  failedBuilds: number;
   totalPlaybooks: number;
   runningPlaybooks: number;
   nodeCount: number;

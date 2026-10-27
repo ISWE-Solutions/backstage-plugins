@@ -1,0 +1,101 @@
+---
+- name: Settings
+  ansible.builtin.assert:
+    that:
+      - runbot_builder_url is match('^https?://')
+      - runbot_builder_token | length >= 24
+    fail_msg: Set runbot_builder_url (…/api/odoo-runbot) and runbot_builder_token (at least 24 characters)
+    quiet: true
+
+- name: Packages
+  ansible.builtin.apt:
+    name:
+      [docker.io, git, python3, postgresql, postgresql-client, python3-psycopg2]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Docker running
+  ansible.builtin.systemd_service:
+    name: docker
+    enabled: true
+    state: started
+
+- name: Builder user, allowed to run containers
+  ansible.builtin.user:
+    name: '{{ runbot_builder_user }}'
+    system: true
+    home: '{{ runbot_builder_workdir }}'
+    shell: /usr/sbin/nologin
+    groups: [docker]
+    append: true
+
+- name: Work directory
+  ansible.builtin.file:
+    path: '{{ runbot_builder_workdir }}'
+    state: directory
+    owner: '{{ runbot_builder_user }}'
+    group: '{{ runbot_builder_user }}'
+    mode: '0750'
+
+- name: Database password for the builds
+  ansible.builtin.set_fact:
+    _runbot_pg_password: >-
+      {{ lookup('ansible.builtin.password', odoo_secrets_dir | default(playbook_dir ~ '/../.secrets')
+         ~ '/' ~ inventory_hostname ~ '/runbot_pg_password', length=32, chars=['ascii_letters', 'digits']) }}
+  no_log: true
+
+- name: PostgreSQL role for the builds (creates and drops its own databases, nothing else)
+  community.postgresql.postgresql_user:
+    name: '{{ runbot_builder_user }}'
+    password: '{{ _runbot_pg_password }}'
+    role_attr_flags: LOGIN,CREATEDB,NOSUPERUSER,NOCREATEROLE
+  become: true
+  become_user: postgres
+  no_log: true
+
+- name: Builder agent
+  ansible.builtin.copy:
+    src: runbot_builder.py
+    dest: /usr/local/lib/odoo-runbot-builder.py
+    owner: root
+    group: root
+    mode: '0755'
+  notify: Restart the builder
+
+- name: Settings and secrets (root and the builder only)
+  ansible.builtin.template:
+    src: builder.env.j2
+    dest: /etc/odoo-runbot-builder.env
+    owner: root
+    group: '{{ runbot_builder_user }}'
+    mode: '0640'
+  no_log: true
+  notify: Restart the builder
+
+- name: Systemd unit
+  ansible.builtin.template:
+    src: odoo-runbot-builder.service.j2
+    dest: /etc/systemd/system/odoo-runbot-builder.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart the builder
+
+- name: Weekly cleanup of unused images
+  ansible.builtin.copy:
+    dest: /etc/cron.weekly/odoo-runbot-builder
+    owner: root
+    group: root
+    mode: '0755'
+    content: |
+      #!/bin/sh
+      docker image prune -af --filter "until={{ runbot_builder_image_max_age_hours }}h" --filter "reference=runbot-odoo" >/dev/null
+      docker builder prune -af --filter "until={{ runbot_builder_image_max_age_hours }}h" >/dev/null
+
+- name: Builder enabled and running
+  ansible.builtin.systemd_service:
+    name: odoo-runbot-builder
+    enabled: true
+    state: started
+    daemon_reload: true

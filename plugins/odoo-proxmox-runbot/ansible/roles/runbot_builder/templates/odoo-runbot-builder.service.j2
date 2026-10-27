@@ -1,0 +1,22 @@
+# {{ ansible_managed }}
+[Unit]
+Description=ISWE Runbot builder ({{ runbot_builder_name }})
+After=network-online.target docker.service postgresql.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User={{ runbot_builder_user }}
+Group={{ runbot_builder_user }}
+EnvironmentFile=/etc/odoo-runbot-builder.env
+ExecStart=/usr/bin/python3 /usr/local/lib/odoo-runbot-builder.py
+Restart=always
+RestartSec=10
+# Running builds finish their current step before a stop
+TimeoutStopSec=120
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -10,7 +10,8 @@ brings together three things an Odoo hosting team juggles:
   instances
 
 > **Preview.** The page and its services are a working UI, but the services
-> return built-in sample data. Nothing is sent to Proxmox, Runbot or Ansible
+> return built-in sample data, except the **Runbot** tab, which is live (see
+> below). Nothing is sent to Proxmox or Ansible
 > yet, and the plugin reads no configuration. Use it to evaluate the
 > workflow, not to manage real instances. See [Status](#status).
 
@@ -18,13 +19,13 @@ brings together three things an Odoo hosting team juggles:
 
 The page has five tabs.
 
-| Tab           | What it shows                                                                                                                                                    |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Dashboard** | Counts of instances, running instances, Runbot builds and Proxmox nodes; cluster CPU, memory and storage usage; recent builds; and a table of instances to open  |
-| **Instances** | Every instance with its status (running, stopped, provisioning), version, edition, node and resources. Actions: start, stop, back up, clone, settings and delete |
-| **Runbot**    | Builds with their commit, author, state, result, duration and test coverage. Actions: kill a running build, rebuild a finished one                               |
-| **Ansible**   | Playbooks and their execution history: status, duration and per-host stats (ok, changed, failed, unreachable). Run a playbook from here                          |
-| **Proxmox**   | Each cluster node's CPU, memory and storage usage                                                                                                                |
+| Tab           | What it shows                                                                                                                                                                                                                                                                  |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Dashboard** | Counts of instances, running instances, Runbot builds and Proxmox nodes; cluster CPU, memory and storage usage; recent builds; and a table of instances to open                                                                                                                |
+| **Instances** | Every instance with its status (running, stopped, provisioning), version, edition, node and resources. Actions: start, stop, back up, clone, settings and delete                                                                                                               |
+| **Runbot**    | **Live**, from the `odoo-runbot` backend: projects, bundles (branches and pull requests across repositories) with their latest batch and one build per trigger, builds with live logs, repositories and triggers, and builders. Add repositories, rebuild, kill, force a batch |
+| **Ansible**   | Playbooks and their execution history: status, duration and per-host stats (ok, changed, failed, unreachable). Run a playbook from here                                                                                                                                        |
+| **Proxmox**   | Each cluster node's CPU, memory and storage usage                                                                                                                                                                                                                              |
 
 ### Creating an instance
 
@@ -161,6 +162,30 @@ runs:
 OS, cores, memory, disk, node and domain. The platform and its credentials
 belong to the backend's inventory, not to the request.
 
+## Runbot
+
+The Runbot tab is a client of the **ISWE Runbot** backend
+(`@iswesolutions/plugin-odoo-runbot-backend`): continuous integration for Odoo
+repositories after [odoo/runbot](https://github.com/odoo/runbot). Install the
+backend and at least one builder (`ansible/playbooks/runbot-builder.yml`);
+see the backend's README.
+
+To test a repository:
+
+1. **New project**, e.g. _ISWE Odoo 19_, base branch `19.0`.
+2. **Add repository** `odoo/odoo`, as the one providing `odoo-bin`.
+3. **Add repository** for each addons repository, for example
+   `ISWE-Solutions/iswe_meal_addons`, `ISWE-Solutions/iswe_sdp_addons` and
+   `ISWE-Solutions/ZRA-Smart-Invoice-Odoo19`. You can pick them from catalog
+   components tagged `odoo`. Leave **install and test** on: that creates a
+   trigger which installs its modules with odoo 19.0 and runs their tests on
+   every push and pull request.
+
+Each repository's `main` joins the `19.0` base bundle. A feature branch or
+pull request gets its own bundle, built on `19.0`. Results show as GitHub
+commit statuses (`ci/runbot-<repository>`) that link back to the build here
+(`/odoo?runbotBuild=<id>`).
+
 ## Installation
 
 The package is a frontend plugin for the legacy (non-`/alpha`) Backstage
@@ -193,9 +218,9 @@ suggestions; if the catalog can't be read, repositories are typed in.
 | Export                                                                                                                                                        | What it is                                                             |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | `OdooPage`                                                                                                                                                    | The full page                                                          |
-| `OdooInstancesPanel`, `OdooRunbotPanel`, `OdooAnsiblePanel`, `OdooProxmoxClusterPanel`                                                                        | The individual panels, to embed elsewhere (an entity page, say)        |
-| `odooService`, `runbotService`, `ansibleService`, `proxmoxService`                                                                                            | Singleton instances of the services below                              |
-| `OdooService`, `RunbotService`, `AnsibleService`, `ProxmoxService`                                                                                            | The service classes                                                    |
+| `OdooInstancesPanel`, `OdooAnsiblePanel`, `OdooProxmoxClusterPanel`, `RunbotView`, `BuildDialog`                                                              | The individual panels, to embed elsewhere (an entity page, say)        |
+| `odooService`, `ansibleService`, `proxmoxService`, `runbotApiRef`, `RunbotClient`                                                                             | Service instances (sample data) and the runbot backend client          |
+| `OdooService`, `AnsibleService`, `ProxmoxService`                                                                                                             | The service classes                                                    |
 | `CreateInstanceDialog`                                                                                                                                        | The new-instance form, on its own                                      |
 | `ODOO_VERSIONS`, `OS_INFO`, `computeAddonsPath`, `suggestServerConfig`, `checkDatabaseName`, `validateCreateRequest`, `renderOdooConf`, `installPlaybookVars` | The instance rules (see [Creating an instance](#creating-an-instance)) |
 | `odooPlugin` (also exported as `plugin`)                                                                                                                      | The plugin instance, id `odoo`                                         |
@@ -208,7 +233,6 @@ All methods are `async`.
 | Service          | Methods                                                                                                                                                                                                                                                                                                                 |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `odooService`    | `getInstances`, `getInstance`, `createInstance`, `updateInstance`, `deleteInstance`, `startInstance`, `stopInstance`, `restartInstance`, `backupInstance`, `restoreInstance`, `upgradeInstance`, `cloneInstance`, `getInstanceModules`, `installModule`, `uninstallModule`, `getAvailableVersions`, `getDashboardStats` |
-| `runbotService`  | `getRepos`, `getRepo`, `createRepo`, `updateRepo`, `deleteRepo`, `getBranches`, `getRepoBranches`, `getBranch`, `getBuilds`, `getBranchBuilds`, `getBuild`, `triggerBuild`, `killBuild`, `rebuildBuild`, `getBuildLogs`, `getConfig`, `updateConfig`, `getStats`                                                        |
 | `ansibleService` | `getPlaybooks`, `getPlaybook`, `executePlaybook`, `getExecutions`, `getExecution`, `cancelExecution`, `getInventoryHosts`, `getRoles`, `validatePlaybook`, `testConnection`                                                                                                                                             |
 | `proxmoxService` | `getNodes`, `getContainers`, `getNodeContainers`, `getContainer`, `createContainer`, `startContainer`, `stopContainer`, `restartContainer`, `deleteContainer`, `cloneContainer`, `resizeDisk`, `getTaskStatus`, `getTemplates`, `getNextVmid`, `execCommand`                                                            |
 
@@ -220,21 +244,22 @@ instance calls `proxmoxService` and `ansibleService`.
 | Area    | Types                                                                                                                                                                                                                                                                                                                                                  |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Odoo    | `OdooInstance`, `OdooInstanceStatus`, `OdooEdition`, `OdooEnvironment`, `OdooOs`, `OdooSources`, `OdooRepoSource`, `OdooAddonsRepo`, `OdooDatabaseSettings`, `OdooDatabasePlacement`, `PostgresCluster`, `PgSslMode`, `OdooServerConfig`, `OdooLogLevel`, `CreateOdooInstanceRequest`, `UpdateOdooInstanceRequest`, `OdooModule`, `OdooDashboardStats` |
-| Runbot  | `RunbotRepo`, `RunbotBranch`, `RunbotBuild`, `RunbotBuildState`, `RunbotBuildResult`, `RunbotBuildLog`, `RunbotConfig`                                                                                                                                                                                                                                 |
+| Runbot  | From `@iswesolutions/plugin-odoo-runbot-common`: projects, repos, triggers, bundles, batches, builds, logs                                                                                                                                                                                                                                             |
 | Ansible | `AnsiblePlaybook`, `AnsiblePlaybookStatus`, `AnsiblePlaybookExecution`, `AnsibleInventoryHost`, `AnsibleRole`                                                                                                                                                                                                                                          |
 | Proxmox | `ProxmoxNode`, `LXCContainer`, `LXCConfig`, `ProxmoxTask`                                                                                                                                                                                                                                                                                              |
 | Generic | `ApiResponse<T>`, `PaginatedResponse<T>`                                                                                                                                                                                                                                                                                                               |
 
 ## Status
 
-| Part                               | State                                                 |
-| ---------------------------------- | ----------------------------------------------------- |
-| Page, tabs, panels and create form | Built; the create form checks the request (see above) |
-| Data model and service interfaces  | Built                                                 |
-| Proxmox, Runbot and Ansible calls  | Not built: every service returns sample data          |
-| Backend plugin and configuration   | Not built                                             |
-| Permissions                        | None: anyone who can open the page can use it         |
-| Tests                              | The instance rules and the create form                |
+| Part                               | State                                                     |
+| ---------------------------------- | --------------------------------------------------------- |
+| Page, tabs, panels and create form | Built; the create form checks the request (see above)     |
+| Data model and service interfaces  | Built                                                     |
+| Runbot                             | Live, through `@iswesolutions/plugin-odoo-runbot-backend` |
+| Proxmox and Ansible calls          | Not built: those services return sample data              |
+| Backend plugin and configuration   | Not built                                                 |
+| Permissions                        | None: anyone who can open the page can use it             |
+| Tests                              | The instance rules and the create form                    |
 
 Connecting it to real systems needs a backend plugin that holds the Proxmox
 API token, Runbot credentials and Ansible inventory, with the frontend

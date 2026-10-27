@@ -19,7 +19,6 @@ import {
 } from '../odooConfig';
 import { proxmoxService } from './proxmoxService';
 import { ansibleService } from './ansibleService';
-import { runbotService } from './runbotService';
 
 // Sample data: shared PostgreSQL clusters, one per environment
 const SAMPLE_CLUSTERS: PostgresCluster[] = [
@@ -504,7 +503,6 @@ export class OdooService {
   async getDashboardStats(): Promise<OdooDashboardStats> {
     const instances = await this.getInstances();
     const nodes = await proxmoxService.getNodes();
-    const runbotStats = await runbotService.getStats();
     const playbooks = await ansibleService.getPlaybooks();
     const executions = await ansibleService.getExecutions();
 
@@ -534,10 +532,6 @@ export class OdooService {
       runningInstances,
       stoppedInstances,
       provisioningInstances,
-      totalBuilds: runbotStats.totalBuilds,
-      pendingBuilds: runbotStats.pendingBuilds,
-      runningBuilds: runbotStats.runningBuilds,
-      failedBuilds: runbotStats.failedBuilds,
       totalPlaybooks: playbooks.length,
       runningPlaybooks,
       nodeCount: nodes.length,
