@@ -1,0 +1,46 @@
+---
+# Install base (and the requested modules) once, on an empty database. Odoo
+# stops after installing; the service then serves the database.
+- name: Is the database initialised?
+  ansible.builtin.command:
+    cmd: >-
+      psql -tAc "select 1 from information_schema.tables where table_name = 'ir_module_module'"
+  environment:
+    PGHOST: '{{ odoo_config_db_host }}'
+    PGPORT: '{{ odoo_config_db_port }}'
+    PGUSER: '{{ odoo_config_db_user }}'
+    PGPASSWORD: '{{ _odoo_db_password }}'
+    PGDATABASE: '{{ odoo_config_db_name }}'
+    PGSSLMODE: '{{ odoo_config_db_sslmode }}'
+    PGSSLROOTCERT: '{{ odoo_config_file | dirname }}/pg-ca.pem'
+  register: _odoo_db_initialised
+  changed_when: false
+  no_log: true
+
+- name: Install base and the requested modules
+  when: _odoo_db_initialised.stdout | trim != '1'
+  block:
+    - name: Stop the service while installing
+      ansible.builtin.systemd_service:
+        name: '{{ odoo_service }}'
+        state: stopped
+
+    - name: Install base and the requested modules with odoo-bin
+      ansible.builtin.command:
+        cmd: >-
+          {{ odoo_venv }}/bin/python {{ odoo_rootdir }}/odoo/odoo-bin
+          -c {{ odoo_config_file }} -d {{ odoo_config_db_name }}
+          -i {{ (['base'] + odoo_modules) | unique | join(',') }}
+          {{ '--without-demo=all' if odoo_config_without_demo | bool else '' }}
+          --workers=0 --max-cron-threads=0 --stop-after-init --no-http
+      environment:
+        PGSSLROOTCERT: '{{ odoo_config_file | dirname }}/pg-ca.pem'
+      become: true
+      become_user: '{{ odoo_user }}'
+      changed_when: true
+
+    - name: Start the service
+      ansible.builtin.systemd_service:
+        name: '{{ odoo_service }}'
+        state: started
+      when: odoo_service_enabled | bool

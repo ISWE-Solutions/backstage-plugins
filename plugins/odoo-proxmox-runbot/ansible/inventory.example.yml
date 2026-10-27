@@ -1,0 +1,78 @@
+---
+# One host per Odoo instance, in the group "odoo". The platform and its
+# connection settings usually go in group_vars; secrets come from the
+# environment or Ansible Vault, never from this file.
+#
+#   ansible-playbook -i inventory.yml playbooks/odoo-install.yml -l kugula-erp
+odoo:
+  vars:
+    odoo_platform: proxmox
+    odoo_proxmox_api_host: pve1.example.com
+    odoo_proxmox_api_token_id: backstage
+    odoo_proxmox_api_token_secret: "{{ lookup('ansible.builtin.env', 'PROXMOX_TOKEN_SECRET') }}"
+    odoo_proxmox_bridge: vmbr1
+    odoo_proxmox_gateway: 192.168.11.1
+    odoo_proxmox_nameserver: 192.168.11.1
+    odoo_proxmox_ssh_jump: admin@pve1.example.com
+
+    # Shared PostgreSQL clusters: an admin account that may create roles and databases
+    odoo_db_admin_user: provisioner
+    odoo_db_admin_password: "{{ lookup('ansible.builtin.env', 'PG_PROVISIONER_PASSWORD') }}"
+    odoo_db_ca_cert: "{{ lookup('ansible.builtin.file', 'files/pg-ca.pem') }}"
+
+    odoo_nginx_tls: none # the cluster's proxies terminate TLS
+
+  hosts:
+    # Production on Proxmox, database on the prod cluster
+    kugula-erp:
+      odoo_environment: production
+      odoo_version: '18.0'
+      odoo_guest_os: ubuntu-24.04
+      odoo_guest_cores: 4
+      odoo_guest_memory: 8192
+      odoo_guest_disk: 100
+      odoo_proxmox_node: pve1
+      odoo_proxmox_ip: 192.168.11.150/24
+      odoo_addons_repos:
+        - name: kugula_addons
+          url: 'git@github.com:example-org/kugula_addons.git'
+          rev: '18.0'
+      odoo_db_placement: cluster
+      odoo_config_db_host: pg.example.internal
+      odoo_config_db_port: 5432
+      odoo_config_db_sslmode: verify-full
+      odoo_config_db_name: kugula_odoo
+      odoo_config_workers: 9
+      odoo_config_max_cron_threads: 2
+      odoo_nginx_domain: erp.kugula.example.com
+
+    # A developer's instance in LXD on the controller, local PostgreSQL
+    kugula-dev:
+      odoo_platform: lxd
+      odoo_environment: development
+      odoo_version: '19.0'
+      odoo_db_placement: local
+      odoo_config_db_name: kugula_odoo
+      odoo_config_workers: 0
+      odoo_config_list_db: true
+      odoo_config_dbfilter: '.*'
+      odoo_config_without_demo: false
+
+    # A throwaway test instance in Docker, published on the host's port 8069
+    kugula-ci:
+      odoo_platform: docker
+      odoo_environment: development
+      odoo_version: '18.0'
+      odoo_db_placement: local
+      odoo_config_db_name: kugula_odoo
+      odoo_docker_ports: ['8069:8069']
+
+    # An existing machine, reached over SSH as a sudoer
+    legacy-odoo:
+      odoo_platform: ssh
+      ansible_host: 203.0.113.10
+      ansible_user: admin
+      odoo_environment: staging
+      odoo_version: '17.0'
+      odoo_db_placement: local
+      odoo_config_db_name: legacy_odoo

@@ -136,18 +136,30 @@ for reuse:
 
 ### Playbooks
 
-| Playbook           | Purpose                                                                    |
-| ------------------ | -------------------------------------------------------------------------- |
-| `odoo-install`     | PostgreSQL, Python dependencies, Odoo source, systemd service, wkhtmltopdf |
-| `odoo-configure`   | `odoo.conf`, addons paths, workers and logging                             |
-| `odoo-backup`      | Database, filestore and configuration                                      |
-| `odoo-restore`     | Restore a backup                                                           |
-| `odoo-upgrade`     | Back up, update the source, migrate the database and update modules        |
-| `runbot-setup`     | Runbot module, workers, nginx and build environment                        |
-| `nginx-proxy`      | TLS termination, WebSocket longpolling, static files                       |
-| `postgresql-setup` | Tuning, users, backups and replication                                     |
+The Ansible playbooks ship in this package, in [`ansible/`](ansible/README.md),
+and work with or without Backstage. `odoo_platform` chooses where an instance
+runs:
 
-These are the playbooks the UI lists. They are not shipped in this package.
+| `odoo_platform` | The guest                                |
+| --------------- | ---------------------------------------- |
+| `proxmox`       | An LXC container on a Proxmox VE cluster |
+| `lxd`           | An LXD container                         |
+| `docker`        | A Docker container running systemd       |
+| `ssh`           | An existing machine                      |
+
+| Playbook         | Purpose                                                                                        |
+| ---------------- | ---------------------------------------------------------------------------------------------- |
+| `odoo-install`   | Create the guest, then install Odoo: code, Python, wkhtmltopdf, database, `odoo.conf`, service |
+| `odoo-configure` | Rewrite `odoo.conf` and the service unit; restart if they changed                              |
+| `nginx-proxy`    | nginx with WebSocket; TLS from Let's Encrypt, your own certificate, or none                    |
+| `odoo-backup`    | Database, filestore, `odoo.conf` and code revisions                                            |
+| `odoo-restore`   | Restore a backup, after a safety backup                                                        |
+| `odoo-upgrade`   | Update the code and modules within one major version                                           |
+| `odoo-remove`    | Delete the guest; needs a confirmation naming the instance                                     |
+
+`installPlaybookVars()` sends the guest's settings with each request: name,
+OS, cores, memory, disk, node and domain. The platform and its credentials
+belong to the backend's inventory, not to the request.
 
 ## Installation
 

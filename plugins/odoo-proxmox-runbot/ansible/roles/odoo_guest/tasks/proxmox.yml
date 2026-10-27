@@ -1,0 +1,105 @@
+---
+- name: Proxmox settings
+  ansible.builtin.assert:
+    that:
+      - odoo_proxmox_api_host | length > 0
+      - odoo_proxmox_api_token_id | length > 0
+      - odoo_proxmox_api_token_secret | length > 0
+      - odoo_proxmox_node | length > 0
+      - odoo_guest_state == 'absent' or odoo_proxmox_ip is match('^[0-9.]+/[0-9]+$')
+    fail_msg: >-
+      Proxmox needs odoo_proxmox_api_host, odoo_proxmox_api_token_id and _secret,
+      odoo_proxmox_node, and a static odoo_proxmox_ip (CIDR) so Ansible can reach the container
+    quiet: true
+
+- name: LXC container {{ odoo_guest_name }}
+  community.general.proxmox:
+    api_host: '{{ odoo_proxmox_api_host }}'
+    api_port: '{{ odoo_proxmox_api_port }}'
+    api_user: '{{ odoo_proxmox_api_user }}'
+    api_token_id: '{{ odoo_proxmox_api_token_id }}'
+    api_token_secret: '{{ odoo_proxmox_api_token_secret }}'
+    validate_certs: '{{ odoo_proxmox_validate_certs }}'
+    node: '{{ odoo_proxmox_node }}'
+    vmid: '{{ odoo_proxmox_vmid | default(omit, true) }}'
+    hostname: '{{ odoo_guest_name }}'
+    ostemplate: '{{ odoo_proxmox_template_storage }}:vztmpl/{{ odoo_proxmox_templates[odoo_guest_os] }}'
+    cores: '{{ odoo_guest_cores }}'
+    memory: '{{ odoo_guest_memory }}'
+    swap: 512
+    disk: '{{ odoo_proxmox_storage }}:{{ odoo_guest_disk }}'
+    netif:
+      net0: >-
+        name=eth0,bridge={{ odoo_proxmox_bridge }},ip={{ odoo_proxmox_ip }}{{
+        (',gw=' ~ odoo_proxmox_gateway) if odoo_proxmox_gateway else '' }}{{
+        (',tag=' ~ odoo_proxmox_vlan) if odoo_proxmox_vlan else '' }}
+    nameserver: '{{ odoo_proxmox_nameserver | default(omit, true) }}'
+    unprivileged: true
+    # systemd in Ubuntu 22.04+ needs nesting in an unprivileged container
+    features: [nesting=1]
+    onboot: '{{ odoo_proxmox_onboot }}'
+    tags: '{{ odoo_proxmox_tags }}'
+    pubkey: '{{ odoo_proxmox_ssh_public_key | default(omit, true) }}'
+    state: "{{ 'present' if odoo_guest_state == 'present' else 'absent' }}"
+    force: false
+    timeout: 300
+  delegate_to: localhost
+  become: false
+  register: _odoo_guest_ct
+  when: odoo_guest_state == 'present' and odoo_guest_create | bool
+
+- name: Started
+  community.general.proxmox:
+    api_host: '{{ odoo_proxmox_api_host }}'
+    api_port: '{{ odoo_proxmox_api_port }}'
+    api_user: '{{ odoo_proxmox_api_user }}'
+    api_token_id: '{{ odoo_proxmox_api_token_id }}'
+    api_token_secret: '{{ odoo_proxmox_api_token_secret }}'
+    validate_certs: '{{ odoo_proxmox_validate_certs }}'
+    node: '{{ odoo_proxmox_node }}'
+    hostname: '{{ odoo_guest_name }}'
+    state: started
+  delegate_to: localhost
+  become: false
+  when: odoo_guest_state == 'present' and odoo_guest_create | bool
+
+- name: Removed
+  when: odoo_guest_state == 'absent'
+  delegate_to: localhost
+  become: false
+  block:
+    - name: Stop the container
+      community.general.proxmox:
+        api_host: '{{ odoo_proxmox_api_host }}'
+        api_port: '{{ odoo_proxmox_api_port }}'
+        api_user: '{{ odoo_proxmox_api_user }}'
+        api_token_id: '{{ odoo_proxmox_api_token_id }}'
+        api_token_secret: '{{ odoo_proxmox_api_token_secret }}'
+        validate_certs: '{{ odoo_proxmox_validate_certs }}'
+        node: '{{ odoo_proxmox_node }}'
+        hostname: '{{ odoo_guest_name }}'
+        state: stopped
+        force: true
+      failed_when: false
+
+    - name: Delete the container
+      community.general.proxmox:
+        api_host: '{{ odoo_proxmox_api_host }}'
+        api_port: '{{ odoo_proxmox_api_port }}'
+        api_user: '{{ odoo_proxmox_api_user }}'
+        api_token_id: '{{ odoo_proxmox_api_token_id }}'
+        api_token_secret: '{{ odoo_proxmox_api_token_secret }}'
+        validate_certs: '{{ odoo_proxmox_validate_certs }}'
+        node: '{{ odoo_proxmox_node }}'
+        hostname: '{{ odoo_guest_name }}'
+        state: absent
+        purge: true
+
+- name: Connect over SSH as root
+  ansible.builtin.set_fact:
+    ansible_connection: ssh
+    ansible_host: "{{ odoo_proxmox_ip.split('/')[0] if odoo_proxmox_ip else ansible_host | default(inventory_hostname) }}"
+    ansible_user: root
+    ansible_ssh_common_args: >-
+      -o StrictHostKeyChecking=accept-new{{ (' -J ' ~ odoo_proxmox_ssh_jump) if odoo_proxmox_ssh_jump else '' }}
+  when: odoo_guest_state == 'present'

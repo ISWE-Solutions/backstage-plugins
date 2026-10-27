@@ -1,0 +1,84 @@
+---
+- name: Odoo and Enterprise checkouts
+  ansible.builtin.set_fact:
+    _odoo_repos: >-
+      {{ [{'name': 'odoo', 'url': odoo_repo_url, 'rev': odoo_repo_rev,
+           'depth': odoo_repo_depth, 'dest': odoo_rootdir ~ '/odoo'}]
+         + ([{'name': 'enterprise', 'url': odoo_enterprise_repo_url, 'rev': odoo_enterprise_repo_rev,
+              'depth': 1, 'dest': odoo_rootdir ~ '/enterprise'}]
+            if odoo_edition == 'enterprise' else []) }}
+    _odoo_addons_dirs: []
+
+- name: Addons checkouts
+  ansible.builtin.set_fact:
+    _odoo_repos: "{{ _odoo_repos + [item | combine({'dest': odoo_rootdir ~ '/addons/' ~ item.name})] }}"
+    _odoo_addons_dirs: >-
+      {{ _odoo_addons_dirs + [odoo_rootdir ~ '/addons/' ~ item.name
+         ~ (('/' ~ (item.subdir | trim('/'))) if item.subdir | default('') | trim('/') else '')] }}
+  loop: '{{ odoo_addons_repos }}'
+  loop_control:
+    label: '{{ item.name }}'
+
+- name: Deploy key for private repositories
+  when: _odoo_repos | selectattr('url', 'match', '^(git@|ssh://)') | list | length > 0
+  become: true
+  become_user: '{{ odoo_user }}'
+  block:
+    - name: SSH directory
+      ansible.builtin.file:
+        path: '{{ odoo_rootdir }}/.ssh'
+        state: directory
+        mode: '0700'
+
+    - name: Install the given deploy key
+      ansible.builtin.copy:
+        src: '{{ odoo_git_key_file }}'
+        dest: '{{ odoo_rootdir }}/.ssh/id_ed25519'
+        mode: '0600'
+      when: odoo_git_key_file | length > 0
+
+    - name: Generate a deploy key
+      ansible.builtin.command:
+        cmd: ssh-keygen -t ed25519 -N "" -C "odoo@{{ inventory_hostname }}" -f {{ odoo_rootdir }}/.ssh/id_ed25519
+        creates: '{{ odoo_rootdir }}/.ssh/id_ed25519'
+      when: odoo_git_key_file | length == 0
+
+    - name: Read the public key
+      ansible.builtin.command: ssh-keygen -y -f {{ odoo_rootdir }}/.ssh/id_ed25519
+      register: _odoo_pubkey
+      changed_when: false
+
+    - name: Public key to add as a read-only deploy key on each private repository
+      ansible.builtin.debug:
+        msg: '{{ _odoo_pubkey.stdout }} odoo@{{ inventory_hostname }}'
+
+# A branch or tag can be cloned shallow; a commit hash needs depth 0 (full history)
+- name: Check out
+  ansible.builtin.git:
+    repo: '{{ item.url }}'
+    dest: '{{ item.dest }}'
+    version: '{{ item.rev }}'
+    depth: '{{ (item.depth | default(1) | int) or omit }}'
+    single_branch: '{{ (item.depth | default(1) | int) > 0 }}'
+    update: '{{ odoo_repo_update | bool }}'
+    key_file: "{{ (odoo_rootdir ~ '/.ssh/id_ed25519') if item.url is match('^(git@|ssh://)') else omit }}"
+    accept_newhostkey: true
+  loop: '{{ _odoo_repos }}'
+  loop_control:
+    label: '{{ item.name }}@{{ item.rev }}'
+  become: true
+  become_user: '{{ odoo_user }}'
+  register: _odoo_checkouts
+  notify: Restart Odoo
+
+- name: Revisions in use
+  ansible.builtin.debug:
+    msg: "{{ dict(_odoo_checkouts.results | map(attribute='item.name') | zip(_odoo_checkouts.results | map(attribute='after'))) }}"
+
+- name: Compute addons_path
+  ansible.builtin.set_fact:
+    _odoo_addons_path: >-
+      {{ odoo_config_addons_path if odoo_config_addons_path | length > 0 else
+         ([odoo_rootdir ~ '/enterprise'] if odoo_edition == 'enterprise' else [])
+         + _odoo_addons_dirs
+         + [odoo_rootdir ~ '/odoo/addons', odoo_rootdir ~ '/odoo/odoo/addons'] }}

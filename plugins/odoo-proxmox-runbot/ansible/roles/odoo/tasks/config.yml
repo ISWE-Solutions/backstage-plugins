@@ -1,0 +1,11 @@
+---
+- name: Write odoo.conf
+  ansible.builtin.template:
+    src: odoo.conf.j2
+    dest: '{{ odoo_config_file }}'
+    owner: root
+    group: '{{ odoo_user }}'
+    mode: '0640'
+    backup: true
+  no_log: true # it holds the master and database passwords
+  notify: Restart Odoo

@@ -1,0 +1,49 @@
+---
+# The same rules as the plugin's validateCreateRequest, so a run started outside
+# Backstage can't skip them
+- name: Supported Odoo version on this operating system
+  ansible.builtin.assert:
+    that:
+      - odoo_version in _odoo_os
+      - ansible_distribution == 'Ubuntu'
+      - ansible_distribution_version in _odoo_os[odoo_version]
+    fail_msg: >-
+      Odoo {{ odoo_version }} runs on Ubuntu {{ _odoo_os.get(odoo_version, ['?']) | join(' or ') }},
+      not {{ ansible_distribution }} {{ ansible_distribution_version }}
+    quiet: true
+  vars:
+    _odoo_os:
+      '19.0': ['24.04']
+      '18.0': ['24.04', '22.04']
+      '17.0': ['24.04', '22.04']
+      '16.0': ['22.04']
+
+- name: Enterprise edition has a source
+  ansible.builtin.assert:
+    that: odoo_enterprise_repo_url | default(false, true)
+    fail_msg: The enterprise edition needs odoo_enterprise_repo_url
+    quiet: true
+  when: odoo_edition == 'enterprise'
+
+- name: Safe settings in production
+  ansible.builtin.assert:
+    that:
+      - not (odoo_config_list_db | bool)
+      - odoo_config_dbfilter not in ['', '.*']
+      - odoo_config_without_demo | bool
+    fail_msg: 'Production needs list_db off, a dbfilter such as ^%d$ and no demo data'
+    quiet: true
+  when: odoo_environment == 'production'
+
+- name: Shared cluster settings
+  ansible.builtin.assert:
+    that:
+      - odoo_config_db_host not in ['', 'localhost', '127.0.0.1']
+      - odoo_db_admin_user | length > 0
+      - odoo_db_admin_password | length > 0
+      - odoo_config_db_sslmode not in ['verify-ca', 'verify-full'] or odoo_db_ca_cert | length > 0
+    fail_msg: >-
+      A shared cluster needs odoo_config_db_host, odoo_db_admin_user and odoo_db_admin_password,
+      and odoo_db_ca_cert for sslmode {{ odoo_config_db_sslmode }}
+    quiet: true
+  when: odoo_db_placement == 'cluster'

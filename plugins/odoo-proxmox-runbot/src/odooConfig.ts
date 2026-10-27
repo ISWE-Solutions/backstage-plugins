@@ -513,6 +513,15 @@ export function installPlaybookVars(
       .map(([k, v]) => [`odoo_config_${k}`, v]),
   );
   return {
+    // The guest (odoo_guest role); the platform itself (odoo_platform: proxmox,
+    // lxd, docker or ssh) and its credentials come from the backend's inventory
+    odoo_guest_name: hostnameFor(req.name),
+    odoo_guest_os: req.os,
+    odoo_guest_cores: req.resources.cpu,
+    odoo_guest_memory: req.resources.memory,
+    odoo_guest_disk: req.resources.storage,
+    odoo_proxmox_node: req.node,
+    odoo_nginx_domain: req.domain,
     odoo_version: req.version,
     odoo_edition: req.edition,
     odoo_environment: req.environment,
@@ -541,5 +550,6 @@ export function installPlaybookVars(
     ...config,
     odoo_config_custom: req.config.custom,
     odoo_modules: req.addons ?? [],
+    ...(req.adminPassword ? { odoo_admin_password: req.adminPassword } : {}),
   };
 }

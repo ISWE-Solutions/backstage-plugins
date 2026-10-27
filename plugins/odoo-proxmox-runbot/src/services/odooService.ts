@@ -13,7 +13,6 @@ import {
   hostnameFor,
   installPlaybookVars,
   odooVersions,
-  OS_INFO,
   resolveDatabase,
   suggestServerConfig,
   validateCreateRequest,
@@ -214,56 +213,29 @@ export class OdooService {
     }
     console.log('Creating Odoo instance:', request.name);
 
-    // 1. Get next available VMID from Proxmox
-    const vmid = await proxmoxService.getNextVmid();
-
-    // 2. Create LXC container
-    let containerCreated = false;
+    // The odoo-install playbook creates the guest on the configured platform
+    // (Proxmox, LXD or Docker) and installs Odoo in it; nginx-proxy then puts
+    // it behind nginx. Both are idempotent, so a failed run can be repeated.
+    const host = hostnameFor(request.name);
     try {
-      await proxmoxService.createContainer(request.node, vmid, {
-        hostname: hostnameFor(request.name),
-        memory: request.resources.memory,
-        cores: request.resources.cpu,
-        rootfs: `local-lvm:${request.resources.storage}`,
-        ostemplate: `local:vztmpl/${OS_INFO[request.os].template}`,
-        network: 'name=eth0,bridge=vmbr0,ip=dhcp',
-        nameserver: '8.8.8.8',
-        searchdomain: 'example.com',
-        unprivileged: 1,
-      });
-      containerCreated = true;
-
-      // 3. Install Odoo: sources, dependencies, database, odoo.conf, service.
-      // The backend generates the master and database passwords.
       await ansibleService.executePlaybook(
         'odoo-install',
-        [hostnameFor(request.name)],
+        [host],
         installPlaybookVars(request, clusters),
       );
-
-      // 4. Put it behind nginx with TLS
-      await ansibleService.executePlaybook(
-        'nginx-proxy',
-        [hostnameFor(request.name)],
-        {
-          domain: request.domain,
-          upstream_port: 8069,
-          longpolling_port: 8072,
-          ssl_enabled: true,
-        },
-      );
+      await ansibleService.executePlaybook('nginx-proxy', [host], {
+        odoo_nginx_domain: request.domain,
+        odoo_nginx_upstream_port: 8069,
+        odoo_nginx_websocket_port: 8072,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (containerCreated) {
-        throw new Error(
-          `Odoo instance provisioning failed on node ${request.node} after LXC container ${vmid} was created: ${message}. ` +
-            `Container ${vmid} may need manual cleanup or a retry of provisioning.`,
-        );
-      }
       throw new Error(
-        `Failed to create Odoo instance on node ${request.node}: ${message}`,
+        `Creating Odoo instance ${host} failed: ${message}. ` +
+          'The playbooks are idempotent: fix the cause and create it again, or remove the guest with odoo-remove.',
       );
     }
+    const vmid = await proxmoxService.getNextVmid();
 
     // Return the new instance
     const newInstance: OdooInstance = {
@@ -309,11 +281,17 @@ export class OdooService {
       console.log('Updating container resources');
     }
 
-    // If addons changed, run Ansible to install/update modules
-    if (updates.addons) {
-      await ansibleService.executePlaybook('odoo-configure', [instance.name], {
-        addons: updates.addons,
-      });
+    // odoo.conf settings: odoo-configure rewrites the file and restarts Odoo
+    if (updates.config) {
+      await ansibleService.executePlaybook(
+        'odoo-configure',
+        [hostnameFor(instance.name)],
+        Object.fromEntries(
+          Object.entries({ ...instance.config, ...updates.config }).map(
+            ([k, v]) => [`odoo_config_${k}`, v],
+          ),
+        ),
+      );
     }
 
     return {
@@ -333,24 +311,17 @@ export class OdooService {
     const instance = await this.getInstance(id);
     if (!instance) return false;
 
-    // 1. Stop the container
-    let containerStopped = false;
+    // odoo-remove deletes the guest on whichever platform it runs; it refuses
+    // unless the confirmation names the instance
+    const host = hostnameFor(instance.name);
     try {
-      await proxmoxService.stopContainer(instance.node, instance.vmid);
-      containerStopped = true;
-
-      // 2. Delete the container
-      await proxmoxService.deleteContainer(instance.node, instance.vmid);
+      await ansibleService.executePlaybook('odoo-remove', [host], {
+        odoo_remove_confirm: host,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (containerStopped) {
-        throw new Error(
-          `Failed to delete container ${instance.vmid} on node ${instance.node} after it was stopped: ${message}. ` +
-            `Container ${instance.vmid} is stopped but still exists and may need manual cleanup.`,
-        );
-      }
       throw new Error(
-        `Failed to delete Odoo instance ${id} (container ${instance.vmid} on node ${instance.node}): ${message}`,
+        `Failed to delete Odoo instance ${id} (${host}): ${message}`,
       );
     }
 
@@ -397,10 +368,11 @@ export class OdooService {
     const instance = await this.getInstance(id);
     if (!instance) return false;
 
-    await ansibleService.executePlaybook('odoo-backup', [instance.name], {
-      instance_id: id,
-      backup_path: `/backups/odoo/${instance.name}`,
-    });
+    await ansibleService.executePlaybook(
+      'odoo-backup',
+      [hostnameFor(instance.name)],
+      {},
+    );
 
     return true;
   }
@@ -412,9 +384,11 @@ export class OdooService {
     const instance = await this.getInstance(id);
     if (!instance) return false;
 
-    await ansibleService.executePlaybook('odoo-restore', [instance.name], {
-      backup_file: backupFile,
-      restore_filestore: true,
+    const host = hostnameFor(instance.name);
+    await ansibleService.executePlaybook('odoo-restore', [host], {
+      odoo_restore_from: backupFile,
+      // Production refuses without it; the UI asks the user to confirm first
+      odoo_restore_confirm: host,
     });
 
     return true;
@@ -427,11 +401,12 @@ export class OdooService {
     const instance = await this.getInstance(id);
     if (!instance) return false;
 
-    await ansibleService.executePlaybook('odoo-upgrade', [instance.name], {
-      current_version: instance.version,
-      target_version: targetVersion,
-      backup_before_upgrade: true,
-    });
+    // Same major version only: the playbook refuses 17.0 -> 18.0 (a data migration)
+    await ansibleService.executePlaybook(
+      'odoo-upgrade',
+      [hostnameFor(instance.name)],
+      { odoo_upgrade_target_version: targetVersion },
+    );
 
     return true;
   }

@@ -1,0 +1,13 @@
+---
+# odoo-configure.yml: rewrite odoo.conf and the unit, restart if they changed.
+# Code, packages and the database are left alone.
+- name: Check the request
+  ansible.builtin.import_tasks: assert.yml
+- name: Secrets
+  ansible.builtin.import_tasks: secrets.yml
+- name: Sources (no update; computes addons_path)
+  ansible.builtin.import_tasks: sources.yml
+- name: Write odoo.conf
+  ansible.builtin.import_tasks: config.yml
+- name: Service
+  ansible.builtin.import_tasks: service.yml

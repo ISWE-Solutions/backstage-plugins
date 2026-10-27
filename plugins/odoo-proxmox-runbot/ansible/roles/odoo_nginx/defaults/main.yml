@@ -1,0 +1,14 @@
+---
+odoo_nginx_domain: '{{ inventory_hostname }}'
+odoo_nginx_upstream_port: 8069
+odoo_nginx_websocket_port: 8072
+# certbot   Let's Encrypt on the instance (needs the domain's DNS and port 80 to reach it)
+# provided  your own certificate and key files, copied from the controller
+# none      plain HTTP: another proxy in front terminates TLS
+odoo_nginx_tls: certbot
+odoo_nginx_certbot_email: ''
+odoo_nginx_cert_file: '' # provided: PEM chain on the controller
+odoo_nginx_key_file: '' # provided: key on the controller
+odoo_nginx_client_max_body_size: 200m
+# Only for odoo_nginx_tls: none, when the proxy in front isn't on this host
+odoo_nginx_trusted_proxies: []

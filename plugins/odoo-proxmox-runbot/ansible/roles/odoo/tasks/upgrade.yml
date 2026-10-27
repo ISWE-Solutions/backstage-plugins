@@ -1,0 +1,51 @@
+---
+# odoo-upgrade.yml: back up, move every checkout to its configured revision,
+# reinstall requirements, update modules, restart. Within one major version
+# only: 17.0 -> 18.0 needs a data migration (OpenUpgrade or upgrade.odoo.com).
+- name: Same major version
+  ansible.builtin.assert:
+    that: (odoo_upgrade_target_version | default(odoo_version)) == odoo_version
+    fail_msg: >-
+      Moving from Odoo {{ odoo_version }} to {{ odoo_upgrade_target_version }} is a major-version
+      migration, which needs OpenUpgrade or Odoo's upgrade service, not this playbook.
+    quiet: true
+
+- name: Check the request
+  ansible.builtin.import_tasks: assert.yml
+
+- name: Back up first
+  ansible.builtin.import_tasks: backup.yml
+
+- name: Update the checkouts
+  ansible.builtin.include_tasks: sources.yml
+  vars:
+    odoo_repo_update: true
+
+- name: Python requirements
+  ansible.builtin.import_tasks: python.yml
+
+- name: Write odoo.conf
+  ansible.builtin.import_tasks: config.yml
+
+- name: Stop Odoo
+  ansible.builtin.systemd_service:
+    name: '{{ odoo_service }}'
+    state: stopped
+
+- name: Update modules
+  ansible.builtin.command:
+    cmd: >-
+      {{ odoo_venv }}/bin/python {{ odoo_rootdir }}/odoo/odoo-bin
+      -c {{ odoo_config_file }} -d {{ odoo_config_db_name }}
+      -u {{ odoo_upgrade_modules | join(',') }}
+      --workers=0 --max-cron-threads=0 --stop-after-init --no-http
+  environment:
+    PGSSLROOTCERT: '{{ odoo_config_file | dirname }}/pg-ca.pem'
+  become: true
+  become_user: '{{ odoo_user }}'
+  changed_when: true
+
+- name: Start Odoo
+  ansible.builtin.systemd_service:
+    name: '{{ odoo_service }}'
+    state: started

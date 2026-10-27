@@ -1,0 +1,15 @@
+---
+# Restore a backup folder (odoo_restore_from); production needs odoo_restore_confirm=<instance>.
+# Run from the ansible/ folder: ansible-playbook -i <inventory> playbooks/odoo-restore.yml [-l <instance>]
+- name: Odoo restore
+  hosts: "{{ odoo_target | default('odoo') }}"
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Connect to the guest
+      ansible.builtin.import_role:
+        name: odoo_guest
+    - name: Restore
+      ansible.builtin.import_role:
+        name: odoo
+        tasks_from: restore

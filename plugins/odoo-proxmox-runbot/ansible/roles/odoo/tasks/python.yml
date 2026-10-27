@@ -1,0 +1,45 @@
+---
+- name: Virtual environment with current pip and wheel
+  ansible.builtin.pip:
+    name: [pip, wheel, setuptools]
+    state: latest # noqa package-latest -- build tools only, inside the venv
+    virtualenv: '{{ odoo_venv }}'
+    virtualenv_command: python3 -m venv
+  become: true
+  become_user: '{{ odoo_user }}'
+
+- name: Odoo's own requirements
+  ansible.builtin.pip:
+    requirements: '{{ odoo_rootdir }}/odoo/requirements.txt'
+    virtualenv: '{{ odoo_venv }}'
+  become: true
+  become_user: '{{ odoo_user }}'
+  notify: Restart Odoo
+
+- name: Find requirements.txt in the addons repositories
+  ansible.builtin.stat:
+    path: '{{ odoo_rootdir }}/addons/{{ item.name }}/requirements.txt'
+  loop: '{{ odoo_addons_repos }}'
+  loop_control:
+    label: '{{ item.name }}'
+  register: _odoo_addons_reqs
+
+- name: Addons requirements
+  ansible.builtin.pip:
+    requirements: '{{ item.stat.path }}'
+    virtualenv: '{{ odoo_venv }}'
+  loop: "{{ _odoo_addons_reqs.results | selectattr('stat.exists') | list }}"
+  loop_control:
+    label: '{{ item.item.name }}'
+  become: true
+  become_user: '{{ odoo_user }}'
+  notify: Restart Odoo
+
+- name: Extra Python packages
+  ansible.builtin.pip:
+    name: '{{ odoo_pip_extra }}'
+    virtualenv: '{{ odoo_venv }}'
+  when: odoo_pip_extra | length > 0
+  become: true
+  become_user: '{{ odoo_user }}'
+  notify: Restart Odoo

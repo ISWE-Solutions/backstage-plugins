@@ -1,0 +1,108 @@
+---
+- name: TLS mode
+  ansible.builtin.assert:
+    that:
+      - odoo_nginx_tls in ['certbot', 'provided', 'none']
+      - odoo_nginx_tls != 'certbot' or odoo_nginx_certbot_email | length > 0
+      - odoo_nginx_tls != 'provided' or (odoo_nginx_cert_file | length > 0 and odoo_nginx_key_file | length > 0)
+    fail_msg: >-
+      odoo_nginx_tls is certbot (needs odoo_nginx_certbot_email), provided (needs
+      odoo_nginx_cert_file and odoo_nginx_key_file) or none
+    quiet: true
+
+- name: Install nginx
+  ansible.builtin.apt:
+    name: "{{ ['nginx'] + (['certbot', 'python3-certbot-nginx'] if odoo_nginx_tls == 'certbot' else []) }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: No default site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Reload nginx
+
+- name: Own certificate
+  when: odoo_nginx_tls == 'provided'
+  block:
+    - name: Certificate folder
+      ansible.builtin.file:
+        path: /etc/nginx/tls
+        state: directory
+        mode: '0750'
+    - name: Certificate chain
+      ansible.builtin.copy:
+        src: '{{ odoo_nginx_cert_file }}'
+        dest: /etc/nginx/tls/{{ odoo_nginx_domain }}.crt
+        mode: '0644'
+      notify: Reload nginx
+    - name: Key
+      ansible.builtin.copy:
+        src: '{{ odoo_nginx_key_file }}'
+        dest: /etc/nginx/tls/{{ odoo_nginx_domain }}.key
+        mode: '0600'
+      notify: Reload nginx
+
+- name: Let's Encrypt certificate already issued?
+  ansible.builtin.stat:
+    path: /etc/letsencrypt/live/{{ odoo_nginx_domain }}/fullchain.pem
+  register: _odoo_nginx_le
+
+- name: Site (HTTP only until the certificate exists)
+  ansible.builtin.template:
+    src: odoo-site.conf.j2
+    dest: /etc/nginx/sites-available/{{ odoo_nginx_domain }}.conf
+    mode: '0644'
+  vars:
+    _tls: >-
+      {{ odoo_nginx_tls == 'provided'
+         or (odoo_nginx_tls == 'certbot' and _odoo_nginx_le.stat.exists) }}
+    _cert: >-
+      {{ ('/etc/nginx/tls/' ~ odoo_nginx_domain ~ '.crt') if odoo_nginx_tls == 'provided'
+         else ('/etc/letsencrypt/live/' ~ odoo_nginx_domain ~ '/fullchain.pem') }}
+    _key: >-
+      {{ ('/etc/nginx/tls/' ~ odoo_nginx_domain ~ '.key') if odoo_nginx_tls == 'provided'
+         else ('/etc/letsencrypt/live/' ~ odoo_nginx_domain ~ '/privkey.pem') }}
+  notify: Reload nginx
+
+- name: Enable the site
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/{{ odoo_nginx_domain }}.conf
+    dest: /etc/nginx/sites-enabled/{{ odoo_nginx_domain }}.conf
+    state: link
+  notify: Reload nginx
+
+- name: Configuration is valid
+  ansible.builtin.command: nginx -t
+  changed_when: false
+
+- name: Apply now
+  ansible.builtin.meta: flush_handlers
+
+- name: Issue the certificate
+  when: odoo_nginx_tls == 'certbot' and not _odoo_nginx_le.stat.exists
+  block:
+    - name: Run certbot (webroot through the HTTP site)
+      ansible.builtin.command:
+        cmd: >-
+          certbot certonly --webroot -w /var/www/html -d {{ odoo_nginx_domain }}
+          --non-interactive --agree-tos -m {{ odoo_nginx_certbot_email }}
+        creates: /etc/letsencrypt/live/{{ odoo_nginx_domain }}/fullchain.pem
+
+    - name: Site with TLS
+      ansible.builtin.template:
+        src: odoo-site.conf.j2
+        dest: /etc/nginx/sites-available/{{ odoo_nginx_domain }}.conf
+        mode: '0644'
+      vars:
+        _tls: true
+        _cert: /etc/letsencrypt/live/{{ odoo_nginx_domain }}/fullchain.pem
+        _key: /etc/letsencrypt/live/{{ odoo_nginx_domain }}/privkey.pem
+      notify: Reload nginx
+
+    - name: Reload after renewals
+      ansible.builtin.copy:
+        dest: /etc/letsencrypt/renewal-hooks/deploy/reload-nginx
+        content: "#!/bin/sh\nsystemctl reload nginx\n"
+        mode: '0755'

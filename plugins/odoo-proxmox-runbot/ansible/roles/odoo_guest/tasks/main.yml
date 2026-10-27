@@ -1,0 +1,30 @@
+---
+- name: Known platform
+  ansible.builtin.assert:
+    that: odoo_platform in ['proxmox', 'lxd', 'docker', 'ssh']
+    fail_msg: 'odoo_platform must be proxmox, lxd, docker or ssh, not {{ odoo_platform }}'
+    quiet: true
+
+- name: Guest on {{ odoo_platform }}
+  ansible.builtin.include_tasks: '{{ odoo_platform }}.yml'
+  when: odoo_platform != 'ssh'
+
+- name: Wait for the guest and make sure it has Python
+  when: odoo_guest_state == 'present'
+  block:
+    - name: Reachable
+      ansible.builtin.wait_for_connection:
+        timeout: 300
+      become: false
+
+    # Minimal images (Docker's ubuntu) have neither; the other tasks need both
+    - name: Python and sudo for Ansible
+      ansible.builtin.raw: >-
+        command -v python3 >/dev/null && command -v sudo >/dev/null && echo present ||
+        (apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3 sudo >/dev/null && echo installed)
+      register: _odoo_guest_python
+      changed_when: "'installed' in _odoo_guest_python.stdout"
+      become: false
+
+    - name: Facts
+      ansible.builtin.setup:

@@ -1,0 +1,22 @@
+---
+# Delete the guest and its data (not for odoo_platform: ssh). Needs odoo_remove_confirm=<instance>.
+# Run from the ansible/ folder: ansible-playbook -i <inventory> playbooks/odoo-remove.yml [-l <instance>]
+- name: Remove an Odoo instance
+  hosts: "{{ odoo_target | default('odoo') }}"
+  gather_facts: false
+  tasks:
+    - name: Confirmed for this instance
+      ansible.builtin.assert:
+        that:
+          - odoo_remove_confirm | default('') == inventory_hostname
+          - odoo_platform | default('proxmox') != 'ssh'
+        fail_msg: >-
+          Set odoo_remove_confirm={{ inventory_hostname }} to delete this instance's
+          container and everything in it. Machines reached over plain SSH are never deleted.
+        quiet: true
+
+    - name: Delete the guest
+      ansible.builtin.import_role:
+        name: odoo_guest
+      vars:
+        odoo_guest_state: absent

@@ -1,0 +1,22 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Odoo {{ odoo_version }} ({{ odoo_environment }})
+After=network-online.target{{ ' postgresql.service' if odoo_db_placement == 'local' else '' }}
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ odoo_user }}
+Group={{ odoo_user }}
+WorkingDirectory={{ odoo_rootdir }}
+Environment=PGSSLROOTCERT={{ odoo_config_file | dirname }}/pg-ca.pem
+ExecStart={{ odoo_venv }}/bin/python {{ odoo_rootdir }}/odoo/odoo-bin -c {{ odoo_config_file }}
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

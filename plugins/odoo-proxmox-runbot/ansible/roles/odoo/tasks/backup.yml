@@ -1,0 +1,71 @@
+---
+# odoo-backup.yml: database (pg_dump custom format), filestore and odoo.conf in
+# <odoo_backup_dir>/<db>-<timestamp>/, keeping the newest odoo_backup_keep.
+- name: Secrets
+  ansible.builtin.import_tasks: secrets.yml
+- name: Database connection
+  ansible.builtin.import_tasks: pgenv.yml
+
+- name: Backup folder
+  ansible.builtin.set_fact:
+    _odoo_backup: "{{ odoo_backup_dir }}/{{ odoo_config_db_name }}-{{ now(utc=true, fmt='%Y%m%dT%H%M%SZ') }}"
+
+- name: Create it
+  ansible.builtin.file:
+    path: '{{ _odoo_backup }}'
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Dump the database
+  ansible.builtin.command:
+    cmd: pg_dump -Fc --no-owner -f {{ _odoo_backup }}/db.dump {{ odoo_config_db_name }}
+  environment: '{{ _odoo_pgenv }}'
+  changed_when: true
+
+- name: Archive the filestore
+  community.general.archive:
+    path: '{{ odoo_config_data_dir }}/filestore/{{ odoo_config_db_name }}'
+    dest: '{{ _odoo_backup }}/filestore.tar.gz'
+    format: gz
+    mode: '0600'
+
+- name: Copy odoo.conf (it holds the passwords; the folder is root-only)
+  ansible.builtin.copy:
+    src: '{{ odoo_config_file }}'
+    dest: '{{ _odoo_backup }}/odoo.conf'
+    remote_src: true
+    mode: '0600'
+
+- name: Revisions of the code
+  ansible.builtin.shell:
+    cmd: >-
+      for d in {{ odoo_rootdir }}/odoo {{ odoo_rootdir }}/enterprise {{ odoo_rootdir }}/addons/*;
+      do [ -d "$d/.git" ] && echo "$(basename "$d") $(git -C "$d" rev-parse HEAD)";
+      done > {{ _odoo_backup }}/revisions.txt
+  changed_when: true
+
+- name: Find older backups
+  ansible.builtin.shell:
+    cmd: set -o pipefail; ls -1dt {{ odoo_backup_dir }}/{{ odoo_config_db_name }}-*/ | tail -n +{{ odoo_backup_keep | int + 1 }}
+    executable: /bin/bash
+  register: _odoo_old_backups
+  changed_when: false
+
+- name: Remove older backups
+  ansible.builtin.file:
+    path: '{{ item }}'
+    state: absent
+  loop: '{{ _odoo_old_backups.stdout_lines }}'
+
+- name: Copy the backup to the controller
+  ansible.posix.synchronize:
+    mode: pull
+    src: '{{ _odoo_backup }}'
+    dest: '{{ odoo_backup_fetch_dir }}/{{ inventory_hostname }}/'
+  when: odoo_backup_fetch_dir | length > 0
+
+- name: Backup written
+  ansible.builtin.debug:
+    msg: '{{ _odoo_backup }}'

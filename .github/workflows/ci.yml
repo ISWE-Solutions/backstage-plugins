@@ -21,3 +21,21 @@ jobs:
       - run: yarn test
         env:
           CI: true
+
+  ansible:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugins/odoo-proxmox-runbot/ansible
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install 'ansible-core>=2.17,<2.20' ansible-lint
+      - run: ansible-galaxy collection install -r requirements.yml
+      - run: ansible-lint
+      - run: |
+          for p in playbooks/*.yml; do
+            ansible-playbook -i inventory.example.yml --syntax-check "$p"
+          done

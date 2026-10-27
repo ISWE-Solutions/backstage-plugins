@@ -1,0 +1,9 @@
+---
+profile: production
+offline: true
+exclude_paths: [collections/, .secrets/]
+skip_list:
+  # The three roles share one variable namespace (odoo_*), which is what the
+  # Backstage plugin sends; prefixing by role (odoo_guest_*, odoo_nginx_*) would
+  # split one instance's settings across three names for the same thing.
+  - var-naming[no-role-prefix]

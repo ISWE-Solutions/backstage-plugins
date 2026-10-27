@@ -1,0 +1,35 @@
+---
+- name: Docker container {{ odoo_guest_name }}
+  community.docker.docker_container:
+    name: '{{ odoo_guest_name }}'
+    docker_host: '{{ odoo_docker_host }}'
+    image: '{{ odoo_docker_images[odoo_guest_os] }}'
+    state: "{{ 'started' if odoo_guest_state == 'present' else 'absent' }}"
+    hostname: '{{ odoo_guest_name }}'
+    restart_policy: unless-stopped
+    # systemd as PID 1
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+      - '{{ odoo_guest_name }}-odoo:/opt/odoo'
+      - '{{ odoo_guest_name }}-data:/var/lib/odoo'
+      - '{{ odoo_guest_name }}-pg:/var/lib/postgresql'
+    tmpfs: [/run, /run/lock, /tmp]
+    cpus: '{{ odoo_guest_cores }}'
+    memory: '{{ odoo_guest_memory }}m'
+    networks:
+      - name: '{{ odoo_docker_network }}'
+    published_ports: '{{ odoo_docker_ports }}'
+    labels:
+      managed-by: odoo-proxmox-runbot
+    keep_volumes: false
+  delegate_to: localhost
+  become: false
+  when: odoo_guest_state == 'absent' or odoo_guest_create | bool
+
+- name: Connect with docker exec
+  ansible.builtin.set_fact:
+    ansible_connection: community.docker.docker
+    ansible_host: '{{ odoo_guest_name }}'
+    ansible_docker_extra_args: "{{ ('-H ' ~ odoo_docker_host) if odoo_docker_host is not match('^unix:') else '' }}"
+  when: odoo_guest_state == 'present'

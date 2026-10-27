@@ -1,0 +1,11 @@
+---
+# ansible-galaxy collection install -r requirements.yml
+collections:
+  - name: community.general # proxmox, lxd_container, the lxd connection, archive
+    version: '>=8.0.0'
+  - name: community.docker # docker_container and the docker connection
+    version: '>=3.4.0'
+  - name: community.postgresql
+    version: '>=3.0.0'
+  - name: ansible.posix # synchronize, for copying backups to the controller
+    version: '>=1.5.0'

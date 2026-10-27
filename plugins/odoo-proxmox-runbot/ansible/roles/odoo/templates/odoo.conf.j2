@@ -1,0 +1,48 @@
+; {{ ansible_managed }}
+; Odoo {{ odoo_version }} ({{ odoo_edition }}, {{ odoo_environment }})
+[options]
+addons_path = {{ _odoo_addons_path | join(',') }}
+data_dir = {{ odoo_config_data_dir }}
+admin_passwd = {{ _odoo_admin_passwd }}
+
+db_host = {{ odoo_config_db_host }}
+db_port = {{ odoo_config_db_port }}
+db_user = {{ odoo_config_db_user }}
+db_password = {{ _odoo_db_password }}
+db_name = {{ odoo_config_db_name }}
+db_sslmode = {{ odoo_config_db_sslmode }}
+db_maxconn = {{ odoo_config_db_maxconn }}
+dbfilter = {{ odoo_config_dbfilter }}
+list_db = {{ odoo_config_list_db | bool }}
+
+http_port = {{ odoo_config_http_port }}
+gevent_port = {{ odoo_config_gevent_port }}
+proxy_mode = {{ odoo_config_proxy_mode | bool }}
+
+workers = {{ odoo_config_workers }}
+max_cron_threads = {{ odoo_config_max_cron_threads }}
+limit_memory_soft = {{ odoo_config_limit_memory_soft }}
+limit_memory_hard = {{ odoo_config_limit_memory_hard }}
+limit_time_cpu = {{ odoo_config_limit_time_cpu }}
+limit_time_real = {{ odoo_config_limit_time_real }}
+limit_time_real_cron = {{ odoo_config_limit_time_real_cron }}
+
+server_wide_modules = {{ odoo_config_server_wide_modules | join(',') }}
+without_demo = {{ 'all' if odoo_config_without_demo | bool else 'False' }}
+; journald (systemd) collects the log
+logfile =
+log_level = {{ odoo_config_log_level }}
+
+smtp_server = {{ odoo_config_smtp_server }}
+smtp_port = {{ odoo_config_smtp_port }}
+smtp_ssl = {{ odoo_config_smtp_ssl | bool }}
+{% if odoo_config_smtp_user %}
+smtp_user = {{ odoo_config_smtp_user }}
+smtp_password = {{ odoo_config_smtp_password }}
+{% endif %}
+{% if odoo_config_email_from %}
+email_from = {{ odoo_config_email_from }}
+{% endif %}
+{% for key, value in odoo_config_custom.items() %}
+{{ key }} = {{ value }}
+{% endfor %}

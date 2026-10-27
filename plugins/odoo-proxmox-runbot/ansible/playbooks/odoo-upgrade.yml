@@ -1,0 +1,15 @@
+---
+# Back up, update code to the configured revisions, update modules and restart (same major version).
+# Run from the ansible/ folder: ansible-playbook -i <inventory> playbooks/odoo-upgrade.yml [-l <instance>]
+- name: Odoo upgrade
+  hosts: "{{ odoo_target | default('odoo') }}"
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Connect to the guest
+      ansible.builtin.import_role:
+        name: odoo_guest
+    - name: Upgrade
+      ansible.builtin.import_role:
+        name: odoo
+        tasks_from: upgrade

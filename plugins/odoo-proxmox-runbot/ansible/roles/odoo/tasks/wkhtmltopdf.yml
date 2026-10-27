@@ -1,0 +1,31 @@
+---
+- name: Installed wkhtmltopdf version
+  ansible.builtin.command: wkhtmltopdf --version
+  register: _odoo_wkhtmltox
+  changed_when: false
+  failed_when: false
+
+- name: Install the patched-Qt wkhtmltopdf
+  when: odoo_wkhtmltox_version.split('-')[0] not in (_odoo_wkhtmltox.stdout | default(''))
+  block:
+    - name: Download wkhtmltopdf
+      ansible.builtin.get_url:
+        url: '{{ odoo_wkhtmltox_url }}'
+        dest: /tmp/wkhtmltox.deb
+        mode: '0644'
+        checksum: "{{ ('sha256:' ~ odoo_wkhtmltox_sha256) if odoo_wkhtmltox_sha256 else omit }}"
+
+    - name: Install the package
+      ansible.builtin.apt:
+        deb: /tmp/wkhtmltox.deb
+
+    - name: Remove the download
+      ansible.builtin.file:
+        path: /tmp/wkhtmltox.deb
+        state: absent
+
+- name: Check wkhtmltopdf is the patched-Qt build Odoo needs
+  ansible.builtin.command: wkhtmltopdf --version
+  register: _odoo_wkhtmltox_after
+  changed_when: false
+  failed_when: "'with patched qt' not in _odoo_wkhtmltox_after.stdout"

@@ -1,0 +1,66 @@
+---
+# Where the instance runs:
+#   proxmox  LXC container on a Proxmox VE cluster (API), reached over SSH
+#   lxd      LXD container, reached with `lxc exec` from the controller
+#   docker   Docker container running systemd, reached with `docker exec`
+#   ssh      an existing machine; nothing is created
+odoo_platform: proxmox
+
+# The guest (sent by the plugin's create form)
+odoo_guest_name: '{{ inventory_hostname }}'
+odoo_guest_os: ubuntu-24.04 # ubuntu-24.04 | ubuntu-22.04
+odoo_guest_cores: 2
+odoo_guest_memory: 4096 # MB
+odoo_guest_disk: 30 # GB
+# Create the guest when it doesn't exist. Only odoo-install.yml does; the other
+# playbooks connect to an existing guest and never create one by accident.
+odoo_guest_create: false
+# Remove the guest instead (odoo-remove.yml sets this)
+odoo_guest_state: present
+
+# --- Proxmox VE
+odoo_proxmox_api_host: ''
+odoo_proxmox_api_port: 8006
+odoo_proxmox_api_user: root@pam
+odoo_proxmox_api_token_id: '' # e.g. backstage
+odoo_proxmox_api_token_secret: ''
+odoo_proxmox_validate_certs: true
+odoo_proxmox_node: ''
+odoo_proxmox_vmid: '' # empty: next free id
+odoo_proxmox_storage: local-lvm
+odoo_proxmox_template_storage: local
+odoo_proxmox_templates:
+  ubuntu-24.04: ubuntu-24.04-standard_24.04-2_amd64.tar.zst
+  ubuntu-22.04: ubuntu-22.04-standard_22.04-1_amd64.tar.zst
+odoo_proxmox_bridge: vmbr0
+# Static address, so Ansible can reach the container: "192.168.11.150/24"
+odoo_proxmox_ip: ''
+odoo_proxmox_gateway: ''
+odoo_proxmox_nameserver: ''
+odoo_proxmox_vlan: ''
+odoo_proxmox_onboot: true
+odoo_proxmox_tags: [odoo]
+# The controller's public key, for root SSH into the new container
+odoo_proxmox_ssh_public_key: "{{ lookup('ansible.builtin.file', '~/.ssh/id_ed25519.pub', errors='ignore') | default('', true) }}"
+# Reach the container through a jump host, e.g. "admin@pve01.example.com"
+odoo_proxmox_ssh_jump: ''
+
+# --- LXD
+odoo_lxd_url: unix:/var/snap/lxd/common/lxd/unix.socket
+odoo_lxd_remote: local # for the lxd connection (`lxc exec <remote>:<name>`)
+odoo_lxd_images:
+  ubuntu-24.04: '24.04'
+  ubuntu-22.04: '22.04'
+odoo_lxd_profiles: [default]
+odoo_lxd_storage_pool: default
+
+# --- Docker
+odoo_docker_host: unix:///var/run/docker.sock
+# An image whose PID 1 is systemd: Odoo, PostgreSQL and nginx run as services,
+# as on the other platforms. Build your own or use a maintained one.
+odoo_docker_images:
+  ubuntu-24.04: jrei/systemd-ubuntu:24.04
+  ubuntu-22.04: jrei/systemd-ubuntu:22.04
+odoo_docker_network: bridge
+# Host ports published for the container's 80 and 443 (nginx-proxy) or 8069 (direct)
+odoo_docker_ports: []

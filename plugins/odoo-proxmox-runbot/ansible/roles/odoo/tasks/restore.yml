@@ -1,0 +1,73 @@
+---
+# odoo-restore.yml: replace the database and filestore with a backup folder
+# made by odoo-backup.yml. In production it needs odoo_restore_confirm set to
+# the instance's name.
+- name: What to restore
+  ansible.builtin.assert:
+    that:
+      - odoo_restore_from | length > 0
+      - odoo_environment != 'production' or odoo_restore_confirm == inventory_hostname
+    fail_msg: >-
+      Set odoo_restore_from to a backup folder on the instance. In production, also set
+      odoo_restore_confirm={{ inventory_hostname }}: this replaces the live database.
+    quiet: true
+
+- name: Backup files exist
+  ansible.builtin.stat:
+    path: '{{ odoo_restore_from }}/db.dump'
+  register: _odoo_restore_dump
+  failed_when: not _odoo_restore_dump.stat.exists
+
+- name: Secrets
+  ansible.builtin.import_tasks: secrets.yml
+- name: Database connection
+  ansible.builtin.import_tasks: pgenv.yml
+
+- name: Safety backup of the current state
+  ansible.builtin.include_tasks: backup.yml
+  when: odoo_restore_backup_first | bool
+
+- name: Stop Odoo
+  ansible.builtin.systemd_service:
+    name: '{{ odoo_service }}'
+    state: stopped
+
+- name: Empty the database (drop and recreate the public schema; the role owns it)
+  ansible.builtin.command:
+    cmd: >-
+      psql -v ON_ERROR_STOP=1 -d {{ odoo_config_db_name }}
+      -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+  environment: '{{ _odoo_pgenv }}'
+  changed_when: true
+
+- name: Restore the database
+  ansible.builtin.command:
+    cmd: pg_restore --no-owner --role={{ odoo_config_db_user }} -d {{ odoo_config_db_name }} {{ odoo_restore_from }}/db.dump
+  environment: '{{ _odoo_pgenv }}'
+  changed_when: true
+
+- name: Replace the filestore
+  ansible.builtin.file:
+    path: '{{ odoo_config_data_dir }}/filestore/{{ odoo_config_db_name }}'
+    state: absent
+
+- name: Filestore folder
+  ansible.builtin.file:
+    path: '{{ odoo_config_data_dir }}/filestore'
+    state: directory
+    owner: '{{ odoo_user }}'
+    group: '{{ odoo_user }}'
+    mode: '0750'
+
+- name: Unpack the filestore
+  ansible.builtin.unarchive:
+    src: '{{ odoo_restore_from }}/filestore.tar.gz'
+    dest: '{{ odoo_config_data_dir }}/filestore'
+    remote_src: true
+    owner: '{{ odoo_user }}'
+    group: '{{ odoo_user }}'
+
+- name: Start Odoo
+  ansible.builtin.systemd_service:
+    name: '{{ odoo_service }}'
+    state: started

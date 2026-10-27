@@ -1,0 +1,29 @@
+---
+- name: Odoo system user
+  ansible.builtin.user:
+    name: '{{ odoo_user }}'
+    system: true
+    home: '{{ odoo_rootdir }}'
+    shell: /bin/bash
+    create_home: true
+
+- name: Directories
+  ansible.builtin.file:
+    path: '{{ item.path }}'
+    state: directory
+    owner: '{{ item.owner }}'
+    group: '{{ odoo_user }}'
+    mode: '{{ item.mode }}'
+  loop:
+    - path: '{{ odoo_rootdir }}'
+      owner: '{{ odoo_user }}'
+      mode: '0755'
+    - path: '{{ odoo_rootdir }}/addons'
+      owner: '{{ odoo_user }}'
+      mode: '0755'
+    - path: '{{ odoo_config_data_dir }}'
+      owner: '{{ odoo_user }}'
+      mode: '0750'
+    - path: '{{ odoo_config_file | dirname }}'
+      owner: root
+      mode: '0750'

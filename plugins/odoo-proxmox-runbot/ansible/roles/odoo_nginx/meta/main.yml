@@ -1,0 +1,8 @@
+---
+galaxy_info:
+  role_name: odoo_nginx
+  author: ISWE Solutions
+  description: nginx in front of an Odoo instance, with WebSocket, and TLS from Let's Encrypt, your own certificate, or none
+  license: Apache-2.0
+  min_ansible_version: '2.15'
+dependencies: []

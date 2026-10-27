@@ -281,6 +281,11 @@ describe('outputs', () => {
   it('builds playbook variables', () => {
     const vars = installPlaybookVars(request(), clusters);
     expect(vars).toMatchObject({
+      odoo_guest_name: 'kugula-erp',
+      odoo_guest_os: 'ubuntu-24.04',
+      odoo_guest_memory: 8192,
+      odoo_proxmox_node: 'pve1',
+      odoo_nginx_domain: 'erp.kugula.example.com',
       odoo_version: '18.0',
       odoo_repo_rev: '18.0',
       odoo_enterprise_repo_url: false,
@@ -290,5 +295,12 @@ describe('outputs', () => {
     });
     expect(vars.odoo_addons_repos).toHaveLength(2);
     expect(vars).not.toHaveProperty('odoo_config_custom.admin_passwd');
+    expect(vars).not.toHaveProperty('odoo_admin_password');
+    expect(
+      installPlaybookVars(
+        { ...request(), adminPassword: 'x'.repeat(20) },
+        clusters,
+      ),
+    ).toHaveProperty('odoo_admin_password');
   });
 });

@@ -1,0 +1,36 @@
+---
+- name: LXD container {{ odoo_guest_name }}
+  community.general.lxd_container:
+    name: '{{ odoo_guest_name }}'
+    url: '{{ odoo_lxd_url }}'
+    state: "{{ 'started' if odoo_guest_state == 'present' else 'absent' }}"
+    source:
+      type: image
+      mode: pull
+      server: https://cloud-images.ubuntu.com/releases
+      protocol: simplestreams
+      alias: '{{ odoo_lxd_images[odoo_guest_os] }}'
+    profiles: '{{ odoo_lxd_profiles }}'
+    config:
+      limits.cpu: '{{ odoo_guest_cores | string }}'
+      limits.memory: '{{ odoo_guest_memory }}MB'
+      boot.autostart: 'true'
+      user.managed-by: odoo-proxmox-runbot
+    devices:
+      root:
+        type: disk
+        path: /
+        pool: '{{ odoo_lxd_storage_pool }}'
+        size: '{{ odoo_guest_disk }}GB'
+    wait_for_ipv4_addresses: true
+    timeout: 600
+  delegate_to: localhost
+  become: false
+  when: odoo_guest_state == 'absent' or odoo_guest_create | bool
+
+- name: Connect with lxc exec
+  ansible.builtin.set_fact:
+    ansible_connection: community.general.lxd
+    ansible_host: '{{ odoo_guest_name }}'
+    ansible_lxd_remote: '{{ odoo_lxd_remote }}'
+  when: odoo_guest_state == 'present'

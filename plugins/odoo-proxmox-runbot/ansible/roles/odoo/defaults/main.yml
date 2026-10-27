@@ -1,0 +1,112 @@
+---
+# Variables the plugin's create form sends (installPlaybookVars in src/odooConfig.ts).
+# Any of them can also be set in the inventory.
+
+# --- Version and environment
+odoo_version: '18.0'
+odoo_edition: community # community | enterprise
+odoo_environment: staging # production | staging | development
+
+# --- Layout on the instance
+odoo_user: odoo
+odoo_rootdir: /opt/odoo
+odoo_venv: '{{ odoo_rootdir }}/venv'
+odoo_config_file: /etc/odoo/odoo.conf
+odoo_service: odoo
+
+# --- Sources
+odoo_repo_url: https://github.com/odoo/odoo.git
+odoo_repo_rev: '{{ odoo_version }}'
+odoo_repo_depth: 1
+odoo_enterprise_repo_url: false
+odoo_enterprise_repo_rev: '{{ odoo_version }}'
+# - { name: kugula_addons, url: git@github.com:org/kugula_addons.git, rev: "18.0", depth: 1, subdir: "" }
+odoo_addons_repos: []
+# Update checkouts to the configured revisions on every run (odoo-upgrade sets this)
+odoo_repo_update: false
+# Deploy key for private repositories: a private key file on the controller.
+# If unset and a repository uses SSH, a key is generated on the instance and its
+# public key printed, to add as a read-only deploy key.
+odoo_git_key_file: ''
+odoo_git_known_hosts:
+  - github.com
+
+# Computed from the sources when not given
+odoo_config_addons_path: []
+
+# --- Python
+odoo_pip_extra: [] # extra pip packages, e.g. [ "phonenumbers==8.13.*" ]
+
+# --- Reports
+odoo_wkhtmltox_version: 0.12.6.1-3
+# The jammy build (patched Qt) is the one Odoo supports; it also installs on Ubuntu 24.04
+odoo_wkhtmltox_url: >-
+  https://github.com/wkhtmltopdf/packaging/releases/download/{{ odoo_wkhtmltox_version
+  }}/wkhtmltox_{{ odoo_wkhtmltox_version }}.jammy_amd64.deb
+odoo_wkhtmltox_sha256: '' # set to verify the download
+# --- Database
+odoo_db_placement: local # local | cluster
+odoo_db_cluster: false
+odoo_install_postgresql: "{{ odoo_db_placement == 'local' }}"
+odoo_config_db_host: localhost
+odoo_config_db_port: 5432
+odoo_config_db_name: odoo
+odoo_config_db_user: "{{ (odoo_db_placement == 'cluster') | ternary(odoo_config_db_name ~ '_app', odoo_user) }}"
+odoo_config_db_sslmode: prefer
+# Shared cluster only: an account that may create roles and databases, and the
+# cluster's CA certificate (PEM) for sslmode verify-ca / verify-full
+odoo_db_admin_user: ''
+odoo_db_admin_password: ''
+odoo_db_ca_cert: ''
+odoo_db_extensions: [unaccent]
+
+# --- Secrets: generated on the controller on first run and reused afterwards,
+# one directory per instance, never written to the inventory or logs
+odoo_secrets_dir: "{{ lookup('ansible.builtin.env', 'ODOO_SECRETS_DIR') | default(playbook_dir ~ '/../.secrets', true) }}"
+odoo_admin_password: '' # set to use your own master password instead of a generated one
+
+# --- odoo.conf (see suggestServerConfig in src/odooConfig.ts for how these are sized)
+odoo_config_workers: 2
+odoo_config_max_cron_threads: 1
+odoo_config_limit_memory_soft: 2147483648
+odoo_config_limit_memory_hard: 2684354560
+odoo_config_limit_time_cpu: 600
+odoo_config_limit_time_real: 1200
+odoo_config_limit_time_real_cron: -1
+odoo_config_db_maxconn: 64
+odoo_config_list_db: false
+odoo_config_dbfilter: '^%d$'
+odoo_config_proxy_mode: true
+odoo_config_smtp_server: localhost
+odoo_config_smtp_port: 25
+odoo_config_smtp_ssl: false
+odoo_config_smtp_user: ''
+odoo_config_smtp_password: ''
+odoo_config_email_from: ''
+odoo_config_log_level: info
+odoo_config_without_demo: true
+odoo_config_server_wide_modules: [base, web]
+odoo_config_data_dir: /var/lib/odoo
+odoo_config_http_port: 8069
+odoo_config_gevent_port: 8072
+odoo_config_custom: {}
+
+# --- First start: modules installed when the database is initialised
+odoo_modules: []
+
+# --- Service
+odoo_service_enabled: true
+
+# --- Backups (odoo-backup.yml, also run before odoo-restore and odoo-upgrade)
+odoo_backup_dir: /var/backups/odoo
+odoo_backup_keep: 7
+odoo_backup_fetch_dir: '' # a folder on the controller to copy each backup to
+
+# --- Restore (odoo-restore.yml)
+odoo_restore_from: '' # a backup folder on the instance
+odoo_restore_confirm: '' # in production: the instance's name
+odoo_restore_backup_first: true
+
+# --- Upgrade (odoo-upgrade.yml)
+odoo_upgrade_target_version: '{{ odoo_version }}'
+odoo_upgrade_modules: [all]

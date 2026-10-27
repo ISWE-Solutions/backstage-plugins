@@ -1,0 +1,11 @@
+---
+- name: Connection for psql, pg_dump and pg_restore
+  ansible.builtin.set_fact:
+    _odoo_pgenv:
+      PGHOST: '{{ odoo_config_db_host }}'
+      PGPORT: '{{ odoo_config_db_port | string }}'
+      PGUSER: '{{ odoo_config_db_user }}'
+      PGPASSWORD: '{{ _odoo_db_password }}'
+      PGSSLMODE: '{{ odoo_config_db_sslmode }}'
+      PGSSLROOTCERT: '{{ odoo_config_file | dirname }}/pg-ca.pem'
+  no_log: true

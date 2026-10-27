@@ -1,0 +1,75 @@
+---
+- name: Cluster CA certificate
+  ansible.builtin.copy:
+    content: '{{ odoo_db_ca_cert }}'
+    dest: '{{ odoo_config_file | dirname }}/pg-ca.pem'
+    owner: root
+    group: '{{ odoo_user }}'
+    mode: '0640'
+  when: odoo_db_ca_cert | length > 0
+
+# --- Local PostgreSQL in the container
+- name: Local database
+  when: odoo_db_placement == 'local'
+  become: true
+  become_user: postgres
+  block:
+    - name: Odoo's role (no superuser)
+      community.postgresql.postgresql_user:
+        name: '{{ odoo_config_db_user }}'
+        password: '{{ _odoo_db_password }}'
+        role_attr_flags: NOSUPERUSER,NOCREATEROLE,NOCREATEDB
+      no_log: true
+
+    - name: Database owned by the role
+      community.postgresql.postgresql_db:
+        name: '{{ odoo_config_db_name }}'
+        owner: '{{ odoo_config_db_user }}'
+        encoding: UTF8
+        lc_collate: C.UTF-8
+        lc_ctype: C.UTF-8
+        template: template0
+
+    - name: Extensions
+      community.postgresql.postgresql_ext:
+        name: '{{ item }}'
+        db: '{{ odoo_config_db_name }}'
+      loop: '{{ odoo_db_extensions }}'
+
+# --- Shared cluster: create the role and database from the instance, which can
+# reach the cluster, with the cluster admin account
+- name: Database on the shared cluster
+  when: odoo_db_placement == 'cluster'
+  module_defaults:
+    community.postgresql.postgresql_user: &odoo_pg_cluster_login
+      login_host: '{{ odoo_config_db_host }}'
+      port: '{{ odoo_config_db_port }}'
+      login_user: '{{ odoo_db_admin_user }}'
+      login_password: '{{ odoo_db_admin_password }}'
+      ssl_mode: '{{ odoo_config_db_sslmode }}'
+      ca_cert: "{{ (odoo_config_file | dirname ~ '/pg-ca.pem') if odoo_db_ca_cert | length > 0 else omit }}"
+    community.postgresql.postgresql_db: *odoo_pg_cluster_login
+    community.postgresql.postgresql_ext: *odoo_pg_cluster_login
+  block:
+    - name: Application role
+      community.postgresql.postgresql_user:
+        name: '{{ odoo_config_db_user }}'
+        password: '{{ _odoo_db_password }}'
+        role_attr_flags: LOGIN,NOSUPERUSER,NOCREATEROLE,NOCREATEDB
+        db: postgres
+      no_log: true
+
+    - name: Database owned by the application role
+      community.postgresql.postgresql_db:
+        name: '{{ odoo_config_db_name }}'
+        owner: '{{ odoo_config_db_user }}'
+        encoding: UTF8
+        lc_collate: C.UTF-8
+        lc_ctype: C.UTF-8
+        template: template0
+
+    - name: Extensions
+      community.postgresql.postgresql_ext:
+        name: '{{ item }}'
+        db: '{{ odoo_config_db_name }}'
+      loop: '{{ odoo_db_extensions }}'

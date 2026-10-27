@@ -1,0 +1,44 @@
+---
+- name: Check the request
+  ansible.builtin.import_tasks: assert.yml
+  tags: [always]
+
+- name: Secrets
+  ansible.builtin.import_tasks: secrets.yml
+  tags: [always]
+
+- name: System packages
+  ansible.builtin.import_tasks: packages.yml
+  tags: [odoo_packages]
+
+- name: Wkhtmltopdf for PDF reports
+  ansible.builtin.import_tasks: wkhtmltopdf.yml
+  tags: [odoo_wkhtmltox]
+
+- name: Odoo user and directories
+  ansible.builtin.import_tasks: user.yml
+  tags: [odoo_install]
+
+- name: Sources
+  ansible.builtin.import_tasks: sources.yml
+  tags: [odoo_sources]
+
+- name: Python environment
+  ansible.builtin.import_tasks: python.yml
+  tags: [odoo_packages]
+
+- name: Database
+  ansible.builtin.import_tasks: database.yml
+  tags: [odoo_postgresql]
+
+- name: Write odoo.conf
+  ansible.builtin.import_tasks: config.yml
+  tags: [odoo_config]
+
+- name: Service
+  ansible.builtin.import_tasks: service.yml
+  tags: [odoo_service]
+
+- name: Initialise the database
+  ansible.builtin.import_tasks: init.yml
+  tags: [odoo_init]
