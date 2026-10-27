@@ -4,10 +4,94 @@ import {
   UpdateOdooInstanceRequest,
   OdooModule,
   OdooDashboardStats,
+  OdooEnvironment,
+  OdooSources,
+  PostgresCluster,
 } from '../types';
+import {
+  defaultSources,
+  hostnameFor,
+  installPlaybookVars,
+  odooVersions,
+  OS_INFO,
+  resolveDatabase,
+  suggestServerConfig,
+  validateCreateRequest,
+} from '../odooConfig';
 import { proxmoxService } from './proxmoxService';
 import { ansibleService } from './ansibleService';
 import { runbotService } from './runbotService';
+
+// Sample data: shared PostgreSQL clusters, one per environment
+const SAMPLE_CLUSTERS: PostgresCluster[] = [
+  {
+    name: 'prod',
+    environment: 'production',
+    host: 'pg.example.internal',
+    port: 5432,
+    sslmode: 'verify-full',
+    description: 'Production (Patroni, 3 nodes)',
+  },
+  {
+    name: 'stg',
+    environment: 'staging',
+    host: 'pg.example.internal',
+    port: 5442,
+    sslmode: 'verify-full',
+    description: 'Staging and UAT copies',
+  },
+  {
+    name: 'dev',
+    environment: 'development',
+    host: 'pg.example.internal',
+    port: 5452,
+    sslmode: 'verify-full',
+    description: 'Development',
+  },
+];
+
+const sampleSources = (
+  version: string,
+  enterprise: boolean,
+  addons: string[],
+): OdooSources => ({
+  ...defaultSources(version, enterprise),
+  addons: addons.map(name => ({
+    name,
+    url: `git@github.com:example-org/${name}.git`,
+    revision: version,
+    depth: 1,
+  })),
+});
+
+const sampleInstance = (
+  base: Omit<OdooInstance, 'sources' | 'database' | 'config' | 'os'> & {
+    dbName: string;
+    placement: 'local' | 'cluster';
+    addonRepos: string[];
+  },
+): OdooInstance => {
+  const { dbName, placement, addonRepos, ...rest } = base;
+  const env: OdooEnvironment = base.environment;
+  return {
+    ...rest,
+    os: base.version === '16.0' ? 'ubuntu-22.04' : 'ubuntu-24.04',
+    sources: sampleSources(
+      base.version,
+      base.edition === 'enterprise',
+      addonRepos,
+    ),
+    database: resolveDatabase(
+      {
+        placement,
+        cluster: SAMPLE_CLUSTERS.find(c => c.environment === env)?.name,
+        name: dbName,
+      },
+      SAMPLE_CLUSTERS,
+    ),
+    config: suggestServerConfig(base.resources, env, placement),
+  };
+};
 
 /**
  * Main service for managing Odoo instances
@@ -20,124 +104,92 @@ export class OdooService {
   async getInstances(): Promise<OdooInstance[]> {
     // Mock data for demonstration
     return [
-      {
+      sampleInstance({
         id: 'odoo-001',
-        name: 'Odoo Production',
+        name: 'Example ERP',
         vmid: '200',
         node: 'pve1',
         status: 'running',
-        version: '17.0',
+        environment: 'production',
+        version: '18.0',
         edition: 'enterprise',
-        url: 'https://odoo-prod.example.com',
-        domain: 'odoo-prod.example.com',
-        database: {
-          name: 'odoo_prod',
-          user: 'odoo',
-          host: 'localhost',
-          port: 5432,
-        },
-        resources: {
-          cpu: 8,
-          memory: 16384,
-          storage: 200,
-        },
-        addons: ['sale', 'purchase', 'stock', 'accounting', 'mrp'],
-        workers: 8,
+        url: 'https://erp.example.com',
+        domain: 'erp.example.com',
+        dbName: 'example_odoo',
+        placement: 'cluster',
+        addonRepos: ['example_addons', 'oca_web'],
+        resources: { cpu: 8, memory: 16384, storage: 200 },
+        addons: ['sale', 'purchase', 'stock', 'account', 'mrp'],
         longpolling_port: 8072,
-        proxy_mode: true,
         runbot_enabled: false,
         created: '2026-01-10T10:00:00Z',
         updated: '2026-02-07T14:30:00Z',
-      },
-      {
+      }),
+      sampleInstance({
         id: 'odoo-002',
-        name: 'Odoo Testing',
+        name: 'Example ERP UAT',
         vmid: '201',
         node: 'pve2',
         status: 'running',
-        version: '17.0',
-        edition: 'community',
-        url: 'https://odoo-test.example.com',
-        domain: 'odoo-test.example.com',
-        database: {
-          name: 'odoo_test',
-          user: 'odoo',
-          host: 'localhost',
-          port: 5432,
-        },
-        resources: {
-          cpu: 4,
-          memory: 8192,
-          storage: 100,
-        },
+        environment: 'staging',
+        version: '18.0',
+        edition: 'enterprise',
+        url: 'https://erp-uat.example.com',
+        domain: 'erp-uat.example.com',
+        dbName: 'example_odoo',
+        placement: 'cluster',
+        addonRepos: ['example_addons', 'oca_web'],
+        resources: { cpu: 4, memory: 8192, storage: 100 },
         addons: ['sale', 'purchase', 'stock'],
-        workers: 4,
         longpolling_port: 8072,
-        proxy_mode: true,
         runbot_enabled: true,
-        runbot_url: 'https://runbot-test.example.com',
+        runbot_url: 'https://runbot.example.com',
         created: '2026-01-15T09:00:00Z',
         updated: '2026-02-06T11:00:00Z',
-      },
-      {
+      }),
+      sampleInstance({
         id: 'odoo-003',
-        name: 'Odoo Development',
+        name: 'Example Development',
         vmid: '202',
         node: 'pve1',
         status: 'stopped',
-        version: '18.0',
+        environment: 'development',
+        version: '19.0',
         edition: 'community',
         url: 'https://odoo-dev.example.com',
         domain: 'odoo-dev.example.com',
-        database: {
-          name: 'odoo_dev',
-          user: 'odoo',
-          host: 'localhost',
-          port: 5432,
-        },
-        resources: {
-          cpu: 2,
-          memory: 4096,
-          storage: 50,
-        },
+        dbName: 'example_odoo',
+        placement: 'local',
+        addonRepos: ['example_addons'],
+        resources: { cpu: 2, memory: 4096, storage: 50 },
         addons: ['base', 'web'],
-        workers: 2,
         longpolling_port: 8072,
-        proxy_mode: false,
         runbot_enabled: false,
         created: '2026-01-20T15:00:00Z',
         updated: '2026-02-01T08:00:00Z',
-      },
-      {
+      }),
+      sampleInstance({
         id: 'odoo-004',
         name: 'Runbot Server',
         vmid: '210',
         node: 'pve3',
         status: 'running',
-        version: '17.0',
+        environment: 'production',
+        version: '18.0',
         edition: 'community',
         url: 'https://runbot.example.com',
         domain: 'runbot.example.com',
-        database: {
-          name: 'runbot',
-          user: 'runbot',
-          host: 'localhost',
-          port: 5432,
-        },
-        resources: {
-          cpu: 16,
-          memory: 32768,
-          storage: 500,
-        },
+        dbName: 'example_runbot',
+        placement: 'local',
+        addonRepos: ['runbot'],
+        resources: { cpu: 16, memory: 32768, storage: 500 },
         addons: ['runbot', 'runbot_merge'],
-        workers: 4,
         longpolling_port: 8072,
-        proxy_mode: true,
         runbot_enabled: true,
         runbot_url: 'https://runbot.example.com',
         created: '2026-01-05T10:00:00Z',
         updated: '2026-02-08T10:00:00Z',
-      },
+      }),
     ];
   }
 
@@ -155,7 +207,12 @@ export class OdooService {
   async createInstance(
     request: CreateOdooInstanceRequest,
   ): Promise<OdooInstance> {
-    console.log('Creating Odoo instance:', request);
+    const clusters = await this.getDatabaseClusters();
+    const { errors } = validateCreateRequest(request, clusters);
+    if (errors.length) {
+      throw new Error(`Invalid instance: ${errors.join('; ')}`);
+    }
+    console.log('Creating Odoo instance:', request.name);
 
     // 1. Get next available VMID from Proxmox
     const vmid = await proxmoxService.getNextVmid();
@@ -164,11 +221,11 @@ export class OdooService {
     let containerCreated = false;
     try {
       await proxmoxService.createContainer(request.node, vmid, {
-        hostname: request.name.toLowerCase().replace(/\s+/g, '-'),
+        hostname: hostnameFor(request.name),
         memory: request.resources.memory,
         cores: request.resources.cpu,
         rootfs: `local-lvm:${request.resources.storage}`,
-        ostemplate: 'local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst',
+        ostemplate: `local:vztmpl/${OS_INFO[request.os].template}`,
         network: 'name=eth0,bridge=vmbr0,ip=dhcp',
         nameserver: '8.8.8.8',
         searchdomain: 'example.com',
@@ -176,25 +233,25 @@ export class OdooService {
       });
       containerCreated = true;
 
-      // 3. Execute Ansible playbook to install Odoo
-      await ansibleService.executePlaybook('odoo-install', [request.name], {
-        odoo_version: request.version,
-        odoo_edition: request.edition,
-        odoo_workers: request.workers || 4,
-        db_name: request.database.name,
-        db_user: request.database.user,
-        db_password: request.database.password,
-        admin_password: request.adminPassword,
-        addons: request.addons || [],
-      });
+      // 3. Install Odoo: sources, dependencies, database, odoo.conf, service.
+      // The backend generates the master and database passwords.
+      await ansibleService.executePlaybook(
+        'odoo-install',
+        [hostnameFor(request.name)],
+        installPlaybookVars(request, clusters),
+      );
 
-      // 4. Configure Nginx if proxy mode enabled
-      await ansibleService.executePlaybook('nginx-proxy', [request.name], {
-        domain: request.domain,
-        upstream_port: 8069,
-        longpolling_port: 8072,
-        ssl_enabled: true,
-      });
+      // 4. Put it behind nginx with TLS
+      await ansibleService.executePlaybook(
+        'nginx-proxy',
+        [hostnameFor(request.name)],
+        {
+          domain: request.domain,
+          upstream_port: 8069,
+          longpolling_port: 8072,
+          ssl_enabled: true,
+        },
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (containerCreated) {
@@ -215,21 +272,18 @@ export class OdooService {
       vmid,
       node: request.node,
       status: 'provisioning',
+      environment: request.environment,
       version: request.version,
+      os: request.os,
       edition: request.edition,
       url: `https://${request.domain}`,
       domain: request.domain,
-      database: {
-        name: request.database.name,
-        user: request.database.user,
-        host: 'localhost',
-        port: 5432,
-      },
+      sources: request.sources,
+      database: resolveDatabase(request.database, clusters),
       resources: request.resources,
+      config: request.config,
       addons: request.addons || [],
-      workers: request.workers || 4,
       longpolling_port: 8072,
-      proxy_mode: true,
       runbot_enabled: request.runbot_enabled || false,
       created: new Date().toISOString(),
       updated: new Date().toISOString(),
@@ -266,6 +320,7 @@ export class OdooService {
       ...instance,
       ...updates,
       resources: { ...instance.resources, ...updates.resources },
+      config: { ...instance.config, ...updates.config },
       updated: new Date().toISOString(),
     };
   }
@@ -458,7 +513,14 @@ export class OdooService {
    * Get available Odoo versions
    */
   async getAvailableVersions(): Promise<string[]> {
-    return ['14.0', '15.0', '16.0', '17.0', '18.0'];
+    return odooVersions();
+  }
+
+  /**
+   * Shared PostgreSQL clusters an instance can use instead of a local server
+   */
+  async getDatabaseClusters(): Promise<PostgresCluster[]> {
+    return SAMPLE_CLUSTERS;
   }
 
   /**
@@ -537,7 +599,8 @@ export class OdooService {
     // Update configuration via Ansible
     await ansibleService.executePlaybook('odoo-configure', [newName], {
       domain: newDomain,
-      db_name: `${newName.toLowerCase().replace(/\s+/g, '_')}_db`,
+      // Same database name: a copy lives in another cluster or container, never under a new name
+      db_name: source.database.name,
     });
 
     return {

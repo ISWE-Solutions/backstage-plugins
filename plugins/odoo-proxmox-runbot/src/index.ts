@@ -9,3 +9,16 @@ export { runbotService, RunbotService } from './services/runbotService';
 export { ansibleService, AnsibleService } from './services/ansibleService';
 export { proxmoxService, ProxmoxService } from './services/proxmoxService';
 export * from './types';
+export { CreateInstanceDialog } from './components/CreateInstanceDialog';
+export type { CreateInstanceDialogProps } from './components/CreateInstanceDialog';
+export {
+  ODOO_VERSIONS,
+  OS_INFO,
+  computeAddonsPath,
+  suggestServerConfig,
+  validateCreateRequest,
+  checkDatabaseName,
+  renderOdooConf,
+  installPlaybookVars,
+} from './odooConfig';
+export type { OdooVersionInfo, ValidationResult } from './odooConfig';

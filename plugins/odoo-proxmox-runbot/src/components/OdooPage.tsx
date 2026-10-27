@@ -13,7 +13,6 @@ import {
   DialogContent,
   DialogActions,
   TextField,
-  MenuItem,
   Table,
   TableBody,
   TableCell,
@@ -58,6 +57,7 @@ import {
   AnsiblePlaybookExecution,
   ProxmoxNode,
   OdooDashboardStats,
+  PostgresCluster,
 } from '../types';
 import { odooService } from '../services/odooService';
 import { runbotService } from '../services/runbotService';
@@ -67,6 +67,7 @@ import { OdooInstancesPanel } from './OdooInstancesPanel';
 import { OdooRunbotPanel } from './OdooRunbotPanel';
 import { OdooAnsiblePanel } from './OdooAnsiblePanel';
 import { OdooProxmoxClusterPanel } from './OdooProxmoxClusterPanel';
+import { CreateInstanceDialog } from './CreateInstanceDialog';
 
 const useStyles = makeStyles(theme => ({
   card: {
@@ -180,34 +181,13 @@ export const OdooPage = () => {
   const [nodes, setNodes] = useState<ProxmoxNode[]>([]);
   const [stats, setStats] = useState<OdooDashboardStats | null>(null);
   const [versions, setVersions] = useState<string[]>([]);
+  const [clusters, setClusters] = useState<PostgresCluster[]>([]);
 
   // Dialog state
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [playbookDialogOpen, setPlaybookDialogOpen] = useState(false);
   const [selectedPlaybook, setSelectedPlaybook] =
     useState<AnsiblePlaybook | null>(null);
-
-  // Form state
-  const [newInstance, setNewInstance] = useState<CreateOdooInstanceRequest>({
-    name: '',
-    domain: '',
-    version: '17.0',
-    edition: 'community',
-    node: '',
-    resources: {
-      cpu: 4,
-      memory: 8192,
-      storage: 100,
-    },
-    database: {
-      name: '',
-      user: 'odoo',
-      password: '',
-    },
-    adminPassword: '',
-    workers: 4,
-    runbot_enabled: false,
-  });
 
   // Guards against overlapping loadAllData() calls (e.g. rapid Refresh
   // clicks) and against setState firing after the component unmounts.
@@ -237,6 +217,7 @@ export const OdooPage = () => {
         nodesData,
         statsData,
         versionsData,
+        clustersData,
       ] = await Promise.all([
         odooService.getInstances(),
         runbotService.getBuilds(),
@@ -246,6 +227,7 @@ export const OdooPage = () => {
         proxmoxService.getNodes(),
         odooService.getDashboardStats(),
         odooService.getAvailableVersions(),
+        odooService.getDatabaseClusters(),
       ]);
 
       if (isCancelled()) {
@@ -260,6 +242,7 @@ export const OdooPage = () => {
       setNodes(nodesData);
       setStats(statsData);
       setVersions(versionsData);
+      setClusters(clustersData);
     } catch (error) {
       console.error('Failed to load data:', error);
     } finally {
@@ -270,26 +253,10 @@ export const OdooPage = () => {
     }
   };
 
-  const handleCreateInstance = async () => {
-    try {
-      await odooService.createInstance(newInstance);
-      setCreateDialogOpen(false);
-      loadAllData();
-      setNewInstance({
-        name: '',
-        domain: '',
-        version: '17.0',
-        edition: 'community',
-        node: '',
-        resources: { cpu: 4, memory: 8192, storage: 100 },
-        database: { name: '', user: 'odoo', password: '' },
-        adminPassword: '',
-        workers: 4,
-        runbot_enabled: false,
-      });
-    } catch (error) {
-      console.error('Failed to create instance:', error);
-    }
+  // Errors propagate to the dialog, which shows them
+  const handleCreateInstance = async (request: CreateOdooInstanceRequest) => {
+    await odooService.createInstance(request);
+    loadAllData();
   };
 
   const handleStartInstance = async (id: string) => {
@@ -698,224 +665,14 @@ export const OdooPage = () => {
           {renderProxmox()}
         </TabPanel>
 
-        {/* Create Instance Dialog */}
-        <Dialog
+        <CreateInstanceDialog
           open={createDialogOpen}
           onClose={() => setCreateDialogOpen(false)}
-          maxWidth="md"
-          fullWidth
-        >
-          <DialogTitle>Create New Odoo Instance</DialogTitle>
-          <DialogContent>
-            <Grid container spacing={2}>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  label="Instance Name"
-                  value={newInstance.name}
-                  onChange={e =>
-                    setNewInstance({ ...newInstance, name: e.target.value })
-                  }
-                  className={classes.formField}
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  label="Domain"
-                  value={newInstance.domain}
-                  onChange={e =>
-                    setNewInstance({ ...newInstance, domain: e.target.value })
-                  }
-                  className={classes.formField}
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  select
-                  label="Odoo Version"
-                  value={newInstance.version}
-                  onChange={e =>
-                    setNewInstance({ ...newInstance, version: e.target.value })
-                  }
-                  className={classes.formField}
-                >
-                  {versions.map(v => (
-                    <MenuItem key={v} value={v}>
-                      {v}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  select
-                  label="Edition"
-                  value={newInstance.edition}
-                  onChange={e =>
-                    setNewInstance({
-                      ...newInstance,
-                      edition: e.target.value as 'community' | 'enterprise',
-                    })
-                  }
-                  className={classes.formField}
-                >
-                  <MenuItem value="community">Community</MenuItem>
-                  <MenuItem value="enterprise">Enterprise</MenuItem>
-                </TextField>
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  select
-                  label="Proxmox Node"
-                  value={newInstance.node}
-                  onChange={e =>
-                    setNewInstance({ ...newInstance, node: e.target.value })
-                  }
-                  className={classes.formField}
-                >
-                  {nodes.map(n => (
-                    <MenuItem key={n.node} value={n.node}>
-                      {n.node}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  type="number"
-                  label="Workers"
-                  value={newInstance.workers}
-                  onChange={e =>
-                    setNewInstance({
-                      ...newInstance,
-                      workers: parseInt(e.target.value, 10),
-                    })
-                  }
-                  className={classes.formField}
-                />
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <TextField
-                  fullWidth
-                  type="number"
-                  label="CPU Cores"
-                  value={newInstance.resources.cpu}
-                  onChange={e =>
-                    setNewInstance({
-                      ...newInstance,
-                      resources: {
-                        ...newInstance.resources,
-                        cpu: parseInt(e.target.value, 10),
-                      },
-                    })
-                  }
-                  className={classes.formField}
-                />
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <TextField
-                  fullWidth
-                  type="number"
-                  label="Memory (MB)"
-                  value={newInstance.resources.memory}
-                  onChange={e =>
-                    setNewInstance({
-                      ...newInstance,
-                      resources: {
-                        ...newInstance.resources,
-                        memory: parseInt(e.target.value, 10),
-                      },
-                    })
-                  }
-                  className={classes.formField}
-                />
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <TextField
-                  fullWidth
-                  type="number"
-                  label="Storage (GB)"
-                  value={newInstance.resources.storage}
-                  onChange={e =>
-                    setNewInstance({
-                      ...newInstance,
-                      resources: {
-                        ...newInstance.resources,
-                        storage: parseInt(e.target.value, 10),
-                      },
-                    })
-                  }
-                  className={classes.formField}
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  label="Database Name"
-                  value={newInstance.database.name}
-                  onChange={e =>
-                    setNewInstance({
-                      ...newInstance,
-                      database: {
-                        ...newInstance.database,
-                        name: e.target.value,
-                      },
-                    })
-                  }
-                  className={classes.formField}
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  type="password"
-                  label="Database Password"
-                  value={newInstance.database.password}
-                  onChange={e =>
-                    setNewInstance({
-                      ...newInstance,
-                      database: {
-                        ...newInstance.database,
-                        password: e.target.value,
-                      },
-                    })
-                  }
-                  className={classes.formField}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  type="password"
-                  label="Admin Password"
-                  value={newInstance.adminPassword}
-                  onChange={e =>
-                    setNewInstance({
-                      ...newInstance,
-                      adminPassword: e.target.value,
-                    })
-                  }
-                  className={classes.formField}
-                />
-              </Grid>
-            </Grid>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
-            <Button
-              onClick={handleCreateInstance}
-              color="primary"
-              variant="contained"
-            >
-              Create Instance
-            </Button>
-          </DialogActions>
-        </Dialog>
+          onCreate={handleCreateInstance}
+          nodes={nodes}
+          versions={versions}
+          clusters={clusters}
+        />
 
         {/* Playbook Execution Dialog */}
         <Dialog

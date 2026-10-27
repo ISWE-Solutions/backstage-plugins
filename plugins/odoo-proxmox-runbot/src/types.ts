@@ -214,31 +214,125 @@ export type OdooInstanceStatus =
 
 export type OdooEdition = 'community' | 'enterprise';
 
+/** Decides the safe defaults and, for the shared clusters, which cluster is used */
+export type OdooEnvironment = 'production' | 'staging' | 'development';
+
+/** Container operating system (see ODOO_VERSIONS for which Odoo runs on which) */
+export type OdooOs = 'ubuntu-22.04' | 'ubuntu-24.04';
+
+/** A Git repository at a branch, tag or commit */
+export interface OdooRepoSource {
+  url: string;
+  revision: string;
+  /** Clone depth; 1 by default, 0 for the full history */
+  depth?: number;
+}
+
+/** A repository of addons, checked out under <root>/addons/<name> */
+export interface OdooAddonsRepo extends OdooRepoSource {
+  name: string;
+  /** Folder inside the repository that holds the modules, if not its root */
+  subdir?: string;
+  /** Catalog entity the repository was picked from, e.g. component:default/iswe-meal-addons */
+  entityRef?: string;
+}
+
+/** Where an instance's code comes from; addons_path is derived from it */
+export interface OdooSources {
+  community: OdooRepoSource;
+  /** Required for the enterprise edition */
+  enterprise?: OdooRepoSource;
+  addons: OdooAddonsRepo[];
+}
+
+export type PgSslMode =
+  | 'disable'
+  | 'prefer'
+  | 'require'
+  | 'verify-ca'
+  | 'verify-full';
+
+/** A shared PostgreSQL cluster an instance can use instead of a local server */
+export interface PostgresCluster {
+  name: string;
+  environment: OdooEnvironment;
+  host: string;
+  port: number;
+  sslmode: PgSslMode;
+  description?: string;
+}
+
+/** local: PostgreSQL inside the container; cluster: a shared PostgresCluster */
+export type OdooDatabasePlacement = 'local' | 'cluster';
+
+export interface OdooDatabaseSettings {
+  placement: OdooDatabasePlacement;
+  /** PostgresCluster.name, for placement 'cluster' */
+  cluster?: string;
+  name: string;
+  user: string;
+  host: string;
+  port: number;
+  sslmode: PgSslMode;
+}
+
+export type OdooLogLevel = 'debug' | 'info' | 'warn' | 'error' | 'critical';
+
+/** odoo.conf settings, grouped as on the Configuration step. Memory limits are in bytes. */
+export interface OdooServerConfig {
+  // Performance
+  workers: number;
+  max_cron_threads: number;
+  limit_memory_soft: number;
+  limit_memory_hard: number;
+  limit_time_cpu: number;
+  limit_time_real: number;
+  limit_time_real_cron: number;
+  /** Connections per Odoo process */
+  db_maxconn: number;
+  // Security
+  list_db: boolean;
+  dbfilter: string;
+  proxy_mode: boolean;
+  // Email
+  smtp_server: string;
+  smtp_port: number;
+  smtp_ssl: boolean;
+  smtp_user: string;
+  email_from: string;
+  // Logging
+  log_level: OdooLogLevel;
+  // Other
+  without_demo: boolean;
+  server_wide_modules: string[];
+  data_dir: string;
+  /** Any other odoo.conf option, written as is */
+  custom: Record<string, string>;
+}
+
 export interface OdooInstance {
   id: string;
   name: string;
   vmid: string;
   node: string;
   status: OdooInstanceStatus;
+  environment: OdooEnvironment;
   version: string;
+  os: OdooOs;
   edition: OdooEdition;
   url: string;
   domain: string;
-  database: {
-    name: string;
-    user: string;
-    host: string;
-    port: number;
-  };
+  sources: OdooSources;
+  database: OdooDatabaseSettings;
   resources: {
     cpu: number;
     memory: number;
     storage: number;
   };
+  config: OdooServerConfig;
+  /** Modules to install, e.g. sale, stock */
   addons: string[];
-  workers: number;
   longpolling_port: number;
-  proxy_mode: boolean;
   runbot_enabled: boolean;
   runbot_url?: string;
   created: string;
@@ -248,7 +342,9 @@ export interface OdooInstance {
 export interface CreateOdooInstanceRequest {
   name: string;
   domain: string;
+  environment: OdooEnvironment;
   version: string;
+  os: OdooOs;
   edition: OdooEdition;
   node: string;
   resources: {
@@ -256,14 +352,18 @@ export interface CreateOdooInstanceRequest {
     memory: number;
     storage: number;
   };
-  database: {
-    name: string;
-    user: string;
-    password: string;
-  };
-  adminPassword: string;
+  sources: OdooSources;
+  /** The database password is generated when the database is created; it is never entered here */
+  database: Pick<OdooDatabaseSettings, 'placement' | 'cluster' | 'name'> &
+    Partial<Pick<OdooDatabaseSettings, 'user'>>;
+  config: OdooServerConfig;
+  /**
+   * Odoo's master password. Leave it out (recommended) to have one generated
+   * and stored with the instance's other secrets.
+   */
+  adminPassword?: string;
+  /** Modules to install */
   addons?: string[];
-  workers?: number;
   runbot_enabled?: boolean;
 }
 
@@ -275,7 +375,7 @@ export interface UpdateOdooInstanceRequest {
     storage?: number;
   };
   addons?: string[];
-  workers?: number;
+  config?: Partial<OdooServerConfig>;
 }
 
 // ============================================

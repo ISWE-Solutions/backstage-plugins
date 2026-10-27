@@ -19,6 +19,7 @@ import BuildIcon from '@material-ui/icons/Build';
 import FileCopyIcon from '@material-ui/icons/FileCopy';
 import BackupIcon from '@material-ui/icons/Backup';
 import { OdooInstance } from '../types';
+import { OS_INFO } from '../odooConfig';
 
 const useStyles = makeStyles(theme => ({
   instanceCard: {
@@ -116,7 +117,26 @@ export const OdooInstancesPanel = (props: OdooInstancesPanelProps) => {
                   {getStatusChip(instance.status)}
                 </Box>
                 <Typography variant="body2" color="textSecondary">
-                  Version: {instance.version} ({instance.edition})
+                  {instance.environment[0].toUpperCase() +
+                    instance.environment.slice(1)}{' '}
+                  · Odoo {instance.version} ({instance.edition}) on{' '}
+                  {OS_INFO[instance.os].label}
+                </Typography>
+                <Typography variant="body2" color="textSecondary">
+                  Database: {instance.database.name} (
+                  {instance.database.placement === 'cluster'
+                    ? `${instance.database.cluster} cluster`
+                    : 'local'}
+                  )
+                </Typography>
+                <Typography variant="body2" color="textSecondary">
+                  Code: odoo@{instance.sources.community.revision}
+                  {instance.sources.enterprise
+                    ? `, enterprise@${instance.sources.enterprise.revision}`
+                    : ''}
+                  {instance.sources.addons.map(
+                    a => `, ${a.name}@${a.revision}`,
+                  )}
                 </Typography>
                 <Typography variant="body2" color="textSecondary">
                   Domain: {instance.domain}
@@ -139,7 +159,7 @@ export const OdooInstancesPanel = (props: OdooInstancesPanelProps) => {
                   Storage: {instance.resources.storage} GB
                 </Typography>
                 <Typography variant="body2">
-                  Workers: {instance.workers}
+                  Workers: {instance.config.workers}
                 </Typography>
               </Grid>
               <Grid item xs={12} md={3}>
