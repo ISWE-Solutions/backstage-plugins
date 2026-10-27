@@ -57,7 +57,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import quote, urlencode
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 _log = logging.getLogger("runbot-builder")
 
 SLUG = re.compile(r"^[A-Za-z0-9-]{1,39}/(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$")
