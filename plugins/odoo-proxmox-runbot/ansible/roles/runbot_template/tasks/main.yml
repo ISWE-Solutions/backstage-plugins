@@ -20,9 +20,20 @@
     name: odoo
     tasks_from: wkhtmltopdf
 
-- name: Google Chrome (Odoo's tour tests)
-  ansible.builtin.apt:
-    deb: https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+# apt-get, not the apt module: on Ubuntu 24.04 Chrome's libasound2 dependency is
+# satisfied by libasound2t64, which only apt-get's resolver accepts
+- name: Download Google Chrome (Odoo's tour tests)
+  ansible.builtin.get_url:
+    url: https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+    dest: /tmp/google-chrome.deb
+    mode: '0644'
+
+- name: Install Google Chrome # noqa: command-instead-of-module (see above)
+  ansible.builtin.command:
+    cmd: apt-get install -y -q /tmp/google-chrome.deb
+    creates: /usr/bin/google-chrome
+  environment:
+    DEBIAN_FRONTEND: noninteractive
 
 - name: Build user
   ansible.builtin.user:
