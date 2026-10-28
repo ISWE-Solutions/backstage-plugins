@@ -73,9 +73,10 @@
   ansible.builtin.apt:
     clean: true
 
-- name: Clear temporary files and logs before templating
+# Not /tmp/*: Ansible runs its modules from there
+- name: Clear the download, apt lists and logs before templating
   ansible.builtin.shell:
-    cmd: rm -rf /var/lib/apt/lists/* /tmp/* && (journalctl --vacuum-time=1s >/dev/null 2>&1 || true)
+    cmd: rm -rf /tmp/google-chrome.deb /var/lib/apt/lists/* && (journalctl --vacuum-time=1s >/dev/null 2>&1 || true)
   changed_when: true
 
 # Last: this removes every other key, including the one Ansible logs in with
