@@ -58,12 +58,6 @@
     virtualenv: /opt/venv
     virtualenv_command: python3 -m venv
 
-- name: Root trusts only the builder
-  ansible.posix.authorized_key:
-    user: root
-    key: '{{ runbot_template_ssh_key }}'
-    exclusive: true
-
 - name: Clear the apt cache before templating
   ansible.builtin.apt:
     clean: true
@@ -72,3 +66,10 @@
   ansible.builtin.shell:
     cmd: rm -rf /var/lib/apt/lists/* /tmp/* && (journalctl --vacuum-time=1s >/dev/null 2>&1 || true)
   changed_when: true
+
+# Last: this removes every other key, including the one Ansible logs in with
+- name: Root trusts only the builder
+  ansible.posix.authorized_key:
+    user: root
+    key: '{{ runbot_template_ssh_key }}'
+    exclusive: true
