@@ -2,15 +2,15 @@
 
 A Backstage frontend plugin with one **Monitoring** page and four tabs:
 
-| Tab                     | Shows                                                                                                                                      |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Prometheus / Health** | **Live:** catalog Components with their site check, 24-hour uptime, response time, certificate expiry, and CPU and memory, from Prometheus |
-| **Grafana Dashboards**  | A catalogue of Grafana dashboards with links to open them                                                                                  |
-| **Security Insights**   | Security alerts by severity, with the affected service and repository                                                                      |
-| **Cost Insights**       | Infrastructure cost by category and service, with the month's trend                                                                        |
+| Tab                     | Shows                                                                                                                                                                           |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Prometheus / Health** | **Live:** catalog Components with their site check, 24-hour uptime, response time, certificate expiry, and CPU and memory, from Prometheus                                      |
+| **Grafana Dashboards**  | A catalogue of Grafana dashboards with links to open them                                                                                                                       |
+| **Security Insights**   | Security alerts by severity, with the affected service and repository                                                                                                           |
+| **Cost Insights**       | **Live:** what each Proxmox container and VM costs (CPU, memory, storage, network, backups), by guest, node, environment, catalog Component and System, with right-sizing hints |
 
-> **System Health is live; the other tabs are sample data.** Grafana
-> Dashboards, Security Insights and Cost Insights still come from
+> **System Health and Cost Insights are live; the other two tabs are sample
+> data.** Grafana Dashboards and Security Insights still come from
 > `src/services/monitoringService.ts`, which returns fixed sample values
 > (`https://grafana.example.org` links, `example-org/…` repositories).
 
@@ -64,6 +64,59 @@ set the path under the proxy (without `/api/v1/query`):
 monitoring:
   prometheusProxyPath: /prometheus
 ```
+
+## Live Cost Insights
+
+Every Proxmox guest (running, stopped, or deleted during the period) is
+charged for what it took from five pools, over 24 hours, 7 days, 30 days or the
+month to date:
+
+| Pool    | Charged on                                                                                                     | Metric                                                          |
+| ------- | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| CPU     | core-hours used (allotted cores are overcommitted, so they're no fair measure; `cpuBasis` changes it)          | `pve_guest_cpu_used_cores`, `pve_guest_cpu_cores`               |
+| Memory  | GiB-hours while running: containers half on use, half on the limit; VMs their full RAM (committed on the host) | `pve_guest_memory_used_bytes`, `pve_guest_memory_max_bytes`     |
+| Storage | GiB allotted, all period, running or stopped                                                                   | `pve_guest_disk_max_bytes`                                      |
+| Network | GiB received and sent                                                                                          | `pve_guest_net_in_bytes_total`, `pve_guest_net_out_bytes_total` |
+| Backups | the backup server's real use, shared out by the size of each guest's newest backup                             | `pve_guest_backup_bytes`, `pve_pbs_used_bytes`                  |
+
+Capacity comes from `pve_node_cpu_cores`, `pve_node_memory_total_bytes`,
+`pve_storage_size_bytes{storage="local-lvm"}` and `pve_pbs_total_bytes`. The
+metrics are made by ISWE's `pve-guest-usage.py` and `pve-metrics.py` (every
+minute and every 5 minutes, through OpenTelemetry to Prometheus).
+
+Prices come from either of two settings; without both, the tab shows **example
+rates** and says so:
+
+```yaml
+monitoring:
+  costs:
+    currency: ZMW
+    # Cost recovery: what the infrastructure costs per month, split across the pools.
+    # Rates = pool's share / max(capacity, demand), so an overcommitted pool recovers exactly
+    # its share; what guests don't take up is shown as unused capacity. Network is shared out
+    # by traffic.
+    monthlyInfrastructureCost: 50000
+    split:
+      { cpu: 0.35, memory: 0.35, storage: 0.15, network: 0.1, backup: 0.05 }
+    # A price list instead (each rate overrides the derived one):
+    # rates: { cpuCoreMonth: 300, memoryGbMonth: 80, storageGbMonth: 2, networkGb: 1, backupGbMonth: 0.5, guestMonth: 0 }
+    # cpuBasis: used | allocated | blend   (cpuAllocatedWeight: 0.25)
+    # memoryBasis: blend                   (memoryAllocatedWeight: 0.5)
+    # vmMemoryBasis: allocated
+    # networkDirection: both | out
+    # Shared services, which a switch spreads over the other guests:
+    # sharedEnvironments: [shared]
+    # sharedNamePattern: '^(shared-|proxy$|pg0[0-9]$)'
+```
+
+The tab shows the period's cost and its monthly projection, unused capacity,
+shared services, cost by resource, environment and node, a table per guest
+(CSV export), cost per catalog **System** and **Component** (from the
+`iswesolutions.com/proxmox-guests` annotation; a guest named by several
+components is split evenly), and right-sizing hints with their monthly saving:
+stopped guests holding disk, memory limits far above use, idle CPU allotments.
+"How costs are calculated" lists every rate, where it came from, and capacity
+against demand.
 
 ## Installation
 

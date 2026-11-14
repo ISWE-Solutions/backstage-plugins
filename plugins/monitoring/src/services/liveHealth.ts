@@ -5,60 +5,18 @@ import {
 } from '@backstage/plugin-catalog-react';
 import { Entity, stringifyEntityRef } from '@backstage/catalog-model';
 import { ServiceHealth } from '../types';
+import { byLabel, prometheusBase, promQuery } from './prometheus';
 
 /** URL the site checks probe for this component, e.g. `https://sso.example.org/`. */
 export const HEALTH_URL_ANNOTATION = 'iswesolutions.com/health-url';
 /** Comma-separated Proxmox guest names the component runs in (for CPU and memory). */
 export const GUESTS_ANNOTATION = 'iswesolutions.com/proxmox-guests';
 
-/**
- * Prometheus HTTP API reached through the Backstage proxy. The default goes through
- * Grafana's datasource proxy, so the proxy route for the Grafana plugin is enough:
- *   proxy.endpoints['/grafana/api'] -> Grafana, with a Viewer token.
- * Override with `monitoring.prometheusProxyPath` (relative to the proxy base URL).
- */
-const DEFAULT_PROMETHEUS_PROXY_PATH =
-  '/grafana/api/api/datasources/proxy/uid/prometheus';
-
 // Thresholds for "degraded"
 const SLOW_MS = 3000;
 const CERT_DAYS = 14;
 const HOT_PERCENT = 90;
 const UPTIME_PERCENT = 99;
-
-type Sample = { metric: Record<string, string>; value: [number, string] };
-
-async function promQuery(
-  fetchApi: FetchApi,
-  base: string,
-  query: string,
-): Promise<Sample[]> {
-  const res = await fetchApi.fetch(
-    `${base}/api/v1/query?query=${encodeURIComponent(query)}`,
-  );
-  if (!res.ok) {
-    throw new Error(
-      `Prometheus query failed: HTTP ${res.status} ${res.statusText}`,
-    );
-  }
-  const body = await res.json();
-  if (body.status !== 'success') {
-    throw new Error(
-      `Prometheus query failed: ${body.error ?? 'unknown error'}`,
-    );
-  }
-  return body.data.result as Sample[];
-}
-
-function byLabel(samples: Sample[], label: string): Map<string, number> {
-  const m = new Map<string, number>();
-  for (const s of samples) {
-    const v = Number(s.value[1]);
-    if (s.metric[label] !== undefined && Number.isFinite(v))
-      m.set(s.metric[label], v);
-  }
-  return m;
-}
 
 const hostOf = (url: string) => {
   try {
@@ -102,10 +60,7 @@ export async function loadLiveServiceHealth(apis: {
   });
   if (items.length === 0) return [];
 
-  const base =
-    (await discoveryApi.getBaseUrl('proxy')) +
-    (configApi.getOptionalString('monitoring.prometheusProxyPath') ??
-      DEFAULT_PROMETHEUS_PROXY_PATH);
+  const base = await prometheusBase(discoveryApi, configApi);
   const ok = 'http_status_class=~"2xx|3xx"';
   // 1 if any probe got a 2xx/3xx; 0 (not missing) for a URL that only has
   // error-class series, so it shows as down rather than "no data"
