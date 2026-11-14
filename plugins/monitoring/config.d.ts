@@ -8,6 +8,23 @@ export interface Config {
      */
     prometheusProxyPath?: string;
     /**
+     * Grafana's HTTP API under the Backstage proxy, for the Grafana Dashboards tab.
+     * Defaults to `/grafana/api`.
+     * @visibility frontend
+     */
+    grafanaProxyPath?: string;
+    /**
+     * Grafana's address for links, e.g. https://grafana.example.org. Defaults to the
+     * default host of the community Grafana plugin's config (`grafana.hosts`), or `grafana.domain`.
+     * @visibility frontend
+     */
+    grafanaUrl?: string;
+    /**
+     * Folders to show first on the Grafana Dashboards tab, in this order; the rest follow alphabetically.
+     * @visibility frontend
+     */
+    grafanaFolderOrder?: string[];
+    /**
      * Cost Insights: what Proxmox guests cost. Without any of it, example rates are shown.
      * @visibility frontend
      */

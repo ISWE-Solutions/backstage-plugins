@@ -5,14 +5,12 @@ A Backstage frontend plugin with one **Monitoring** page and four tabs:
 | Tab                     | Shows                                                                                                                                                                           |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Prometheus / Health** | **Live:** catalog Components with their site check, 24-hour uptime, response time, certificate expiry, and CPU and memory, from Prometheus                                      |
-| **Grafana Dashboards**  | A catalogue of Grafana dashboards with links to open them                                                                                                                       |
+| **Grafana Dashboards**  | **Live:** every dashboard in Grafana, by folder, with search; each opens in Grafana                                                                                             |
 | **Security Insights**   | Security alerts by severity, with the affected service and repository                                                                                                           |
 | **Cost Insights**       | **Live:** what each Proxmox container and VM costs (CPU, memory, storage, network, backups), by guest, node, environment, catalog Component and System, with right-sizing hints |
 
-> **System Health and Cost Insights are live; the other two tabs are sample
-> data.** Grafana Dashboards and Security Insights still come from
-> `src/services/monitoringService.ts`, which returns fixed sample values
-> (`https://grafana.example.org` links, `example-org/…` repositories).
+> **Security Insights is sample data**, from `src/services/monitoringService.ts`
+> (`example-org/…` repositories). The other three tabs are live.
 
 ## Live System Health
 
@@ -63,6 +61,21 @@ set the path under the proxy (without `/api/v1/query`):
 ```yaml
 monitoring:
   prometheusProxyPath: /prometheus
+```
+
+## Live Grafana Dashboards
+
+The tab lists every dashboard Grafana's search API returns for the proxy's token
+(`GET /api/search?type=dash-db`, through the same `/grafana/api` proxy route as
+System Health), grouped by folder, with a search box. Links go to Grafana at
+`monitoring.grafanaUrl`, or the community Grafana plugin's default host
+(`grafana.hosts` / `grafana.defaultHost`, or `grafana.domain`):
+
+```yaml
+monitoring:
+  grafanaUrl: https://grafana.example.org # optional
+  grafanaFolderOrder: [VSDC, Network traffic, Platform] # folders shown first
+  grafanaProxyPath: /grafana/api # optional
 ```
 
 ## Live Cost Insights
