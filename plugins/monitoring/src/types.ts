@@ -59,6 +59,17 @@ export interface SecurityAlert {
   createdAt: string;
   repository: string;
   status: 'open' | 'dismissed' | 'fixed';
+  /** where the alert comes from (live alerts, services/githubSecurity.ts) */
+  source?: 'dependabot' | 'code-scanning';
+  /** package ecosystem (npm, pip, maven ...) or, for code scanning, the tool (CodeQL ...) */
+  ecosystem?: string;
+  /** manifest path (Dependabot) or file (code scanning) */
+  location?: string;
+  repositoryUrl?: string;
+  /** the repository is a fork (of an upstream project) */
+  fork?: boolean;
+  /** the alert on GitHub */
+  url?: string;
 }
 
 export interface CostData {

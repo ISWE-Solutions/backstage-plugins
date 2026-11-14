@@ -6,11 +6,10 @@ A Backstage frontend plugin with one **Monitoring** page and four tabs:
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Prometheus / Health** | **Live:** catalog Components with their site check, 24-hour uptime, response time, certificate expiry, and CPU and memory, from Prometheus                                      |
 | **Grafana Dashboards**  | **Live:** every dashboard in Grafana, by folder, with search; each opens in Grafana                                                                                             |
-| **Security Insights**   | Security alerts by severity, with the affected service and repository                                                                                                           |
+| **Security Insights**   | **Live:** the GitHub organization's open Dependabot and code-scanning alerts, by severity, repository and ecosystem; forks left out by default                                  |
 | **Cost Insights**       | **Live:** what each Proxmox container and VM costs (CPU, memory, storage, network, backups), by guest, node, environment, catalog Component and System, with right-sizing hints |
 
-> **Security Insights is sample data**, from `src/services/monitoringService.ts`
-> (`example-org/…` repositories). The other three tabs are live.
+All four tabs are live.
 
 ## Live System Health
 
@@ -77,6 +76,44 @@ monitoring:
   grafanaFolderOrder: [VSDC, Network traffic, Platform] # folders shown first
   grafanaProxyPath: /grafana/api # optional
 ```
+
+## Live Security Insights
+
+The tab lists the organization's **open Dependabot and code-scanning alerts**
+from GitHub's org-wide APIs, page by page (cached for 15 minutes in the browser
+session; a Refresh button reloads): severity counts (click to filter), alerts
+by repository and by ecosystem or tool, and a table linking each alert to
+GitHub. Repositories that are forks of upstream projects are left out by
+default, with a switch to include them.
+
+It needs two proxy routes, each pointing at exactly one alert list, so the
+browser can't use the token for anything else:
+
+```yaml
+proxy:
+  endpoints:
+    /github-security/dependabot:
+      target: https://api.github.com/orgs/<org>/dependabot/alerts
+      changeOrigin: true
+      allowedMethods: [GET]
+      headers:
+        Authorization: Bearer ${GITHUB_TOKEN}
+        Accept: application/vnd.github+json
+    /github-security/code-scanning:
+      target: https://api.github.com/orgs/<org>/code-scanning/alerts
+      changeOrigin: true
+      allowedMethods: [GET]
+      headers:
+        Authorization: Bearer ${GITHUB_TOKEN}
+        Accept: application/vnd.github+json
+```
+
+The token must be able to read security alerts: a classic token of an
+organization owner (or security manager) with the `security_events` scope, or a
+fine-grained token with "Dependabot alerts" and "Code scanning alerts" (read).
+When GitHub refuses, the tab says why. Secret-scanning alerts are left out on
+purpose: GitHub's API returns the secret itself.
+`monitoring.githubSecurityProxyPath` changes the `/github-security` prefix.
 
 ## Live Cost Insights
 

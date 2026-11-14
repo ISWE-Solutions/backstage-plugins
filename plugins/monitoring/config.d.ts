@@ -25,6 +25,12 @@ export interface Config {
      */
     grafanaFolderOrder?: string[];
     /**
+     * Prefix of the two proxy routes to the GitHub organization's alert lists, for Security
+     * Insights: `<prefix>/dependabot` and `<prefix>/code-scanning`. Defaults to `/github-security`.
+     * @visibility frontend
+     */
+    githubSecurityProxyPath?: string;
+    /**
      * Cost Insights: what Proxmox guests cost. Without any of it, example rates are shown.
      * @visibility frontend
      */
