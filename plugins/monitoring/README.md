@@ -1,6 +1,6 @@
 # Monitoring plugin
 
-A Backstage frontend plugin with one **Monitoring** page and four tabs:
+A Backstage frontend plugin with one **Monitoring** page and five tabs:
 
 | Tab                     | Shows                                                                                                                                                                           |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -8,8 +8,9 @@ A Backstage frontend plugin with one **Monitoring** page and four tabs:
 | **Grafana Dashboards**  | **Live:** every dashboard in Grafana, by folder, with search; each opens in Grafana                                                                                             |
 | **Security Insights**   | **Live:** the GitHub organization's open Dependabot and code-scanning alerts, by severity, repository and ecosystem; forks left out by default                                  |
 | **Cost Insights**       | **Live:** what each Proxmox container and VM costs (CPU, memory, storage, network, backups), by guest, node, environment, catalog Component and System, with right-sizing hints |
+| **Settings**            | Shared settings (cost rates, electricity tariff, PUE ...) that override app-config; admins edit them                                                                            |
 
-All four tabs are live.
+All tabs are live. Settings needs `@iswesolutions/plugin-monitoring-backend`.
 
 ## Live System Health
 
@@ -168,10 +169,56 @@ stopped guests holding disk, memory limits far above use, idle CPU allotments.
 "How costs are calculated" lists every rate, where it came from, and capacity
 against demand.
 
+### Electricity
+
+Under the guests' costs, Cost Insights shows the nodes' electricity, **beside**
+the costs rather than added to them (a hosting fee may already include power):
+average and peak draw, an idle estimate (the period's 5th percentile), CPU and
+memory power, kWh, cost per month at a tariff, CO₂, each power supply's AC
+input (a supply without input is flagged) and inlet temperature, per node; and
+each guest's share, the energy above idle shared out by CPU used and the idle
+energy by memory used.
+
+It reads `node_power_watts`, `node_psu_input_volts`,
+`node_inlet_temperature_celsius` and `node_rapl_energy_joules` per `node`,
+which ISWE's `node-power.py` sends from each Proxmox node every minute (the
+BMC's sensors over IPMI, and Intel RAPL).
+
+```yaml
+monitoring:
+  costs:
+    electricity:
+      tariffPerKwh: 2.94 # in costs.currency; without it only energy is shown
+      pue: 1.5 # facility / IT energy (cooling); default 1
+      co2KgPerKwh: 0.1 # optional
+```
+
+## Settings
+
+The **Settings** tab edits the cost and electricity settings for everyone:
+currency, tariff per kWh, PUE, CO₂ factor, monthly infrastructure cost and its
+split, and the price list. A saved value overrides app-config; emptying a field
+goes back to app-config. Each field shows the app-config value and who saved it
+when.
+
+Settings are kept by **`@iswesolutions/plugin-monitoring-backend`** in
+Backstage's database. Everyone signed in can read them; changing them needs the
+`monitoring.settings.update` permission (with the RBAC plugin, add `monitoring`
+to `permission.rbac.pluginsWithPermission` and grant it to a role). Without the
+backend, the tab says so and every tab uses app-config.
+
 ## Installation
 
 ```sh
 yarn --cwd packages/app add @iswesolutions/plugin-monitoring
+# for the Settings tab
+yarn --cwd packages/backend add @iswesolutions/plugin-monitoring-backend
+```
+
+and in `packages/backend/src/index.ts`:
+
+```ts
+backend.add(import('@iswesolutions/plugin-monitoring-backend'));
 ```
 
 Add a route in `packages/app/src/App.tsx`:

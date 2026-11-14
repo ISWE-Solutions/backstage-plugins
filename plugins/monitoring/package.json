@@ -1,6 +1,6 @@
 {
   "name": "@iswesolutions/plugin-monitoring",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Backstage frontend plugin with a monitoring overview, all live: service health from the catalog and Prometheus, cost of Proxmox guests, Grafana's dashboards by folder, and GitHub security alerts (Dependabot and code scanning)",
   "main": "src/index.ts",
   "types": "src/index.ts",
@@ -14,7 +14,8 @@
     "role": "frontend-plugin",
     "pluginId": "monitoring",
     "pluginPackages": [
-      "@iswesolutions/plugin-monitoring"
+      "@iswesolutions/plugin-monitoring",
+      "@iswesolutions/plugin-monitoring-backend"
     ]
   },
   "sideEffects": false,
@@ -29,6 +30,7 @@
   },
   "dependencies": {
     "@backstage/catalog-model": "^1.7.0",
+    "@backstage/config": "^1.3.10",
     "@backstage/core-components": "^0.18.10",
     "@backstage/core-plugin-api": "^1.12.6",
     "@backstage/plugin-catalog-react": "^3.0.0",
@@ -45,7 +47,6 @@
   },
   "devDependencies": {
     "@backstage/cli": "^0.36.2",
-    "@backstage/config": "^1.3.10",
     "@backstage/test-utils": "^1.7.18",
     "@testing-library/jest-dom": "^6.0.0",
     "@testing-library/react": "^14.0.0",

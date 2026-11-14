@@ -57,6 +57,8 @@ import {
   RESOURCES,
   rightSizing,
 } from '../../services/costModel';
+import { ElectricityPanel } from './ElectricityPanel';
+import { useMonitoringSettings } from '../../services/settings';
 
 const COLORS: Record<Resource, string> = {
   cpu: '#3f51b5',
@@ -180,7 +182,9 @@ export const CostInsightsView = () => {
   const fetchApi = useApi(fetchApiRef);
   const configApi = useApi(configApiRef);
   const catalogApi = useApi(catalogApiRef);
-  const config = useMemo(() => readCostConfig(configApi), [configApi]);
+  // app-config with the shared settings (Settings tab) on top
+  const effective = useMonitoringSettings()?.config ?? configApi;
+  const config = useMemo(() => readCostConfig(effective), [effective]);
   const [period, setPeriod] = useState<Period>('30d');
   const [spreadShared, setSpreadShared] = useState(false);
   const [inputs, setInputs] = useState<CostInputs | undefined>();
@@ -568,6 +572,8 @@ export const CostInsightsView = () => {
           </Grid>
         ))}
       </Grid>
+
+      <ElectricityPanel period={period} guests={result.guests} money={fmt} />
 
       <Box mb={3}>
         <Table<GuestCost>

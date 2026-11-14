@@ -116,6 +116,27 @@ export interface Config {
        * @visibility frontend
        */
       sharedNamePattern?: string;
+      /**
+       * Electricity of the nodes (BMC power readings), shown beside the guests' costs, not added to them.
+       * @visibility frontend
+       */
+      electricity?: {
+        /**
+         * Price of a kWh in the cost currency. Without it only energy is shown.
+         * @visibility frontend
+         */
+        tariffPerKwh?: number;
+        /**
+         * Power usage effectiveness of the room (facility energy / IT energy), e.g. 1.5. Default 1.
+         * @visibility frontend
+         */
+        pue?: number;
+        /**
+         * Grid emission factor, kg CO2 per kWh.
+         * @visibility frontend
+         */
+        co2KgPerKwh?: number;
+      };
     };
   };
 }

@@ -1,10 +1,23 @@
-import React, { useState } from 'react';
-import { Box, Tabs, Tab, Paper } from '@material-ui/core';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
+import { Box, LinearProgress, Paper, Tab, Tabs } from '@material-ui/core';
 import { makeStyles } from '@material-ui/core/styles';
+import {
+  configApiRef,
+  discoveryApiRef,
+  fetchApiRef,
+  useApi,
+} from '@backstage/core-plugin-api';
 import { PrometheusView } from '../PrometheusView/PrometheusView';
 import { GrafanaView } from '../GrafanaView/GrafanaView';
 import { SecurityView } from '../SecurityView/SecurityView';
 import { CostInsightsView } from '../CostInsightsView/CostInsightsView';
+import { SettingsView } from '../SettingsView/SettingsView';
+import {
+  effectiveConfig,
+  loadSettings,
+  SettingsContext,
+  SettingsState,
+} from '../../services/settings';
 
 const useStyles = makeStyles(theme => ({
   root: {
@@ -15,67 +28,90 @@ const useStyles = makeStyles(theme => ({
   },
 }));
 
-interface TabPanelProps {
-  children?: React.ReactNode;
+const TabPanel = (props: {
+  children?: ReactNode;
   index: number;
   value: number;
-}
-
-const TabPanel = (props: TabPanelProps) => {
-  const { children, value, index, ...other } = props;
-
+}) => {
+  const { children, value, index } = props;
   return (
     <div
       role="tabpanel"
       hidden={value !== index}
       id={`monitoring-tabpanel-${index}`}
       aria-labelledby={`monitoring-tab-${index}`}
-      {...other}
     >
       {value === index && <Box>{children}</Box>}
     </div>
   );
 };
 
+const TABS: { label: string; view: () => JSX.Element | null }[] = [
+  { label: 'Prometheus / Health', view: PrometheusView },
+  { label: 'Grafana Dashboards', view: GrafanaView },
+  { label: 'Security Insights', view: SecurityView },
+  { label: 'Cost Insights', view: CostInsightsView },
+  { label: 'Settings', view: SettingsView },
+];
+
 export const MonitoringPage = () => {
   const classes = useStyles();
+  const discoveryApi = useApi(discoveryApiRef);
+  const fetchApi = useApi(fetchApiRef);
+  const configApi = useApi(configApiRef);
   const [activeTab, setActiveTab] = useState(0);
+  const [state, setState] = useState<SettingsState>();
 
-  const handleTabChange = (_event: React.ChangeEvent<{}>, newValue: number) => {
-    setActiveTab(newValue);
-  };
+  // the shared settings (Settings tab), loaded once for every tab
+  useEffect(() => {
+    let cancelled = false;
+    loadSettings({ discoveryApi, fetchApi }).then(
+      s => !cancelled && setState(s),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [discoveryApi, fetchApi]);
+
+  const value = useMemo(
+    () =>
+      state
+        ? {
+            state,
+            config: effectiveConfig(configApi, state.settings),
+            setState,
+          }
+        : undefined,
+    [state, configApi],
+  );
 
   return (
     <Box className={classes.root}>
       <Paper className={classes.tabsContainer}>
         <Tabs
           value={activeTab}
-          onChange={handleTabChange}
+          onChange={(_e, v) => setActiveTab(v)}
           indicatorColor="primary"
           textColor="primary"
+          variant="scrollable"
+          scrollButtons="auto"
         >
-          <Tab label="Prometheus / Health" />
-          <Tab label="Grafana Dashboards" />
-          <Tab label="Security Insights" />
-          <Tab label="Cost Insights" />
+          {TABS.map(t => (
+            <Tab key={t.label} label={t.label} />
+          ))}
         </Tabs>
       </Paper>
-
-      <TabPanel value={activeTab} index={0}>
-        <PrometheusView />
-      </TabPanel>
-
-      <TabPanel value={activeTab} index={1}>
-        <GrafanaView />
-      </TabPanel>
-
-      <TabPanel value={activeTab} index={2}>
-        <SecurityView />
-      </TabPanel>
-
-      <TabPanel value={activeTab} index={3}>
-        <CostInsightsView />
-      </TabPanel>
+      {value ? (
+        <SettingsContext.Provider value={value}>
+          {TABS.map((t, i) => (
+            <TabPanel key={t.label} value={activeTab} index={i}>
+              <t.view />
+            </TabPanel>
+          ))}
+        </SettingsContext.Provider>
+      ) : (
+        <LinearProgress />
+      )}
     </Box>
   );
 };
